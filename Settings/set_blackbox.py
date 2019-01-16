@@ -1,6 +1,6 @@
 import os
 
-__version__ = '0.7'
+__version__ = '0.7.1'
 
 #===============================================================================
 # Number of processes and threads
@@ -15,7 +15,7 @@ nthread = 2
 # Directory structure and files to keep
 #===============================================================================
 
-# directory name where [bb] is run and the default subdirectories
+# directory name where [blackbox] is run and the default subdirectories
 run_dir = '/media/data/pmv/Test_BGreduce_subpipe_zogy'
 raw_dir = '{}/raw'.format(run_dir)
 red_dir = '{}/red'.format(run_dir)
@@ -52,7 +52,7 @@ bad_pixel_mask = os.environ['ZOGYHOME']+'/CalFiles/bpm_u_0p05.fits'
 # values adopted for these LA Cosmic's parameters used in
 # astroscrappy; play with these values and see what works best; Kerry
 # had sigclip=6 and objlim=10
-sigclip = 4.5
+sigclip = 6.0
 sigfrac = 0.3
 objlim = 10.0
 niter = 3
@@ -64,7 +64,7 @@ sat_bin = 2
 # CCD settings and definition of channel/data/overscan/normalisation sections
 #===============================================================================
 
-# check if different channels in [set_bb.gain] correspond to the
+# check if different channels in [set_blackbox.gain] correspond to the
 # correct channels; currently indices of gain correspond to the
 # channels as follows:
 #

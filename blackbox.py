@@ -1,8 +1,8 @@
 
 import os
-from Settings import set_bb, set_zogy
+from Settings import set_blackbox, set_zogy
 # this needs to be done before numpy is imported in [zogy]
-os.environ['OMP_NUM_THREADS'] = str(set_bb.nthread)
+os.environ['OMP_NUM_THREADS'] = str(set_blackbox.nthread)
 
 from zogy import *
 
@@ -23,16 +23,16 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import ctypes
 
-__version__ = '0.7'
+__version__ = '0.7.1'
 
 #def init(l):
 #    global lock
 #    lock = l
     
-def run_bb (telescope=None, mode=None, date=None, read_path=None, slack=None):
+def run_blackbox (telescope=None, mode=None, date=None, read_path=None, slack=None):
 
     if set_zogy.timing:
-        t_run_bb = time.time()
+        t_run_blackbox = time.time()
 
     # initialize logging
     ####################
@@ -44,7 +44,7 @@ def run_bb (telescope=None, mode=None, date=None, read_path=None, slack=None):
     genlog.setLevel(logging.INFO) #set level of logger
     formatter = logging.Formatter("%(asctime)s %(process)d %(levelname)s %(message)s") #set format of logger
     logging.Formatter.converter = time.gmtime #convert time in logger to UCT
-    genlogfile = '{}/{}_{}.log'.format(set_bb.log_dir, telescope,
+    genlogfile = '{}/{}_{}.log'.format(set_blackbox.log_dir, telescope,
                                        dt.datetime.now().strftime('%Y%m%d_%H%m%S'))
     filehandler = logging.FileHandler(genlogfile, 'w+') #create log file
     filehandler.setFormatter(formatter) #add format to log file
@@ -58,8 +58,8 @@ def run_bb (telescope=None, mode=None, date=None, read_path=None, slack=None):
 
     q.put(logger.info('processing in {} mode'.format(mode)))
     q.put(logger.info('log file: {}'.format(genlogfile)))
-    q.put(logger.info('number of processes: {}'.format(set_bb.nproc)))
-    q.put(logger.info('number of threads: {}'.format(set_bb.nthread)))
+    q.put(logger.info('number of processes: {}'.format(set_blackbox.nproc)))
+    q.put(logger.info('number of threads: {}'.format(set_blackbox.nthread)))
 
     # [read_path] is assumed to be the full path to the raw image
     # directory; if not provided as input parameter, it is defined
@@ -74,7 +74,7 @@ def run_bb (telescope=None, mode=None, date=None, read_path=None, slack=None):
                              .format(read_path))
             raise (SystemExit)
         
-    # create global lock instance that can be used in [bb_reduce] for
+    # create global lock instance that can be used in [blackbox_reduce] for
     # certain blocks/functions to be accessed by one process at a time
     global lock
     lock = Lock()
@@ -89,10 +89,10 @@ def run_bb (telescope=None, mode=None, date=None, read_path=None, slack=None):
     if mode == 'day':
 
         # if in day mode, feed all bias, flat and science images (in
-        # this order) to [bb_reduce] using multiprocessing
+        # this order) to [blackbox_reduce] using multiprocessing
         filenames = sort_files(read_path, '*fits*')
 
-        if set_bb.nproc==1 :
+        if set_blackbox.nproc==1 :
 
             # if only 1 process is requested, run it witout
             # multiprocessing; this will allow images to be shown on
@@ -101,13 +101,13 @@ def run_bb (telescope=None, mode=None, date=None, read_path=None, slack=None):
             # macbook).            
             print ('running with single processor') #DP: added brackets
             for filename in filenames:
-                result = bb_reduce(filename, telescope, mode, read_path)
+                result = blackbox_reduce(filename, telescope, mode, read_path)
 
         else:
                 
             try:
-                pool = Pool(set_bb.nproc)
-                results = [pool.apply_async(bb_reduce, (filename, telescope,
+                pool = Pool(set_blackbox.nproc)
+                results = [pool.apply_async(blackbox_reduce, (filename, telescope,
                                                          mode, read_path))
                            for filename in filenames]
                 output = [p.get() for p in results]
@@ -121,13 +121,13 @@ def run_bb (telescope=None, mode=None, date=None, read_path=None, slack=None):
 
     elif mode == 'night':
         # if in night mode, check if anythin changes in input directory
-        # and if there is a new file, feed it to [bb_reduce]
+        # and if there is a new file, feed it to [blackbox_reduce]
 
         # create queue for submitting jobs
         queue = Queue()
         # create pool with given number of processes and queue feeding
         # into action function
-        pool = Pool(set_bb.nproc, action, (queue,))
+        pool = Pool(set_blackbox.nproc, action, (queue,))
 
         # create and setup observer, but do not start just yet
         observer = Observer()
@@ -166,12 +166,12 @@ def run_bb (telescope=None, mode=None, date=None, read_path=None, slack=None):
 
         
     if set_zogy.timing:
-        log_timing_memory (t0=t_run_bb, label='run_bb', log=genlog)
+        log_timing_memory (t0=t_run_blackbox, label='run_blackbox', log=genlog)
 
 
 ################################################################################
     
-def bb_reduce (filename, telescope, mode, read_path):
+def blackbox_reduce (filename, telescope, mode, read_path):
 
     """Function that takes as input a single raw fits image and works to
        work through entire chain of reduction steps, from correcting
@@ -180,7 +180,7 @@ def bb_reduce (filename, telescope, mode, read_path):
     """
 
     if set_zogy.timing:
-        t_bb_reduce = time.time()
+        t_blackbox_reduce = time.time()
 
     # for night mode, the image needs to be moved out of the directory
     # that is being monitored immediately, for one thing because it
@@ -264,7 +264,7 @@ def bb_reduce (filename, telescope, mode, read_path):
         fits_out_mask = fits_out.replace('_red.fits', '_mask.fits')
 
         # and reference image
-        ref_path = '{}/{}'.format(set_bb.ref_dir, obj)
+        ref_path = '{}/{}'.format(set_blackbox.ref_dir, obj)
         make_dir (ref_path)
         ref_fits_out = '{}/{}_{}_red.fits'.format(ref_path, telescope, filt)
         ref_fits_out_mask = ref_fits_out.replace('_red.fits', '_mask.fits')
@@ -288,9 +288,9 @@ def bb_reduce (filename, telescope, mode, read_path):
     if imgtype == 'object':
         # prepare directory to store temporary files related to this
         # OBJECT image.  This is set to the tmp directory defined by
-        # [set_bb.tmp_dir] with subdirectory the name of the reduced
+        # [set_blackbox.tmp_dir] with subdirectory the name of the reduced
         # image without the .fits extension.
-        tmp_path = '{}/{}'.format(set_bb.tmp_dir, fits_out.split('/')[-1]
+        tmp_path = '{}/{}'.format(set_blackbox.tmp_dir, fits_out.split('/')[-1]
                                   .replace('.fits',''))
         make_dir (tmp_path, empty=True)
 
@@ -355,7 +355,7 @@ def bb_reduce (filename, telescope, mode, read_path):
         try: 
             log.info('correcting for the crosstalk')
             xtalk_processed = False
-            data_old = xtalk_corr (data, set_bb.crosstalk_file)
+            data_old = xtalk_corr (data, set_blackbox.crosstalk_file)
         except Exception as e:
             q.put(logger.info(traceback.format_exc()))
             q.put(log.error('exception was raised during [xtalk_corr]: {}'.format(e)))
@@ -365,7 +365,7 @@ def bb_reduce (filename, telescope, mode, read_path):
             xtalk_processed = True
         # following line needs to be outside if/else statements
         header['XTALK-P'] = (xtalk_processed, 'corrected for crosstalk?')
-        header['XTALK-F'] = (set_bb.crosstalk_file.strip('/')[-1], 'name crosstalk coefficients file')
+        header['XTALK-F'] = (set_blackbox.crosstalk_file.strip('/')[-1], 'name crosstalk coefficients file')
 
         if set_zogy.display:
             ds9_arrays(Xtalk_cor=data)
@@ -398,7 +398,7 @@ def bb_reduce (filename, telescope, mode, read_path):
         ds9_arrays(os_cor=data)
 
 
-    # if IMAGETYP=bias, write [data] to fits and leave [bb_reduce]
+    # if IMAGETYP=bias, write [data] to fits and leave [blackbox_reduce]
     if imgtype == 'bias':
         fits.writeto(fits_out, data.astype('float32'), header, overwrite=True)
         return
@@ -423,7 +423,7 @@ def bb_reduce (filename, telescope, mode, read_path):
     header['MBIAS-P'] = (mbias_processed, 'corrected for master bias?')
 
     
-    # if IMAGETYP=flat, write [data] to fits and leave [bb_reduce]
+    # if IMAGETYP=flat, write [data] to fits and leave [blackbox_reduce]
     if imgtype == 'flat':
         fits.writeto(fits_out, data.astype('float32'), header, overwrite=True)
         return
@@ -601,15 +601,15 @@ def bb_reduce (filename, telescope, mode, read_path):
                                          ref_fits_mask=new_fits_mask,
                                          set_file='Settings.set_zogy',
                                          log=log, verbose=None,
-                                         nthread=set_bb.nthread)
+                                         nthread=set_blackbox.nthread)
 
             if set_zogy.timing:
-                log_timing_memory (t0=t_bb_reduce, label='bb_reduce', log=log)
+                log_timing_memory (t0=t_blackbox_reduce, label='blackbox_reduce', log=log)
                 
             # copy selected output files to reference directory
             ref_base = ref_fits_out.split('_red.fits')[0]
             tmp_base = new_fits.split('_red.fits')[0]
-            result = copy_files2keep(tmp_base, ref_base, set_bb.ref_2keep)
+            result = copy_files2keep(tmp_base, ref_base, set_blackbox.ref_2keep)
 
             # now that reference is built, remove this reference ID
             # and filter combination from the [ref_ID_filt] queue
@@ -642,23 +642,23 @@ def bb_reduce (filename, telescope, mode, read_path):
                                          ref_fits_mask=ref_fits_mask,
                                          set_file='Settings.set_zogy',
                                          log=log, verbose=None,
-                                         nthread=set_bb.nthread)
+                                         nthread=set_blackbox.nthread)
 
             if set_zogy.timing:
-                log_timing_memory (t0=t_bb_reduce, label='bb_reduce', log=log)
+                log_timing_memory (t0=t_blackbox_reduce, label='blackbox_reduce', log=log)
 
             # copy selected output files to new directory
             new_base = fits_out.split('_red.fits')[0]
             tmp_base = new_fits.split('_red.fits')[0]
-            result = copy_files2keep(tmp_base, new_base, set_bb.new_2keep)
+            result = copy_files2keep(tmp_base, new_base, set_blackbox.new_2keep)
 
 
         lock.acquire()
         # change to [run_dir]
         if set_zogy.make_plots:
-            os.chdir(set_bb.run_dir)
-        # and delete [tmp_path] if [set_bb.keep_tmp] not True
-        if not set_bb.keep_tmp and os.path.isdir(tmp_path):
+            os.chdir(set_blackbox.run_dir)
+        # and delete [tmp_path] if [set_blackbox.keep_tmp] not True
+        if not set_blackbox.keep_tmp and os.path.isdir(tmp_path):
             shutil.rmtree(tmp_path)
         lock.release()
         
@@ -809,8 +809,8 @@ def sat_detect (data, header, data_mask, header_mask, tmp_path):
         t = time.time()
 
     #bin data
-    binned_data = data.reshape(np.shape(data)[0]/set_bb.sat_bin,set_bb.sat_bin,
-                               np.shape(data)[1]/set_bb.sat_bin,set_bb.sat_bin).sum(3).sum(1)
+    binned_data = data.reshape(np.shape(data)[0]/set_blackbox.sat_bin,set_blackbox.sat_bin,
+                               np.shape(data)[1]/set_blackbox.sat_bin,set_blackbox.sat_bin).sum(3).sum(1)
     satellite_fitting = False
 
     for j in range(3):
@@ -819,7 +819,7 @@ def sat_detect (data, header, data_mask, header_mask, tmp_path):
             tmp_path, tmp_path.split('/')[-1].replace('_red','_binned_satmask.fits')))
         fits.writeto(fits_binned_mask, binned_data, overwrite=True)
         #detect satellite trails
-        results, errors = detsat(fits_binned_mask, chips=[0], n_processes=set_bb.nthread,
+        results, errors = detsat(fits_binned_mask, chips=[0], n_processes=set_blackbox.nthread,
                                  buf=40, sigma=3, h_thresh=0.2)
         #create satellite trail if found
         trail_coords = results[(fits_binned_mask,0)] 
@@ -846,7 +846,7 @@ def sat_detect (data, header, data_mask, header_mask, tmp_path):
             break
     if satellite_fitting == True:
         #unbin mask
-        mask_sat = np.kron(mask_binned, np.ones((set_bb.sat_bin,set_bb.sat_bin))).astype(np.uint8)
+        mask_sat = np.kron(mask_binned, np.ones((set_blackbox.sat_bin,set_blackbox.sat_bin))).astype(np.uint8)
         # add pixels affected by cosmic rays to [data_mask]
         data_mask[mask_sat==1] += set_zogy.mask_value['satellite trail']
         # determining number of trails; 2 pixels are considered from the
@@ -873,10 +873,10 @@ def cosmics_corr (data, header, data_mask, header_mask):
     if set_zogy.timing:
         t = time.time()
 
-    satlevel_electrons = set_bb.satlevel*np.mean(set_bb.gain) 
+    satlevel_electrons = set_blackbox.satlevel*np.mean(set_blackbox.gain) 
     mask_cr, data = astroscrappy.detect_cosmics(
-        data, inmask=(data_mask!=0), sigclip=set_bb.sigclip,
-        sigfrac=set_bb.sigfrac, objlim=set_bb.objlim, niter=set_bb.niter,
+        data, inmask=(data_mask!=0), sigclip=set_blackbox.sigclip,
+        sigfrac=set_blackbox.sigfrac, objlim=set_blackbox.objlim, niter=set_blackbox.niter,
         readnoise=header['RDNOISE'], satlevel=satlevel_electrons,
         cleantype='medmask')
     
@@ -885,8 +885,8 @@ def cosmics_corr (data, header, data_mask, header_mask):
     # = None, satlevel = np.inf, sepmed=False, cleantype='medmask',
     # and fsmode='median'.
     #mask_cr, data = astroscrappy.detect_cosmics(
-    #    data, inmask=None, sigclip=set_bb.sigclip,
-    #    sigfrac=set_bb.sigfrac, objlim=set_bb.objlim, niter=set_bb.niter,
+    #    data, inmask=None, sigclip=set_blackbox.sigclip,
+    #    sigfrac=set_blackbox.sigfrac, objlim=set_blackbox.objlim, niter=set_blackbox.niter,
     #    readnoise=header['RDNOISE'], satlevel=np.inf)
     #
     #print 'np.sum(data_mask!=0)', np.sum(data_mask!=0)
@@ -921,7 +921,7 @@ def mask_init (data, header):
     if set_zogy.timing:
         t = time.time()
 
-    fits_bpm = unzip(set_bb.bad_pixel_mask)
+    fits_bpm = unzip(set_blackbox.bad_pixel_mask)
     if os.path.isfile(fits_bpm):
         # if it exists, read it
         data_mask = read_hdulist(fits_bpm, ext_data=0)
@@ -939,7 +939,7 @@ def mask_init (data, header):
     data_mask[(mask_infnan) & (data_mask==0)] += set_zogy.mask_value['bad']
     
     # identify saturated pixels
-    satlevel_electrons = set_bb.satlevel*np.mean(set_bb.gain) 
+    satlevel_electrons = set_blackbox.satlevel*np.mean(set_blackbox.gain) 
     mask_sat = (data >= satlevel_electrons)
     # add them to the mask of edge and bad pixels
     data_mask[mask_sat] += set_zogy.mask_value['saturated']
@@ -1036,8 +1036,8 @@ def mflat_corr(data, header, data_mask, flat_path, date_eve, filt):
             for i_flat, flat in enumerate(flat_list):
                 flat_temp, header_temp = read_hdulist(flat_list[i_flat],
                                                       ext_data=0, ext_header=0)
-                # divide by median over the region [set_bb.flat_norm_sec]
-                mean, std, median = clipped_stats(flat_temp[set_bb.flat_norm_sec])
+                # divide by median over the region [set_blackbox.flat_norm_sec]
+                mean, std, median = clipped_stats(flat_temp[set_blackbox.flat_norm_sec])
                 print ('flat name: {}, mean: {}, std: {}, median: {}'.format(flat, mean, std, median))
                 flat_cube[i_flat] = flat_temp / median
 
@@ -1062,7 +1062,7 @@ def mflat_corr(data, header, data_mask, flat_path, date_eve, filt):
             flat_median = np.median(flat_cube, axis=0)
 
             # add some header keywords to the master flat
-            sec_temp = set_bb.flat_norm_sec
+            sec_temp = set_blackbox.flat_norm_sec
             value_temp = '[{}:{},{}:{}]'.format(sec_temp[0].start+1, sec_temp[0].stop+1,
                                                 sec_temp[1].start+1, sec_temp[1].stop+1) 
             header_mflat['STATSEC'] = (value_temp, 'pre-defined statistics section [y1:y2,x1:x2]')
@@ -1173,7 +1173,7 @@ def mbias_corr(data, header, bias_path, date_eve):
 
             # including the means and standard deviations of the master
             # bias in the separate channels
-            data_sec_red = set_bb.data_sec_red
+            data_sec_red = set_blackbox.data_sec_red
             nchans = np.shape(data_sec_red)[0]
             mean_chan = np.zeros(nchans)
             std_chan = np.zeros(nchans)
@@ -1215,7 +1215,7 @@ def mbias_corr(data, header, bias_path, date_eve):
 
 def get_closest_biasflat (date_eve, file_type, filt=None):
 
-    search_str = '{}/*/*/*/{}/{}'.format(set_bb.red_dir, file_type,
+    search_str = '{}/*/*/*/{}/{}'.format(set_blackbox.red_dir, file_type,
                                          file_type+'_????????')
     if filt is None:
         search_str += '.fits*'
@@ -1276,7 +1276,7 @@ def os_corr(data, header):
     """Function that corrects [data] for the overscan signal in the
        vertical and horizontal overscan strips. The definitions of the
        different data/overscan/channel sections are taken from
-       [set_bb].  The function returns a data array that consists of
+       [set_blackbox].  The function returns a data array that consists of
        the data sections only, i.e. without the overscan regions. The
        [header] is update in plac.
 
@@ -1285,22 +1285,22 @@ def os_corr(data, header):
     if set_zogy.timing:
         t = time.time()
 
-    chan_sec = set_bb.chan_sec
-    data_sec = set_bb.data_sec
-    os_sec_hori = set_bb.os_sec_hori
-    os_sec_vert = set_bb.os_sec_vert
-    data_sec_red = set_bb.data_sec_red
+    chan_sec = set_blackbox.chan_sec
+    data_sec = set_blackbox.data_sec
+    os_sec_hori = set_blackbox.os_sec_hori
+    os_sec_vert = set_blackbox.os_sec_vert
+    data_sec_red = set_blackbox.data_sec_red
     
     # PMV 2018/08/01: this is a constant used inside the loop
     dcol = 11 # after testing, 21 seems a decent width to use
 
     # number of data columns and rows in the channel
-    ncols = set_bb.dx - set_bb.os_xsize
-    nrows = set_bb.dy - set_bb.os_ysize
+    ncols = set_blackbox.dx - set_blackbox.os_xsize
+    nrows = set_blackbox.dy - set_blackbox.os_ysize
 
     # initialize output data array (without overscan sections)
-    ysize_out = set_bb.ysize - set_bb.ny * set_bb.os_ysize
-    xsize_out = set_bb.xsize - set_bb.nx * set_bb.os_xsize
+    ysize_out = set_blackbox.ysize - set_blackbox.ny * set_blackbox.os_ysize
+    xsize_out = set_blackbox.xsize - set_blackbox.nx * set_blackbox.os_xsize
     data_out = np.zeros((ysize_out, xsize_out), dtype='float32')
 
     # and arrays to calculate average means and stds over all channels
@@ -1361,7 +1361,7 @@ def xtalk_corr (data, crosstalk_file):
     victim, source, correction = np.loadtxt(crosstalk_file,unpack=True)
     corrected = []
     #data = data[0]
-    height,width = set_bb.dy, set_bb.dx # = ccd_sec()
+    height,width = set_blackbox.dy, set_blackbox.dx # = ccd_sec()
     for k in range(len(victim)):
         if victim[k] < 9:
             j, i = 1, 0
@@ -1416,13 +1416,13 @@ def gain_corr(data, header):
     if set_zogy.timing:
         t = time.time()
 
-    """Returns [data] corrected for the [gain] defined in [set_bb.gain]
+    """Returns [data] corrected for the [gain] defined in [set_blackbox.gain]
        for the different channels
 
     """
 
-    gain = set_bb.gain
-    chan_sec = set_bb.chan_sec
+    gain = set_blackbox.gain
+    chan_sec = set_blackbox.chan_sec
     for i_chan in range(np.shape(chan_sec)[0]):
         data[chan_sec[i_chan]] *= gain[i_chan]
         header['GAIN{}'.format(i_chan+1)] = (gain[i_chan], 'gain applied to channel {}'.format(i_chan+1))
@@ -1432,7 +1432,7 @@ def gain_corr(data, header):
         
     return data
 
-    # check if different channels in [set_bb.gain] correspond to the
+    # check if different channels in [set_blackbox.gain] correspond to the
     # correct channels; currently indices of gain correspond to the
     # channels as follows:
     #
@@ -1507,9 +1507,9 @@ def get_path (telescope, date, dir_type):
     tel_dir = ''
         
     if dir_type == 'read':
-        root_dir = set_bb.raw_dir
+        root_dir = set_blackbox.raw_dir
     elif dir_type == 'write':
-        root_dir = set_bb.red_dir
+        root_dir = set_blackbox.red_dir
     else:
         log.error('[dir_type] not one of "read" or "write"')
         
@@ -1560,7 +1560,7 @@ def sort_files(read_path, file_name):
             header = read_hdulist(all_files[i], ext_header=1)
 
         imgtype = header['IMAGETYP'].lower() #get image type
-
+        
         if 'bias' in imgtype: #add bias files to bias list
             bias.append(all_files[i])
         if 'flat' in imgtype: #add flat files to flat list
@@ -1741,7 +1741,7 @@ def action(item_list):
             filename = event
             q.put(logger.info('Found old file '+filename))
             
-        bb_reduce (filename, telescope, mode, read_path)
+        blackbox_reduce (filename, telescope, mode, read_path)
 
 
 ################################################################################
@@ -1774,10 +1774,10 @@ if __name__ == "__main__":
     params.add_argument('--telescope', type=str, default='ML1', help='Telescope name')
     params.add_argument('--mode', type=str, default='day', help='Day or night mode of pipeline')
     params.add_argument('--date', type=str, default=None, help='Date to process (yyyymmdd, yyyy-mm-dd, yyyy/mm/dd or yyyy.mm.dd)')
-    params.add_argument('--read_path', type=str, default=None, help='Full path to the input raw data directory; if not defined it is determined from [set_bb.raw_dir], [telescope] and [date]')
+    params.add_argument('--read_path', type=str, default=None, help='Full path to the input raw data directory; if not defined it is determined from [set_blackbox.raw_dir], [telescope] and [date]')
     params.add_argument('--slack', default=True, help='Upload messages for night mode to slack.')
     args = params.parse_args()
 
-    run_bb (telescope=args.telescope, mode=args.mode, date=args.date, read_path=args.read_path, slack=args.slack)
+    run_blackbox (telescope=args.telescope, mode=args.mode, date=args.date, read_path=args.read_path, slack=args.slack)
 
 
