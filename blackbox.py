@@ -44,8 +44,8 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None, slack=No
     genlog.setLevel(logging.INFO) #set level of logger
     formatter = logging.Formatter("%(asctime)s %(process)d %(levelname)s %(message)s") #set format of logger
     logging.Formatter.converter = time.gmtime #convert time in logger to UCT
-    genlogfile = '{}/{}_{}.log'.format(set_blackbox.log_dir, telescope,
-                                       dt.datetime.now().strftime('%Y%m%d_%H%m%S'))
+    genlogfile = '{}/{}/{}_{}.log'.format(set_blackbox.log_dir, telescope, telescope,
+                                          dt.datetime.now().strftime('%Y%m%d_%H%m%S'))
     filehandler = logging.FileHandler(genlogfile, 'w+') #create log file
     filehandler.setFormatter(formatter) #add format to log file
     genlog.addHandler(filehandler) #link log file to logger
@@ -65,7 +65,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None, slack=No
     # directory; if not provided as input parameter, it is defined
     # using the input [date] with the function [get_path]
     if read_path is None:
-        read_path, date_eve = get_path(telescope, date, 'read')
+        read_path, __ = get_path(telescope, date, 'read')
         q.put(logger.info('processing files from directory: {}'.format(read_path)))
     else:
         # if it is provided but does not exist, exit
@@ -108,7 +108,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None, slack=No
             try:
                 pool = Pool(set_blackbox.nproc)
                 results = [pool.apply_async(blackbox_reduce, (filename, telescope,
-                                                         mode, read_path))
+                                                              mode, read_path))
                            for filename in filenames]
                 output = [p.get() for p in results]
                 q.put(logger.info(output))
@@ -196,7 +196,7 @@ def blackbox_reduce (filename, telescope, mode, read_path):
         header = read_hdulist(filename, ext_header=ext)
         # and determine the raw data path (which is not necessarily the
         # same as the input [read_path])
-        raw_path, date_eve = get_path(telescope, header['DATE-OBS'], 'read')
+        raw_path, __ = get_path(telescope, header['DATE-OBS'], 'read')
 
         # in night mode, [read_path] should not be the same as
         # [raw_path] because the images will be transferred to and
@@ -247,8 +247,7 @@ def blackbox_reduce (filename, telescope, mode, read_path):
     imgtype = header['IMAGETYP'].lower()
     filt = header['FILTER']
     exptime = int(header['EXPTIME'])
-    fits_out = '{}/{}_{}_{}.fits'.format(path[imgtype],
-                                         telescope, utdate, uttime)
+    fits_out = '{}/{}_{}_{}.fits'.format(path[imgtype], telescope, utdate, uttime)
     if imgtype == 'flat':
         fits_out = fits_out.replace('.fits', '_{}.fits'.format(filt))
 
@@ -264,7 +263,7 @@ def blackbox_reduce (filename, telescope, mode, read_path):
         fits_out_mask = fits_out.replace('_red.fits', '_mask.fits')
 
         # and reference image
-        ref_path = '{}/{}'.format(set_blackbox.ref_dir, obj)
+        ref_path = '{}/{}/{}'.format(set_blackbox.ref_dir, telescope, obj)
         make_dir (ref_path)
         ref_fits_out = '{}/{}_{}_red.fits'.format(ref_path, telescope, filt)
         ref_fits_out_mask = ref_fits_out.replace('_red.fits', '_mask.fits')
@@ -277,6 +276,7 @@ def blackbox_reduce (filename, telescope, mode, read_path):
                                    .format(fits_out.split('/')[-1])))
                 return
 
+            
     if os.path.isfile(fits_out):
         q.put(logger.warn ('corresponding reduced image {} already exist; skipping'
                            .format(fits_out.split('/')[-1])))
@@ -288,10 +288,11 @@ def blackbox_reduce (filename, telescope, mode, read_path):
     if imgtype == 'object':
         # prepare directory to store temporary files related to this
         # OBJECT image.  This is set to the tmp directory defined by
-        # [set_blackbox.tmp_dir] with subdirectory the name of the reduced
-        # image without the .fits extension.
-        tmp_path = '{}/{}'.format(set_blackbox.tmp_dir, fits_out.split('/')[-1]
-                                  .replace('.fits',''))
+        # [set_blackbox.tmp_dir] with subdirectory [telescope] and
+        # another subdirectory: the name of the reduced image without
+        # the .fits extension.
+        tmp_path = '{}/{}/{}'.format(set_blackbox.tmp_dir, telescope,
+                                     fits_out.split('/')[-1].replace('.fits',''))
         make_dir (tmp_path, empty=True)
 
         
@@ -1660,8 +1661,6 @@ def get_path (telescope, date, dir_type):
         tel_dir = ''
     else:
         tel_dir = telescope.upper()
-    # for the moment, do not add telescope directory
-    tel_dir = ''
         
     if dir_type == 'read':
         root_dir = set_blackbox.raw_dir
@@ -1676,7 +1675,7 @@ def get_path (telescope, date, dir_type):
         path = path.replace('//','/')
     
     return path, date_eve
-
+    
 
 ################################################################################
     
