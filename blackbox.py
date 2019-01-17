@@ -23,7 +23,7 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import ctypes
 
-__version__ = '0.7.1'
+__version__ = '0.7.2'
 
 #def init(l):
 #    global lock
@@ -410,7 +410,7 @@ def blackbox_reduce (filename, telescope, mode, read_path):
         log.info('subtracting the master bias')
         mbias_processed = False
         lock.acquire()
-        data = mbias_corr(data, header, bias_path, date_eve)
+        data = master_corr(data, header, None, bias_path, date_eve, filt, 'bias')
         lock.release()
     except Exception as e:
         q.put(logger.info(traceback.format_exc()))
@@ -460,7 +460,7 @@ def blackbox_reduce (filename, telescope, mode, read_path):
         log.info('flatfielding')
         mflat_processed = False
         lock.acquire()
-        data = mflat_corr(data, header, data_mask, flat_path, date_eve, filt)
+        data = master_corr(data, header, data_mask, flat_path, date_eve, filt, 'flat')
         lock.release()
     except Exception as e:
         q.put(logger.info(traceback.format_exc()))
@@ -989,6 +989,163 @@ def mask_header(data_mask, header_mask):
     return
 
     
+################################################################################
+
+def master_corr (data, header, data_mask, path, date_eve, filt, imtype):
+
+    if set_zogy.timing:
+        t = time.time()
+
+    if imtype=='flat':
+        fits_master = '{}/{}_{}_{}.fits'.format(path, imtype, date_eve, filt)
+    elif imtype=='bias':
+        fits_master = '{}/{}_{}.fits'.format(path, imtype, date_eve)
+
+    log.info('fits_master: {}'.format(fits_master))
+        
+    if not os.path.isfile(unzip(fits_master)):
+
+        # prepare master from files in [path]
+        if imtype=='flat':
+            file_list = sorted(glob.glob('{}/*_{}.fits*'.format(path, filt)))
+        elif imtype=='bias':
+            file_list = sorted(glob.glob('{}/*fits*'.format(path)))
+
+        # initialize cube of images to be combined
+        nfiles = np.shape(file_list)[0]
+
+        # if there are too few frames to make tonight's master, look
+        # for a nearby master flat instead
+        if nfiles < 3:
+
+            fits_master_close = get_closest_biasflat(date_eve, imtype, filt=filt)
+            if fits_master_close is not None:
+
+                fits_master_close = unzip(fits_master_close)
+                print ('Warning: too few images available to produce master {}; instead using\n{}'
+                       .format(imtype, fits_master_close))
+                # create symbolic link so future files will automatically
+                # use this as the master flat
+                os.symlink(fits_master_close, fits_master)
+
+            else:
+                log.error('no alternative master {} found'.format(imtype))
+                return data
+                
+        else:
+            
+            print ('making master {} in filter {}'.format(imtype, filt))
+
+            # assuming that individual flats/biases have the same shape as the input data
+            master_cube = np.zeros((nfiles, np.shape(data)), dtype='float32')
+
+            # fill the cube
+            for i_file, filename in enumerate(file_list):
+                data_temp, header_temp = read_hdulist(file_list[i_file],
+                                                        ext_data=0, ext_header=0)
+
+                if imtype=='flat':
+                    # divide by median over the region [set_blackbox.flat_norm_sec]
+                    mean, std, median = clipped_stats(data_temp[set_blackbox.flat_norm_sec])
+                    print ('flat name: {}, mean: {}, std: {}, median: {}'
+                           .format(filename, mean, std, median))
+                    master_cube[i_file] = data_temp / median
+                    
+                if i_file==0:
+                    for key in header_temp.keys():
+                        if 'BIASM' in key or 'RDN' in key:
+                            del header_temp[key]
+                    header_master = header_temp
+                    
+                if imtype=='flat':
+                    comment = 'name reduced flat'
+                elif imtype=='bias':
+                    comment = 'name gain/os-corrected bias frame'
+
+                header_master['{}{}'.format(imtype.upper(), i_file+1)] = (
+                    filename.split('/')[-1], '{} {}'.format(comment, i_file+1))
+                
+                if 'ORIGFILE' in header_temp.keys():
+                    header_master['{}OR{}'.format(imtype.upper(), i_file+1)] = (
+                        header_temp['ORIGFILE'], 'name original {} {}'
+                        .format(imtype, i_file+1))
+
+
+            # determine the median
+            master_median = np.median(master_cube, axis=0)
+
+            # add some header keywords to the master flat
+            if imtype=='flat':
+                sec_temp = set_blackbox.flat_norm_sec
+                value_temp = '[{}:{},{}:{}]'.format(sec_temp[0].start+1, sec_temp[0].stop+1,
+                                                    sec_temp[1].start+1, sec_temp[1].stop+1) 
+                header_master['STATSEC'] = (value_temp,
+                                            'pre-defined statistics section [y1:y2,x1:x2]')
+                header_master['SECMED'] = (np.median(flat_median[sec_temp]),
+                                           '[e-] median master flat over STATSEC')
+                header_master['SECSTD'] = (np.std(flat_median[sec_temp]),
+                                           '[e-] sigma (STD) master flat over STATSEC')
+
+                # for full image statistics, discard masked pixels
+                mask_ok = (data_mask==0)
+                header_master['FLATMED'] = (np.median(flat_median[mask_ok]),
+                                            '[e-] median master flat')
+                header_master['FLATSTD'] = (np.std(flat_median[mask_ok]),
+                                            '[e-] sigma (STD) master flat')
+
+            elif imtype=='bias':
+
+                # add some header keywords to the master bias
+                mean_master, std_master = clipped_stats(bias_median, get_median=False)
+                header_master['BIASMEAN'] = (mean_master, '[e-] mean master bias')
+                header_master['RDNOISE'] = (std_master, '[e-] sigma (STD) master bias')
+
+                # including the means and standard deviations of the master
+                # bias in the separate channels
+                data_sec_red = set_blackbox.data_sec_red
+                nchans = np.shape(data_sec_red)[0]
+                mean_chan = np.zeros(nchans)
+                std_chan = np.zeros(nchans)
+
+                for i_chan in range(nchans):
+                    data_chan = bias_median[data_sec_red[i_chan]]
+                    mean_chan[i_chan], std_chan[i_chan] = clipped_stats(data_chan, get_median=False)
+                for i_chan in range(nchans):
+                    header_master['BIASM{}'.format(i_chan+1)] = (
+                        mean_chan[i_chan], '[e-] channel {} mean master bias'.format(i_chan+1))
+                for i_chan in range(nchans):
+                    header_master['RDN{}'.format(i_chan+1)] = (
+                        std_chan[i_chan], '[e-] channel {} sigma (STD) master bias'.format(i_chan+1))
+
+            # write to output file
+            fits.writeto(fits_master, master_median.astype('float32'), header_master,
+                         overwrite=True)
+
+            
+    log.info('reading master {}'.format(imtype))
+    master_median = read_hdulist(fits_master, ext_data=0)
+    if os.path.islink(fits_master):
+        master_name = os.readlink(fits_master)
+    else:
+        master_name = fits_master
+    header['M{}-F'.format(imtype.upper())] = (
+        master_name.split('/')[-1], 'name of master {} applied'.format(imtype))
+    
+    if imtype=='flat':
+        # divide data by the normalised flat
+        # do not consider pixels with zero values or edge pixels
+        mask_ok = ((master_median != 0) & (data_mask != set_zogy.mask_value['edge']))
+        data[mask_ok] /= master_median[mask_ok]
+    elif imtype=='bias':
+        # subtract from data
+        data -= master_median
+                
+    if set_zogy.timing:
+        log_timing_memory (t0=t, label='master_corr', log=log)
+
+    return data
+
+
 ################################################################################
 
 def mflat_corr(data, header, data_mask, flat_path, date_eve, filt):
