@@ -101,7 +101,6 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None, slack=No
     ref_ID_filt = Queue()
 
     if mode == 'day':
-
         # if in day mode, feed all bias, flat and science images (in
         # this order) to [blackbox_reduce] using multiprocessing
         filenames = sort_files(read_path, '*fits*')
@@ -113,12 +112,11 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None, slack=No
             # the fly if [set_zogy.display] is set to True. In
             # multiprocessing mode this is not allowed (at least not a
             # macbook).
-            print ('running with single processor') #DP: added brackets
+            print ('running with single processor')
             for filename in filenames:
                 result = blackbox_reduce(filename, telescope, mode, read_path)
 
         else:
-
             # use [pool_func] to process list of files
             result = pool_func (blackbox_reduce, filenames, telescope, mode, read_path)
 
@@ -273,7 +271,6 @@ def blackbox_reduce (filename, telescope, mode, read_path):
        for the gain and overscan to running ZOGY on the reduced image.
 
     """
-
     if get_par(set_zogy.timing,tel):
         t_blackbox_reduce = time.time()
 
@@ -295,7 +292,7 @@ def blackbox_reduce (filename, telescope, mode, read_path):
     # and determine the raw data path (which is not necessarily the
     # same as the input [read_path])
     raw_path, __ = get_path(header['DATE-OBS'], 'read')
-
+    
     if raw_path == read_path:
 
         if mode == 'night':
@@ -308,7 +305,6 @@ def blackbox_reduce (filename, telescope, mode, read_path):
                                   'the standard [raw_path] directory: {}'
                                   .format(raw_path)))
     else:
-        
         # move the image to [raw_path] if it does not already exist
         src = filename
         dest = '{}/{}'.format(raw_path, filename.split('/')[-1])
@@ -612,7 +608,7 @@ def blackbox_reduce (filename, telescope, mode, read_path):
     
     if get_par(set_zogy.display,tel):
         ds9_arrays(data=data_precosmics, cosmic_cor=data, mask=data_mask)
-        print (header['NCOSMICS']) #DP: added brackets
+        print (header['NCOSMICS'])
         
 
     # satellite trail detection
@@ -645,7 +641,7 @@ def blackbox_reduce (filename, telescope, mode, read_path):
     
     if get_par(set_zogy.display,tel):
         ds9_arrays(mask=data_mask)
-        print (header['NSATS']) #DP: added brackets
+        print (header['NSATS'])
 
         
     # run zogy's [optimal_subtraction]
@@ -941,7 +937,8 @@ def sat_detect (data, header, data_mask, header_mask, tmp_path):
         #create satellite trail if found
         trail_coords = results[(fits_binned_mask,0)] 
         #continue if satellite trail found
-        if len(trail_coords) > 0: 
+        if len(trail_coords) > 0:
+            unique_dir = tmp_path #Danielle: unique_dir wasn't defined. I think it's supposed to be the tmp_path, or isn't it? 
             trail_segment = trail_coords[0]
             try: 
                 #create satellite trail mask
@@ -1566,9 +1563,8 @@ def set_header(header, filename):
 
     # RA and DEC
     if 'RA' in header.keys() and 'DEC' in header.keys():
-        
         # Right ascension
-        if ':' in header['RA']:
+        if ':' in str(header['RA']):
             # convert sexagesimal to decimal degrees
             ra_deg = Angle(header['RA'], unit=u.hour).degree
         else:
@@ -1579,7 +1575,7 @@ def set_header(header, filename):
         edit_head(header, 'RA-TEL', comments='[deg] Telescope right ascension')
 
         # Declination
-        if ':' in header['DEC']:
+        if ':' in str(header['DEC']):
             # convert sexagesimal to decimal degrees
             dec_deg = Angle(header['DEC'], unit=u.deg).degree
             edit_head(header, 'DEC', value=dec_deg, comments='[deg] Declination of image centre')
@@ -1607,6 +1603,7 @@ def set_header(header, filename):
         gps_mjd = Time([header['GPSSTART'], header['GPSEND']], format='isot').mjd
         mjd_obs = (np.sum(gps_mjd)-exptime_days)/2.
         date_obs = Time(mjd_obs, format='mjd').isot
+        date_obs = Time(date_obs, format='isot') # change from a string to time class
         edit_head(header, 'DATE-OBS', value=str(date_obs),
                   comments='Date at start = (GPSSTART+GPSEND-EXPTIME)/2')
     else:
@@ -1895,7 +1892,6 @@ def gain_corr(data, header):
 ################################################################################
 
 def get_path (date, dir_type):
-
     # define path
     if date is None:
         q.put(logger.critical('no [date] provided; exiting'))
@@ -1905,14 +1901,14 @@ def get_path (date, dir_type):
         # yyyy-mm-dd or yyyy-mm-ddThh:mm:ss.s; if the latter is
         # provided, make sure to set [date_dir] to the date of the
         # evening before UT midnight
-        if 'T' in date:            
+        if 'T' in date:
             if '.' in date:
+                date = str(Time(date, format='isot')) # rounds date to microseconds as more digits can't be defined in the format (next line)
                 date_format = '%Y-%m-%dT%H:%M:%S.%f'
                 high_noon = 'T12:00:00.0'
             else:
                 date_format = '%Y-%m-%dT%H:%M:%S'
                 high_noon = 'T12:00:00'
-                
             date_ut = dt.datetime.strptime(date, date_format).replace(tzinfo=gettz('UTC'))
             date_noon = date.split('T')[0]+high_noon
             date_local_noon = dt.datetime.strptime(date_noon, date_format).replace(
@@ -2146,7 +2142,7 @@ def action(item_list):
 
     For new events, continues if it is a file. '''
 
-    print ('event!') #DP: added brackets
+    print ('event!')
     
     #get parameters for list
     event, telescope, mode, read_path = item_list.get(True)
