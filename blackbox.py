@@ -941,8 +941,7 @@ def sat_detect (data, header, data_mask, header_mask, tmp_path):
         #create satellite trail if found
         trail_coords = results[(fits_binned_mask,0)] 
         #continue if satellite trail found
-        if len(trail_coords) > 0:
-            unique_dir = tmp_path #Danielle: unique_dir wasn't defined. I think it's supposed to be the tmp_path, or isn't it? 
+        if len(trail_coords) > 0: 
             trail_segment = trail_coords[0]
             try: 
                 #create satellite trail mask
@@ -951,11 +950,11 @@ def sat_detect (data, header, data_mask, header_mask, tmp_path):
             except ValueError:
                 #if error occurs, add comment
                 print ('Warning: satellite trail found but could not be fitted for file {} and is not included in the mask.'
-                       .format(unique_dir.split('/')[-1]))
+                       .format(tmp_path.split('/')[-1]))
                 break
             satellite_fitting = True
             binned_data[mask_binned == 1] = np.median(binned_data)
-            fits_old_mask = unique_dir+'/old_mask.fits'
+            fits_old_mask = tmp_path+'/old_mask.fits'
             if os.path.isfile(fits_old_mask):
                 old_mask = read_hdulist(fits_old_mask, ext_data=0)
                 mask_binned = old_mask+mask_binned
