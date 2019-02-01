@@ -101,6 +101,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None, slack=No
     ref_ID_filt = Queue()
 
     if mode == 'day':
+
         # if in day mode, feed all bias, flat and science images (in
         # this order) to [blackbox_reduce] using multiprocessing
         filenames = sort_files(read_path, '*fits*')
@@ -117,6 +118,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None, slack=No
                 result = blackbox_reduce(filename, telescope, mode, read_path)
 
         else:
+
             # use [pool_func] to process list of files
             result = pool_func (blackbox_reduce, filenames, telescope, mode, read_path)
 
@@ -271,6 +273,7 @@ def blackbox_reduce (filename, telescope, mode, read_path):
        for the gain and overscan to running ZOGY on the reduced image.
 
     """
+
     if get_par(set_zogy.timing,tel):
         t_blackbox_reduce = time.time()
 
@@ -292,7 +295,7 @@ def blackbox_reduce (filename, telescope, mode, read_path):
     # and determine the raw data path (which is not necessarily the
     # same as the input [read_path])
     raw_path, __ = get_path(header['DATE-OBS'], 'read')
-    
+
     if raw_path == read_path:
 
         if mode == 'night':
@@ -305,6 +308,7 @@ def blackbox_reduce (filename, telescope, mode, read_path):
                                   'the standard [raw_path] directory: {}'
                                   .format(raw_path)))
     else:
+
         # move the image to [raw_path] if it does not already exist
         src = filename
         dest = '{}/{}'.format(raw_path, filename.split('/')[-1])
@@ -1563,6 +1567,7 @@ def set_header(header, filename):
 
     # RA and DEC
     if 'RA' in header.keys() and 'DEC' in header.keys():
+
         # Right ascension
         if ':' in str(header['RA']):
             # convert sexagesimal to decimal degrees
@@ -1892,6 +1897,7 @@ def gain_corr(data, header):
 ################################################################################
 
 def get_path (date, dir_type):
+
     # define path
     if date is None:
         q.put(logger.critical('no [date] provided; exiting'))
@@ -1909,6 +1915,7 @@ def get_path (date, dir_type):
             else:
                 date_format = '%Y-%m-%dT%H:%M:%S'
                 high_noon = 'T12:00:00'
+
             date_ut = dt.datetime.strptime(date, date_format).replace(tzinfo=gettz('UTC'))
             date_noon = date.split('T')[0]+high_noon
             date_local_noon = dt.datetime.strptime(date_noon, date_format).replace(
