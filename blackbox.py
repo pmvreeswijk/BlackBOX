@@ -113,7 +113,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None, slack=No
             # the fly if [set_zogy.display] is set to True. In
             # multiprocessing mode this is not allowed (at least not a
             # macbook).
-            print ('running with single processor') #DP: added brackets
+            print ('running with single processor')
             for filename in filenames:
                 result = blackbox_reduce(filename, telescope, mode, read_path)
 
@@ -308,7 +308,7 @@ def blackbox_reduce (filename, telescope, mode, read_path):
                                   'the standard [raw_path] directory: {}'
                                   .format(raw_path)))
     else:
-        
+
         # move the image to [raw_path] if it does not already exist
         src = filename
         dest = '{}/{}'.format(raw_path, filename.split('/')[-1])
@@ -612,7 +612,7 @@ def blackbox_reduce (filename, telescope, mode, read_path):
     
     if get_par(set_zogy.display,tel):
         ds9_arrays(data=data_precosmics, cosmic_cor=data, mask=data_mask)
-        print (header['NCOSMICS']) #DP: added brackets
+        print (header['NCOSMICS'])
         
 
     # satellite trail detection
@@ -645,7 +645,7 @@ def blackbox_reduce (filename, telescope, mode, read_path):
     
     if get_par(set_zogy.display,tel):
         ds9_arrays(mask=data_mask)
-        print (header['NSATS']) #DP: added brackets
+        print (header['NSATS'])
 
         
     # run zogy's [optimal_subtraction]
@@ -950,11 +950,11 @@ def sat_detect (data, header, data_mask, header_mask, tmp_path):
             except ValueError:
                 #if error occurs, add comment
                 print ('Warning: satellite trail found but could not be fitted for file {} and is not included in the mask.'
-                       .format(unique_dir.split('/')[-1]))
+                       .format(tmp_path.split('/')[-1]))
                 break
             satellite_fitting = True
             binned_data[mask_binned == 1] = np.median(binned_data)
-            fits_old_mask = unique_dir+'/old_mask.fits'
+            fits_old_mask = tmp_path+'/old_mask.fits'
             if os.path.isfile(fits_old_mask):
                 old_mask = read_hdulist(fits_old_mask, ext_data=0)
                 mask_binned = old_mask+mask_binned
@@ -1566,9 +1566,9 @@ def set_header(header, filename):
 
     # RA and DEC
     if 'RA' in header.keys() and 'DEC' in header.keys():
-        
+
         # Right ascension
-        if ':' in header['RA']:
+        if ':' in str(header['RA']):
             # convert sexagesimal to decimal degrees
             ra_deg = Angle(header['RA'], unit=u.hour).degree
         else:
@@ -1579,7 +1579,7 @@ def set_header(header, filename):
         edit_head(header, 'RA-TEL', comments='[deg] Telescope right ascension')
 
         # Declination
-        if ':' in header['DEC']:
+        if ':' in str(header['DEC']):
             # convert sexagesimal to decimal degrees
             dec_deg = Angle(header['DEC'], unit=u.deg).degree
             edit_head(header, 'DEC', value=dec_deg, comments='[deg] Declination of image centre')
@@ -1607,6 +1607,7 @@ def set_header(header, filename):
         gps_mjd = Time([header['GPSSTART'], header['GPSEND']], format='isot').mjd
         mjd_obs = (np.sum(gps_mjd)-exptime_days)/2.
         date_obs = Time(mjd_obs, format='mjd').isot
+        date_obs = Time(date_obs, format='isot') # change from a string to time class
         edit_head(header, 'DATE-OBS', value=str(date_obs),
                   comments='Date at start = (GPSSTART+GPSEND-EXPTIME)/2')
     else:
@@ -1905,14 +1906,15 @@ def get_path (date, dir_type):
         # yyyy-mm-dd or yyyy-mm-ddThh:mm:ss.s; if the latter is
         # provided, make sure to set [date_dir] to the date of the
         # evening before UT midnight
-        if 'T' in date:            
+        if 'T' in date:
             if '.' in date:
+                date = str(Time(date, format='isot')) # rounds date to microseconds as more digits can't be defined in the format (next line)
                 date_format = '%Y-%m-%dT%H:%M:%S.%f'
                 high_noon = 'T12:00:00.0'
             else:
                 date_format = '%Y-%m-%dT%H:%M:%S'
                 high_noon = 'T12:00:00'
-                
+
             date_ut = dt.datetime.strptime(date, date_format).replace(tzinfo=gettz('UTC'))
             date_noon = date.split('T')[0]+high_noon
             date_local_noon = dt.datetime.strptime(date_noon, date_format).replace(
@@ -2146,7 +2148,7 @@ def action(item_list):
 
     For new events, continues if it is a file. '''
 
-    print ('event!') #DP: added brackets
+    print ('event!')
     
     #get parameters for list
     event, telescope, mode, read_path = item_list.get(True)
