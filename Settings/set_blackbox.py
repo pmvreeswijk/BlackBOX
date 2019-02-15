@@ -1,6 +1,6 @@
 import os
 
-__version__ = '0.7.3'
+__version__ = '0.7.5'
 
 #===============================================================================
 # Number of processes and threads
@@ -11,6 +11,13 @@ nproc = 2
 # maximum number of threads for each process (this parameter
 # cannot be made telescope dependent through a dictionary!)
 nthread = 2
+
+#===============================================================================
+# Reduction switches
+#===============================================================================
+
+# subtract master bias
+subtract_mbias = False
 
 #===============================================================================
 # Directory structure and files to keep
@@ -24,7 +31,7 @@ run_dir_base = '/media/data/pmv/Test_BGreduce_subpipe_zogy'
 # [run_dir_base], but could be anywhere
 tmp_dir_base = run_dir_base
 # switch to keep tmp directories (True) or not (False)
-keep_tmp = True
+keep_tmp = False
 
 # the loop below creates dictionaries with keys ['ML1', 'BG2', 'BG3',
 # 'BG4'] for the different paths to the raw, red, log, ref and tmp
@@ -85,10 +92,10 @@ sat_bin = 2
 
 # channel gains:
 # defined by Kerry:
-gain = [2.29,2.31,2.30,2.32,2.37,2.36,2.37,2.35,2.28,2.31,2.31,2.35,2.35,2.35,2.35,2.36]
-gain[10] = 2.38
+#gain = [2.29,2.31,2.30,2.32,2.37,2.36,2.37,2.35,2.28,2.31,2.31,2.35,2.35,2.35,2.35,2.36]
+#gain[10] = 2.38
 # from domeflats 2019-01-10:
-#gain = {'ML1': [2.31,2.39,2.40,2.44,2.43,2.42,2.47,2.40,2.32,2.43,2.38,2.39,2.43,2.46,2.51,2.51]}
+gain = {'ML1': [2.31,2.39,2.40,2.44,2.43,2.42,2.47,2.40,2.32,2.43,2.38,2.39,2.43,2.46,2.51,2.51]}
 
 # assumed saturation level in ADU of raw images
 satlevel = 55000
@@ -101,8 +108,8 @@ ysize, ny, os_ysize = 10600, 2,  20; dy = int(ysize/ny)
 xsize, nx, os_xsize = 12000, 8, 180; dx = int(xsize/nx)
 
 # the sections below are defined such that e.g. chan_sec[0] refers to
-# all pixels of the first channel, where the channels are currently
-# defined to be located on the CCD as follows:
+# all pixels of the first channel, where the channel indices are
+# currently defined to be located on the CCD as follows:
 #
 # [ 8, 9, 10, 11, 12, 13, 14, 15]
 # [ 0, 1,  2,  3,  4,  5,  6,  7]
