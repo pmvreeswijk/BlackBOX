@@ -12,7 +12,7 @@ from zogy import *
 
 import re   # Regular expression operations
 import glob # Unix style pathname pattern expansion 
-from multiprocessing import Pool, Manager, Lock, Queue
+from multiprocessing import Pool, Manager, Lock, Queue, Array
 import datetime as dt 
 from dateutil.tz import gettz
 from astropy.stats import sigma_clipped_stats
@@ -30,7 +30,7 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import ctypes
 
-__version__ = '0.7.5'
+__version__ = '0.7.6'
 
 #def init(l):
 #    global lock
@@ -104,11 +104,30 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     global ref_ID_filt
     ref_ID_filt = Queue()
 
+    # create shared memory array (using multiprocessing.Array()) that
+    # will contain number of biases and flats (in each filter)
+    # observed in day mode. As biases and flats are processed, the
+    # count will decrease until zero is reached.  This can be used to
+    # build the master bias in case no flats and no science images
+    # were taken, and the master flats in case no science images were
+    # taken; [index_biasflat] determines the count index of the bias
+    # and flats in different filters; [count_biasflat] is initialized
+    # to -1.
+    global index_biasflat, count_biasflat
+    index_biasflat = ['bias', 'u', 'g', 'r', 'i', 'z', 'q']
+    if mode == 'day':
+        count_init = 0
+    elif mode == 'night':
+        count_init = -1
+    # initialize [count_biasflat] to zero
+    count_biasflat = Array('i', [count_init]*len(index_biasflat), lock=True)
+
+    # split into 'day' or 'night' mode
     if mode == 'day':
 
         # if in day mode, feed all bias, flat and science images (in
         # this order) to [blackbox_reduce] using multiprocessing
-        filenames = sort_files(read_path, '*fits*')
+        filenames = sort_files(read_path, '*fits*', mode)
         if len(filenames)==0:
             q.put(logger.warn('no files to reduce'))
         
@@ -130,6 +149,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
 
     elif mode == 'night':
+
         # if in night mode, check if anythin changes in input directory
         # and if there is a new file, feed it to [blackbox_reduce]
 
@@ -145,7 +165,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
                           read_path, recursive=False)
 
         # glob any files already there
-        filenames = sort_files(read_path, '*fits*')
+        filenames = sort_files(read_path, '*fits*', mode)
         # loop through waiting files and add to pool
         for filename in filenames: 
             queue.put([filename, telescope, mode, read_path])
@@ -287,7 +307,20 @@ class WrapException(Exception):
     def __str__(self):
         return '{}\nOriginal traceback:\n{}'.format(Exception.__str__(self), self.formatted)
         
-    
+
+################################################################################
+
+def skip_count_biasflat (mode, imgtype, filt):
+
+    if mode == 'day':
+        if imgtype == 'bias':
+            # update [count_biasflat]
+            count_biasflat[index_biasflat.index('bias')] -= 1
+        if imgtype == 'flat':
+            # update [count_biasflat]
+            count_biasflat[index_biasflat.index(filt)] -= 1
+
+            
 ################################################################################
 
 def try_blackbox_reduce (filename, telescope, mode, read_path):
@@ -402,9 +435,9 @@ def blackbox_reduce (filename, telescope, mode, read_path):
         if filt not in only_filt and imgtype != 'bias':
             q.put(logger.warn ('filter of image ({}) not in [only_filters] ({}); skipping'
                                .format(filt, only_filt)))
+            skip_count_biasflat (mode, imgtype, filt)
             return
-        
-    
+            
     fits_out = '{}/{}_{}_{}.fits'.format(path[imgtype], telescope, utdate, uttime)
 
     if imgtype == 'flat':
@@ -437,8 +470,8 @@ def blackbox_reduce (filename, telescope, mode, read_path):
             if utdate_ref==utdate and uttime_ref==uttime:
                 q.put(logger.info ('this image {} is the current reference image; skipping'
                                    .format(fits_out.split('/')[-1])))
+                skip_count_biasflat (mode, imgtype, filt)
                 return
-
 
     # add reduced filename to header
     header['REDFILE'] = (fits_out.split('/')[-1], 'BlackBOX reduced file name')
@@ -446,8 +479,10 @@ def blackbox_reduce (filename, telescope, mode, read_path):
     if os.path.isfile(fits_out) or os.path.isfile(fits_out+'.fz'):
         q.put(logger.warn ('corresponding reduced image {} already exist; skipping'
                            .format(fits_out.split('/')[-1])))
+        skip_count_biasflat (mode, imgtype, filt)
         return
 
+    
     q.put(logger.info('\nprocessing {}'.format(filename)))
     #q.put(logger.info('-'*(len(filename)+11)))
 
@@ -560,41 +595,55 @@ def blackbox_reduce (filename, telescope, mode, read_path):
     # following line needs to be outside if/else statements
     header['OS-P'] = (os_processed, 'corrected for overscan?')
 
-
     if get_par(set_zogy.display,tel):
         ds9_arrays(os_cor=data)
 
-
-    # if IMAGETYP=bias, write [data] to fits and leave [blackbox_reduce]
+    # if IMAGETYP=bias, write [data] to fits 
     if imgtype == 'bias':
         fits.writeto(fits_out, data.astype('float32'), header, overwrite=True)
-        return
-        
+        if mode == 'day':
+            lock.acquire()
+            # update [count_biasflat]
+            count_biasflat[index_biasflat.index('bias')] -= 1
+            # and leave [blackbox_reduce] if count_biasflat['bias'] not yet zero
+            try:
+                if count_biasflat[index_biasflat.index('bias')] != 0:
+                    return
+            finally:
+                lock.release()
+                                
 
     # master bias creation and subtraction
     ######################################
     try: 
-        log.info('subtracting the master bias')
         mbias_processed = False
         lock.acquire()
-        data = master_corr(data, header, bias_path, date_eve, 'bias')
+        # prepare or point to the master bias
+        fits_mbias = master_prep (data, bias_path, date_eve, 'bias')
         lock.release()
+        # return here if current image is the last bias frame
+        if imgtype == 'bias' and count_biasflat[index_biasflat.index('bias')] == 0:
+            return
+        else:
+            if get_par(set_bb.subtract_mbias,tel):
+                log.info('subtracting the master bias')
+                data_mbias = read_hdulist(fits_mbias, ext_data=0)
+                data -= data_mbias
+                header['MBIAS-F'] = (
+                    fits_mbias.split('/')[-1], 'name of master bias applied')
+
     except Exception as e:
         q.put(logger.info(traceback.format_exc()))
         q.put(logger.error('exception was raised during [mbias_corr]: {}'.format(e)))
         log.info(traceback.format_exc())
         log.error('exception was raised during [mbias_corr]: {}'.format(e))
     else:
-        mbias_processed = True
+        if get_par(set_bb.subtract_mbias,tel):
+            mbias_processed = True
     # following line needs to be outside if/else statements
     header['MBIAS-P'] = (mbias_processed, 'corrected for master bias?')
 
-    
-    # if IMAGETYP=flat, write [data] to fits and leave [blackbox_reduce]
-    if imgtype == 'flat':
-        fits.writeto(fits_out, data.astype('float32'), header, overwrite=True)
-        return
-
+    # display
     if get_par(set_zogy.display,tel):
         ds9_arrays(bias_sub=data)
 
@@ -616,20 +665,44 @@ def blackbox_reduce (filename, telescope, mode, read_path):
         # following line needs to be outside if/else statements
         header['MASK-P'] = (mask_processed, 'mask image created?')
 
+        if get_par(set_zogy.display,tel):
+            ds9_arrays(mask=data_mask)
 
-    if get_par(set_zogy.display,tel):
-        ds9_arrays(mask=data_mask)
+
+    # if IMAGETYP=flat, write [data] to fits
+    if imgtype == 'flat':
+        fits.writeto(fits_out, data.astype('float32'), header, overwrite=True)
+        if mode == 'day':
+            lock.acquire()
+            # update [count_biasflat]
+            count_biasflat[index_biasflat.index(filt)] -= 1
+            # and leave [blackbox_reduce] if count_biasflat[filt] not yet zero
+            try:
+                if count_biasflat[index_biasflat.index(filt)] != 0:
+                    return
+            finally:
+                lock.release()
 
 
     # master flat creation and correction
     #####################################
     try: 
-        log.info('flatfielding')
         mflat_processed = False
         lock.acquire()
-        data = master_corr(data, header, flat_path, date_eve, 'flat',
-                           data_mask=data_mask, filt=filt)
+        # prepare or point to the master bias
+        fits_mflat = master_prep(data, flat_path, date_eve, 'flat', filt=filt)
         lock.release()
+        # return here if current image is the last flat in this filter
+        if imgtype == 'flat' and count_biasflat[index_biasflat.index(filt)] == 0:
+            return
+        else:
+            log.info('dividing by the master flat')
+            data_mflat = read_hdulist(fits_mflat, ext_data=0)
+            mask_ok = ((data_mflat != 0) & (data_mask != get_par(set_zogy.mask_value['edge'],tel)))
+            data[mask_ok] /= data_mflat[mask_ok]
+            header['MFLAT-F'] = (
+                fits_mflat.split('/')[-1], 'name of master flat applied')
+
     except Exception as e:
         q.put(logger.info(traceback.format_exc()))
         q.put(logger.error('exception was raised during [mflat_corr]: {}'.format(e)))
@@ -1174,7 +1247,7 @@ def mask_header(data_mask, header_mask):
     
 ################################################################################
 
-def master_corr (data, header, path, date_eve, imtype, data_mask=None, filt=None):
+def master_prep (data, path, date_eve, imtype, filt=None):
 
     if get_par(set_zogy.timing,tel):
         t = time.time()
@@ -1220,12 +1293,15 @@ def master_corr (data, header, path, date_eve, imtype, data_mask=None, filt=None
                 
             else:
                 log.error('no alternative master {} found'.format(imtype))
-                return data
+                return
                 
         else:
             
-            print ('making master {} in filter {}'.format(imtype, filt))
-
+            if imtype=='bias':
+                print ('making master {}'.format(imtype))
+            if imtype=='flat':
+                print ('making master {} in filter {}'.format(imtype, filt))
+                
             # assuming that individual flats/biases have the same shape as the input data
             ysize, xsize = np.shape(data)
             master_cube = np.zeros((nfiles, ysize, xsize), dtype='float32')
@@ -1234,7 +1310,7 @@ def master_corr (data, header, path, date_eve, imtype, data_mask=None, filt=None
             for i_file, filename in enumerate(file_list):
 
                 # unzip if needed
-                filename = unzip(filename)
+                filename = unzip(filename, put_lock=False)
 
                 master_cube[i_file], header_temp = read_hdulist(filename,
                                                                 ext_data=0, ext_header=0)
@@ -1283,10 +1359,9 @@ def master_corr (data, header, path, date_eve, imtype, data_mask=None, filt=None
                                            '[e-] sigma (STD) master flat over STATSEC')
 
                 # for full image statistics, discard masked pixels
-                mask_ok = (data_mask==0)
-                header_master['FLATMED'] = (np.median(master_median[mask_ok]),
+                header_master['FLATMED'] = (np.median(master_median),
                                             '[e-] median master flat')
-                header_master['FLATSTD'] = (np.std(master_median[mask_ok]),
+                header_master['FLATSTD'] = (np.std(master_median),
                                             '[e-] sigma (STD) master flat')
 
             elif imtype=='bias':
@@ -1317,31 +1392,12 @@ def master_corr (data, header, path, date_eve, imtype, data_mask=None, filt=None
             # write to output file
             fits.writeto(fits_master, master_median.astype('float32'), header_master,
                          overwrite=True)
-
             
-    log.info('reading master {}'.format(imtype))
-    master_median = read_hdulist(fits_master, ext_data=0)
-    if os.path.islink(fits_master):
-        master_name = os.readlink(fits_master)
-    else:
-        master_name = fits_master
-    header['M{}-F'.format(imtype.upper())] = (
-        master_name.split('/')[-1], 'name of master {} applied'.format(imtype))
-    
-    if imtype=='flat':
-        # divide data by the normalised flat
-        # do not consider pixels with zero values or edge pixels
-        mask_ok = ((master_median != 0) & (data_mask != get_par(set_zogy.mask_value['edge'],tel)))
-        data[mask_ok] /= master_median[mask_ok]
-    elif imtype=='bias':
-        # subtract from data
-        if get_par(set_bb.subtract_mbias,tel):
-            data -= master_median
-                
-    if get_par(set_zogy.timing,tel):
-        log_timing_memory (t0=t, label='master_corr', log=log)
 
-    return data
+    if get_par(set_zogy.timing,tel):
+        log_timing_memory (t0=t, label='master_prep', log=log)
+        
+    return fits_master
 
 
 ################################################################################
@@ -1923,7 +1979,7 @@ def get_date_time (header):
     
 ################################################################################
 
-def sort_files(read_path, file_name):
+def sort_files(read_path, file_name, mode):
 
     """Function to sort raw files by type.  Globs all files in read_path
        and to sorts files into bias, flat and science images using the
@@ -1936,6 +1992,7 @@ def sort_files(read_path, file_name):
     bias = [] #list of biases
     flat = [] #list of flats
     science = [] # list of science images
+
     for i in range(len(all_files)): #loop through raw files
 
         if '.fz' not in all_files[i]:
@@ -1944,11 +2001,18 @@ def sort_files(read_path, file_name):
             header = read_hdulist(all_files[i], ext_header=1)
 
         imgtype = header['IMAGETYP'].lower() #get image type
+        filt = header['FILTER'].lower() 
         
         if 'bias' in imgtype: #add bias files to bias list
             bias.append(all_files[i])
+            if mode == 'day':
+                # update count_biasflat in 'day' mode
+                count_biasflat[index_biasflat.index('bias')] += 1
         if 'flat' in imgtype: #add flat files to flat list
             flat.append(all_files[i])
+            if mode == 'day':
+                # update count_biasflat in 'day' mode
+                count_biasflat[index_biasflat.index(filt)] += 1
         if 'object' in imgtype: #add science files to science list
             science.append(all_files[i])
 
