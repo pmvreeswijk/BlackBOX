@@ -30,7 +30,7 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import ctypes
 
-__version__ = '0.7.6'
+__version__ = '0.7.7'
 
 #def init(l):
 #    global lock
@@ -400,9 +400,9 @@ def blackbox_reduce (filename, telescope, mode, read_path):
         filename = dest
 
 
-    # read in image data and header; unzip image first if needed
+    # read in image header; unzip image first if needed
     filename = unzip(filename)
-    data, header = read_hdulist(filename, ext_data=0, ext_header=0, dtype='float32')
+    header = read_hdulist(filename, ext_header=0)
 
     # extend the header with some useful keywords
     result = set_header(header, filename)
@@ -519,7 +519,10 @@ def blackbox_reduce (filename, telescope, mode, read_path):
     if imgtype == 'object':
         log.info('tmp_path: {}'.format(tmp_path))
         log.info('ref_path: {}'.format(ref_path))
-    
+
+
+    # now also read in the data
+    data = read_hdulist(filename, ext_data=0, dtype='float32')   
 
     # gain correction
     #################
@@ -802,7 +805,7 @@ def blackbox_reduce (filename, telescope, mode, read_path):
         # process needs to add its OBJECT and FILTER to the queue
         # [ref_ID_filt] before the next process is calling [check_ref]
         time.sleep(1)
-        ref_being_made = check_ref(ref_ID_filt, (obj, filt))
+        ref_being_made = check_ref(ref_ID_filt, (obj, filt), put_lock=False)
         log.info('is reference for same OBJECT: {} and FILTER: {} being_made now?: {}'
                  .format(obj, filt, ref_being_made))
 
@@ -812,13 +815,12 @@ def blackbox_reduce (filename, telescope, mode, read_path):
         if ref_being_made:
             # if reference in this filter is being made, let the affected
             # process wait until reference building is done
-            if ref_being_made:
-                while check_ref(ref_ID_filt, (obj, filt)):
-                    log.info ('waiting for reference job to be finished for '+
-                              'OBJECT: {}, FILTER: {}'.format(obj, filt))
-                    time.sleep(5)
-                log.info ('done waiting for reference job to be finished for '+
+            while check_ref(ref_ID_filt, (obj, filt)):
+                log.info ('waiting for reference job to be finished for '+
                           'OBJECT: {}, FILTER: {}'.format(obj, filt))
+                time.sleep(10)
+            log.info ('done waiting for reference job to be finished for '+
+                      'OBJECT: {}, FILTER: {}'.format(obj, filt))
                     
         # lock the following block to allow only a single process to
         # execute the reference image creation
@@ -859,9 +861,7 @@ def blackbox_reduce (filename, telescope, mode, read_path):
 
             # now that reference is built, remove this reference ID
             # and filter combination from the [ref_ID_filt] queue
-            lock.acquire()
             result = check_ref(ref_ID_filt, (obj, filt), method='remove')
-            lock.release()
             
         else:
 
@@ -924,24 +924,42 @@ def blackbox_reduce (filename, telescope, mode, read_path):
 
 ################################################################################
 
-def check_ref (queue_ref, obj_filt, method=None):
+def check_ref (queue_ref, obj_filt, method=None, put_lock=True):
 
+    if put_lock:
+        lock.acquire()
+    
+    # initialize list with copy of queue 
     mycopy = []
     ref_being_made = False
     while True:
         try:
+            # get (return and remove) next element from input queue
+            # [queue_ref]
             elem = queue_ref.get(False)
         except:
+            # if no more elements left, break
             break
         else:
-            mycopy.append(elem)
+            # add element to copy of queue, unless element matches
+            # [obj_filt] and [method] is set to remove
+            if not (elem == obj_filt and method=='remove'):
+                mycopy.append(elem)
 
+                
+    # loop over copy of queue to put elements back into input queue
+    # N.B.: input queue is empty at this point
     for elem in mycopy:
+        # if element matches input [obj_filt] (tuple: (object,
+        # filter)), reference image is still being made
         if elem == obj_filt:
             ref_being_made = True
-            if method != 'remove':
-                queue_ref.put(elem)
-                time.sleep(0.1)
+        # put element back into original queue
+        queue_ref.put(elem)
+        #time.sleep(0.1)
+        
+    if put_lock:
+        lock.release()
 
     return ref_being_made
 
