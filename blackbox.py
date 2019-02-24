@@ -17,20 +17,20 @@ import datetime as dt
 from dateutil.tz import gettz
 from astropy.stats import sigma_clipped_stats
 from astropy.coordinates import Angle
-from astropy.time import Time
 from astropy import units as u
-from scipy import ndimage
 import astroscrappy
 from acstools.satdet import detsat, make_mask, update_dq
 import shutil
-from StringIO import StringIO
+try:
+    from StringIO import StringIO
+except ImportError:
+    from io import StringIO
 #from slackclient import SlackClient as sc
-import ephem  
+import ephem
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
-import ctypes
 
-__version__ = '0.7.7'
+__version__ = '0.8'
 
 #def init(l):
 #    global lock
@@ -129,7 +129,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
         # this order) to [blackbox_reduce] using multiprocessing
         filenames = sort_files(read_path, '*fits*', mode)
         if len(filenames)==0:
-            q.put(logger.warn('no files to reduce'))
+            q.put(logger.warning('no files to reduce'))
         
         if get_par(set_bb.nproc,tel)==1 :
 
@@ -289,7 +289,7 @@ def fpack (filename):
         if header['NAXIS']==2:
             # determine if integer or float image
             if header['BITPIX'] > 0:
-                cmd = ['fpack', '-D', '-Y', filename]
+                cmd = ['fpack', '-D', '-Y', '-v', filename]
             else:
                 cmd = ['fpack', '-q', '16', '-D', '-Y', '-v', filename]
             subprocess.call(cmd)
@@ -363,12 +363,12 @@ def blackbox_reduce (filename, telescope, mode, read_path):
     # to put all kinds of files in a single directory, and to let
     # BlackBOX move the files to the correct raw directory.
 
-    if '.fz' in filename:
-        ext = 1
+    if '.fz' in filename or '.gz' in filename:
+        file_ext = 1
     else:
-        ext = 0
+        file_ext = 0
     # just read the header for the moment
-    header = read_hdulist(filename, ext_header=ext)
+    header = read_hdulist(filename, ext_header=file_ext)
     # and determine the raw data path (which is not necessarily the
     # same as the input [read_path])
     raw_path, __ = get_path(header['DATE-OBS'], 'read')
@@ -391,7 +391,7 @@ def blackbox_reduce (filename, telescope, mode, read_path):
         dest = '{}/{}'.format(raw_path, filename.split('/')[-1])
         if (os.path.isfile(dest) or os.path.isfile(dest+'.fz') or
             os.path.isfile(dest.replace('.fz',''))):
-            q.put(logger.warn('{} already exists; not moving file'.format(dest)))
+            q.put(logger.warning('{} already exists; not moving file'.format(dest)))
         else:
             make_dir (raw_path)
             shutil.move(src, dest)
@@ -399,10 +399,6 @@ def blackbox_reduce (filename, telescope, mode, read_path):
         # and let [filename] refer to the image in [raw_path]
         filename = dest
 
-
-    # read in image header; unzip image first if needed
-    filename = unzip(filename)
-    header = read_hdulist(filename, ext_header=0)
 
     # extend the header with some useful keywords
     result = set_header(header, filename)
@@ -433,7 +429,7 @@ def blackbox_reduce (filename, telescope, mode, read_path):
     # if [only_filt] is specified, skip image if not relevant
     if only_filt is not None:
         if filt not in only_filt and imgtype != 'bias':
-            q.put(logger.warn ('filter of image ({}) not in [only_filters] ({}); skipping'
+            q.put(logger.warning ('filter of image ({}) not in [only_filters] ({}); skipping'
                                .format(filt, only_filt)))
             skip_count_biasflat (mode, imgtype, filt)
             return
@@ -477,7 +473,7 @@ def blackbox_reduce (filename, telescope, mode, read_path):
     header['REDFILE'] = (fits_out.split('/')[-1], 'BlackBOX reduced file name')
             
     if os.path.isfile(fits_out) or os.path.isfile(fits_out+'.fz'):
-        q.put(logger.warn ('corresponding reduced image {} already exist; skipping'
+        q.put(logger.warning ('corresponding reduced image {} already exist; skipping'
                            .format(fits_out.split('/')[-1])))
         skip_count_biasflat (mode, imgtype, filt)
         return
@@ -522,7 +518,7 @@ def blackbox_reduce (filename, telescope, mode, read_path):
 
 
     # now also read in the data
-    data = read_hdulist(filename, ext_data=0, dtype='float32')   
+    data = read_hdulist(filename, ext_data=file_ext, dtype='float32')   
 
     # gain correction
     #################
@@ -1015,7 +1011,7 @@ def create_log (logfile):
 
     streamHandler = logging.StreamHandler()
     streamHandler.setFormatter(logFormatter)
-    streamHandler.setLevel(logging.WARN)
+    streamHandler.setLevel(logging.WARNING)
     log.addHandler(streamHandler)
 
     return log
@@ -1078,9 +1074,9 @@ def sat_detect (data, header, data_mask, header_mask, tmp_path):
         t = time.time()
 
     #bin data
-    binned_data = data.reshape(np.shape(data)[0]/get_par(set_bb.sat_bin,tel),
+    binned_data = data.reshape(np.shape(data)[0] // get_par(set_bb.sat_bin,tel),
                                get_par(set_bb.sat_bin,tel),
-                               np.shape(data)[1]/get_par(set_bb.sat_bin,tel),
+                               np.shape(data)[1] // get_par(set_bb.sat_bin,tel),
                                get_par(set_bb.sat_bin,tel)).sum(3).sum(1)
     satellite_fitting = False
 
@@ -1590,7 +1586,8 @@ def set_header(header, filename):
         
     arcfile = '{}.{}.fits'.format(tel, date_obs_str)
     edit_head(header, 'ARCFILE', value=arcfile, comments='Archive filename')
-    edit_head(header, 'ORIGFILE', value=filename.split('/')[-1], comments='ABOT original filename')
+    edit_head(header, 'ORIGFILE', value=filename.split('/')[-1].split('.fits')[0],
+              comments='ABOT original filename')
 
     edit_head(header, 'FILTER', comments='Filter')
     if tel=='ML1':
@@ -1743,7 +1740,7 @@ def os_corr(data, header):
 
     # add top and bottom parts as well
     result = add_stats(mean_vos_top, std_vos_top, 'top', 'T')
-    result = add_stats(mean_vos_bottom, std_vos_bottom, 'bottom', 'B')        
+    result = add_stats(mean_vos_bottom, std_vos_bottom, 'bot.', 'B')        
         
     if get_par(set_zogy.timing,tel):
         log_timing_memory (t0=t, label='os_corr', log=log)
@@ -2105,12 +2102,12 @@ class MyLogger(object):
             except ConnectionError: #if connection error occurs, add to log
                 self._log.error('Connection error: failed to connect to slack. Above meassage not uploaded.')
 
-    def warn(self, text):
+    def warning(self, text):
         '''Function to log at the INFO level.
 
         Logs messages to log file at the WARN level.'''
 
-        self._log.warn(text)
+        self._log.warning(text)
         message = self._log_stream.getvalue()
 
     def error(self, text):
