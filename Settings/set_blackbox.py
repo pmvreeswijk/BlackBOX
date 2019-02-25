@@ -1,6 +1,6 @@
 import os
 
-__version__ = '0.7.5'
+__version__ = '0.8'
 
 #===============================================================================
 # Number of processes and threads
@@ -24,7 +24,7 @@ subtract_mbias = False
 #===============================================================================
 
 # directory name where [blackbox] is run and the default subdirectories
-run_dir_base = '/media/data/pmv/Test_BGreduce_subpipe_zogy'
+run_dir_base = os.environ['DATA_HOME']
 
 # temporary directory where data is reduced; ideally this is on a disk
 # with fast read/write speed - for the moment it is the same as
@@ -57,10 +57,10 @@ new_2keep = ['_D.fits', '_Scorr.fits', '_Fpsf.fits','_Fpsferr.fits',
 #===============================================================================
 
 # name of Xtalk file created by Kerry
-crosstalk_file = {'ML1': os.environ['ZOGYHOME']+'/CalFiles/crosstalk_20180620.txt'}
+crosstalk_file = {'ML1': os.environ['BLACKBOX_HOME']+'/CalFiles/crosstalk_20180620.txt'}
 
 # name of initial bad pixel mask
-bad_pixel_mask = {'ML1': os.environ['ZOGYHOME']+'/CalFiles/bpm_u_0p05.fits'}
+bad_pixel_mask = {'ML1': os.environ['BLACKBOX_HOME']+'/CalFiles/bpm_u_0p05.fits'}
 
 #===============================================================================
 # Cosmic ray and satellite trail detection
