@@ -1,20 +1,19 @@
 #!/bin/bash
 
 # Bash script to help install BlackBOX and ZOGY automatically on a
-# linux machine. It has been tested using a Google cloud VM instance
+# Linux machine. It has been tested using a Google cloud VM instance
 # with a fresh install of Ubuntu 18.04 LTS.
 #
-# to run: download and execute "sudo ./startup_blackbox_zogy.sh"
+# to run: download and execute "./startup_blackbox_zogy.sh"
 #
 # Still to do:
 #
 # - add the calibration binary fits catalog used by zogy
-# - add the Astrometry.net index files
 # - try to make apt-get install PSFEx (and SExtractor) with multi-threading
+
 
 # versions/settings
 # -----------------
-
 # python version
 v_python="3.7"
 # zogy and blackbox versions; leave these empty ("") or comment out
@@ -29,25 +28,25 @@ blackboxhome=${PWD}/BlackBOX
 
 # ubuntu update/upgrade
 # ---------------------
-apt-get -y update
-apt-get -y upgrade
+sudo apt-get -y update
+sudo apt-get -y upgrade
 
 
 # python and pip
 # --------------
-apt-get -y install python${v_python} python${v_python}-dev
+sudo apt-get -y install python${v_python} python${v_python}-dev
 if [ ${v_python} \< "3" ]
 then
-    apt-get -y install python-pip
+    sudo apt-get -y install python-pip
 else
-    apt-get -y install python3-pip
+    sudo apt-get -y install python3-pip
 fi
 pip="python${v_python} -m pip"
 
 
 # git (already installed in non-minimal version of 18.04)
 # -------------------------------------------------------
-apt-get -y install git
+sudo apt-get -y install git
 
 
 # clone ZOGY and BlackBOX repositories in current directory
@@ -58,6 +57,7 @@ then
     v_zogy_git="@v${v_zogy}"
 fi
 git clone ${zogy_branch} https://github.com/pmvreeswijk/ZOGY
+
 if [ ! -z ${v_blackbox} ]
 then
     blackbox_branch="--branch v${v_blackbox}"
@@ -75,8 +75,8 @@ rm -rf ${blackboxhome}
 
 # install ZOGY and BlackBOX repositories
 # --------------------------------------
-${pip} install git+git://github.com/pmvreeswijk/ZOGY${v_zogy_git}
-${pip} install git+git://github.com/pmvreeswijk/BlackBOX${v_blackbox_git}
+sudo -H ${pip} install git+git://github.com/pmvreeswijk/ZOGY${v_zogy_git}
+sudo -H ${pip} install git+git://github.com/pmvreeswijk/BlackBOX${v_blackbox_git}
 
 
 # download calibration catalog
@@ -88,32 +88,28 @@ ${pip} install git+git://github.com/pmvreeswijk/BlackBOX${v_blackbox_git}
 # ---------------------
 
 # Astrometry.net
-apt-get -y install astrometry.net
-# make sure correct Index files are saved in correct directory on
-# mlcontrol these are in /usr/local/astrometry/data/ but this
-# directory does not exist on GCloud VM it is /usr/share/astrometry/,
-# while config file is at /etc/astrometry.cfg
+sudo apt-get -y install astrometry.net
 
 # SExtractor (although it seems already installed automatically)
-apt-get -y install sextractor
+sudo apt-get -y install sextractor
 # the executable for this installation is 'sextractor' while ZOGY
 # expects 'sex'; make a symbolic link
-ln -s /usr/bin/sextractor /usr/bin/sex
+sudo ln -s /usr/bin/sextractor /usr/bin/sex
 
 # SWarp
-apt-get -y install swarp
+sudo apt-get -y install swarp
 # the executable for this installation is 'SWarp' while ZOGY expects
 # 'swarp'; make a symbolic link
-ln -s /usr/bin/SWarp /usr/bin/swarp
+sudo ln -s /usr/bin/SWarp /usr/bin/swarp
 
 # PSFEx - this basic install does not allow multi-threading
-apt-get -y install psfex
+sudo apt-get -y install psfex
 
 # ds9
-apt-get -y install saods9
+sudo apt-get -y install saods9
 
 # dfits
-apt-get -y install qfits-tools
+sudo apt-get -y install qfits-tools
 
 
 # set environent variables:
@@ -122,7 +118,7 @@ if [[ ${SHELL} == *"bash"* ]]
 then
     export ZOGYHOME=${zogyhome}
     export DATAHOME=${datahome}
-    if [ -z "$PYTHONPATH" ]
+    if [ -z "${PYTHONPATH}" ]
     then
 	export PYTHONPATH=${zogyhome}\:${zogyhome}/Settings
     else
@@ -140,15 +136,48 @@ then
     fi
 fi
 echo
-echo "----------------------------------------------------------------------"
-echo "add these commands to your shell startup script (~/.bashrc, ~/.cshrc"
-echo "or ~/.zshrc) for these variables to be set next login, e.g. for bash:"
+echo "======================================================================"
 echo 
+echo "copy and paste the commands below to your shell startup script"
+echo "(~/.bashrc, ~/.cshrc or ~/.zshrc) for these system variables"
+echo "and python alias to be set at next login, e.g. for bash:"
+echo
+echo "# BlackBOX and ZOGY system variables"
 echo "export ZOGYHOME=${zogyhome}"
 echo "export DATAHOME=${datahome}"
-echo "export PYTHONPATH=\$PYTHONPATH:${zogyhome}:${zogyhome}/Settings"
+echo "if [ -z \"\${PYTHONPATH}\" ]"
+echo "then"
+echo "    export PYTHONPATH=${zogyhome}:${zogyhome}/Settings"
+echo "else"
+echo "    export PYTHONPATH=\${PYTHONPATH}:${zogyhome}:${zogyhome}/Settings"
+echo "fi"
 echo
-echo "and add an alias for python:"
-echo
+echo "# alias for python:"
 echo "alias python=python${v_python}"
 echo
+echo "======================================================================"
+echo
+
+# use Astrometry.net link to DR2 files
+url="http://data.astrometry.net/5000"
+# make sure correct Index files are saved in correct directory on
+# mlcontrol these are in /usr/local/astrometry/data/ but this
+# directory does not exist on GCloud VM; there it is
+# /usr/share/astrometry/, while config file is at /etc/astrometry.cfg
+dir1="/usr/share/astrometry"
+dir2="/usr/local/astrometry/data"
+dir3="${HOME}/IndexFiles"
+if [ -d "${dir1}" ]
+then
+    dir_save=${dir1}
+elif [ -d "${dir2}" ]
+then
+    dir_save=${dir2}
+else
+    dir_save=${dir3}
+    mkdir ${dir3}
+fi
+echo "downloading Astrometry.net index files to directory ${dir_save}"
+echo 
+sudo wget -nc $url/index-500{5..6}-0{0..9}.fits -P ${dir_save}
+sudo wget -nc $url/index-500{5..6}-1{0..1}.fits -P ${dir_save}
