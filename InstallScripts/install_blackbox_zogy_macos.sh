@@ -159,7 +159,7 @@ echo "and python alias to be set when starting a new terminal, e.g.:"
 echo
 echo "# BlackBOX and ZOGY system variables"
 
-if [[ ${SHELL} == *"bash"* ] || [ ${SHELL} == *"zsh"* ]]
+if [[ ${SHELL} == *"bash"* ]] || [[ ${SHELL} == *"zsh"* ]]
 then
     echo "export ZOGYHOME=${zogyhome}"
     echo "export DATAHOME=${datahome}"
