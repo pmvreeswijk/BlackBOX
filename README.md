@@ -6,6 +6,6 @@ It makes grateful use of the following programs:
 - acstools.satdet: https://acstools.readthedocs.io/en/stable/satdet.html
 - astroscrappy: https://github.com/astropy/astroscrappy
 
-In InstallScripts you will find bash scripts to help with the installation of BlackBOX and ZOGY simultaneously on Ubuntu and macOS; please read through them before running them to ensure they do not interfere with your present installation.
+In InstallScripts you will find bash scripts to help with the combined installation of BlackBOX and ZOGY on Ubuntu and macOS; please read through them before running them to ensure they do not interfere with your current installation.
 
 This project is licensed under the terms of the MIT license.
