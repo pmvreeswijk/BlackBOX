@@ -1,16 +1,18 @@
 import os
 
-__version__ = '0.8'
+# discontinuing versions for this setting file as it is automatically
+# linked to the blackbox.py version using tags in github
+#__version__ = '0.8.1'
 
 #===============================================================================
 # Number of processes and threads
 #===============================================================================
 
 # number of processes to run in parallel
-nproc = 2
+nproc = 8
 # maximum number of threads for each process (this parameter
 # cannot be made telescope dependent through a dictionary!)
-nthread = 2
+nthread = 1
 
 #===============================================================================
 # Reduction switches
@@ -103,31 +105,7 @@ satlevel = 55000
 # reduced image data section used for flat normalisation
 flat_norm_sec = {'ML1': tuple([slice(5300,6300), slice(4100,5100)])}
 
-# define channel, data, overscan and normalisation sections
-ysize, ny, os_ysize = 10600, 2,  20; dy = int(ysize/ny)
-xsize, nx, os_xsize = 12000, 8, 180; dx = int(xsize/nx)
-
-# the sections below are defined such that e.g. chan_sec[0] refers to
-# all pixels of the first channel, where the channel indices are
-# currently defined to be located on the CCD as follows:
-#
-# [ 8, 9, 10, 11, 12, 13, 14, 15]
-# [ 0, 1,  2,  3,  4,  5,  6,  7]
-        
-# channel section slices including overscan; shape=(16,2)
-chan_sec = tuple([(slice(y,y+dy), slice(x,x+dx))
-                  for y in range(0,ysize,dy) for x in range(0,xsize,dx)])
-# channel data section slices; shape=(16,2)
-data_sec = tuple([(slice(y,y+dy-os_ysize), slice(x,x+dx-os_xsize))
-                  for y in range(0,ysize,dy+os_ysize) for x in range(0,xsize,dx)])
-# channel vertical overscan section slices; shape=(16,2)
-os_sec_vert = tuple([(slice(y,y+dy), slice(x+dx-os_xsize,x+dx-1))
-                     for y in range(0,ysize,dy) for x in range(0,xsize,dx)])
-# channel horizontal overscan sections; shape=(16,2)
-# cut off 5 pixels from os_ysize
-os_sec_hori = tuple([(slice(y,y+15), slice(x,x+dx-os_xsize))
-                     for y in range(dy-15,dy+15,15) for x in range(0,xsize,dx)])
-# channel reduced data section slices; shape=(16,2)
-data_sec_red = tuple([(slice(y,y+dy-os_ysize), slice(x,x+dx-os_xsize))
-                      for y in range(0,ysize-ny*os_ysize,dy-os_ysize)
-                      for x in range(0,xsize-nx*os_xsize,dx-os_xsize)])
+# define number of channels in x and y
+ny, nx = 2, 8
+# and size of data section in each channel
+ysize_chan, xsize_chan = 5280, 1320

@@ -30,7 +30,7 @@ import ephem
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
-__version__ = '0.8'
+__version__ = '0.8.1'
 
 #def init(l):
 #    global lock
@@ -54,7 +54,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     if not os.path.isdir(get_par(set_bb.log_dir,tel)):
         os.makedirs(get_par(set_bb.log_dir,tel))
     
-    global q, logger
+    global q, logger, genlogfile
     q = Manager().Queue() #create queue for logging
 
     genlog = logging.getLogger() #create logger
@@ -469,8 +469,6 @@ def blackbox_reduce (filename, telescope, mode, read_path):
                 skip_count_biasflat (mode, imgtype, filt)
                 return
 
-    # add reduced filename to header
-    header['REDFILE'] = (fits_out.split('/')[-1], 'BlackBOX reduced file name')
             
     if os.path.isfile(fits_out) or os.path.isfile(fits_out+'.fz'):
         q.put(logger.warning ('corresponding reduced image {} already exist; skipping'
@@ -517,6 +515,16 @@ def blackbox_reduce (filename, telescope, mode, read_path):
         log.info('ref_path: {}'.format(ref_path))
 
 
+    # add some header keywords, BlackBOX version
+    header['BB-V'] = (__version__, 'BlackBOX version used')
+    # general log file
+    header['LOG'] = (genlogfile.split('/')[-1], 'name general logfile')
+    # image log file
+    header['LOG-IMA'] = (logfile.split('/')[-1], 'name image logfile')
+    # reduced filename
+    header['REDFILE'] = (fits_out.split('/')[-1], 'BlackBOX reduced file name')
+
+        
     # now also read in the data
     data = read_hdulist(filename, ext_data=file_ext, dtype='float32')   
 
@@ -565,7 +573,7 @@ def blackbox_reduce (filename, telescope, mode, read_path):
             xtalk_processed = True
         # following line needs to be outside if/else statements
         header['XTALK-P'] = (xtalk_processed, 'corrected for crosstalk?')
-        header['XTALK-F'] = (get_par(set_bb.crosstalk_file,tel).strip('/')[-1],
+        header['XTALK-F'] = (get_par(set_bb.crosstalk_file,tel).split('/')[-1],
                              'name crosstalk coefficients file')
 
         if get_par(set_zogy.display,tel):
@@ -765,7 +773,7 @@ def blackbox_reduce (filename, telescope, mode, read_path):
     
     # add some more info to mask header
     result = mask_header(data_mask, header_mask)
-    
+
     # write data and mask to output images in [tmp_path]
     log.info('writing reduced image and mask to {}'.format(tmp_path))
     new_fits = '{}/{}'.format(tmp_path, fits_out.split('/')[-1]) 
@@ -866,7 +874,7 @@ def blackbox_reduce (filename, telescope, mode, read_path):
             
             # make symbolic links to all files in the reference
             # directory with the same filter
-            ref_files = glob.glob('{}/{}*{}*'.format(ref_path, telescope, filt))
+            ref_files = glob.glob('{}/{}_{}_*'.format(ref_path, telescope, filt))
             for ref_file in ref_files:
                 # unzip file first if needed
                 ref_file = unzip(ref_file)
@@ -1271,7 +1279,7 @@ def master_prep (data, path, date_eve, imtype, filt=None):
     elif imtype=='bias':
         fits_master = '{}/{}_{}.fits'.format(path, imtype, date_eve)
 
-    #log.info('fits_master: {}'.format(fits_master))
+
     if os.path.isfile(fits_master+'.fz'):
         fits_master = unzip(fits_master+'.fz', put_lock=False)
     
@@ -1295,8 +1303,13 @@ def master_prep (data, path, date_eve, imtype, filt=None):
             if fits_master_close is not None:
 
                 fits_master_close = unzip(fits_master_close, put_lock=False)
-                print ('Warning: too few images available to produce master {}; instead using\n{}'
-                       .format(imtype, fits_master_close))
+                # if master bias subtraction switch is off, the master
+                # bias is still prepared, but message below is
+                # confusing, so don't show it
+                if ((imtype=='bias' and get_par(set_bb.subtract_mbias,tel))
+                    or imtype=='flat'):
+                    log.info ('Warning: too few images available to produce master {}; '
+                              'instead using\n{}'.format(imtype, fits_master_close))
                 # previously we created a symbolic link so future
                 # files would automatically use this as the master
                 # file, but as this symbolic link is confusing, let's
@@ -1306,15 +1319,20 @@ def master_prep (data, path, date_eve, imtype, filt=None):
                 fits_master = fits_master_close
                 
             else:
-                log.error('no alternative master {} found'.format(imtype))
+                if ((imtype=='bias' and get_par(set_bb.subtract_mbias,tel))
+                    or imtype=='flat'):
+                    log.error('no alternative master {} found'.format(imtype))
                 return
                 
         else:
             
             if imtype=='bias':
-                print ('making master {}'.format(imtype))
+                q.put(logger.info ('making master {}'.format(imtype)))
+                if not get_par(set_bb.subtract_mbias,tel):
+                    q.put(logger.info ('(but will not be used as [subtract_mbias] '
+                                      'is set to False)'))
             if imtype=='flat':
-                print ('making master {} in filter {}'.format(imtype, filt))
+                q.put(logger.info ('making master {} in filter {}'.format(imtype, filt)))
                 
             # assuming that individual flats/biases have the same shape as the input data
             ysize, xsize = np.shape(data)
@@ -1333,8 +1351,8 @@ def master_prep (data, path, date_eve, imtype, filt=None):
                     # divide by median over the region [set_bb.flat_norm_sec]
                     mean, std, median = clipped_stats(
                         master_cube[i_file][get_par(set_bb.flat_norm_sec,tel)])
-                    print ('flat name: {}, mean: {}, std: {}, median: {}'
-                           .format(filename, mean, std, median))
+                    log.info ('flat name: {}, mean: {}, std: {}, median: {}'
+                              .format(filename, mean, std, median))
                     master_cube[i_file] /= median
                     
                 if i_file==0:
@@ -1387,7 +1405,7 @@ def master_prep (data, path, date_eve, imtype, filt=None):
 
                 # including the means and standard deviations of the master
                 # bias in the separate channels
-                data_sec_red = get_par(set_bb.data_sec_red,tel)
+                __, __, __, __, data_sec_red = define_sections(np.shape(data))
                 nchans = np.shape(data_sec_red)[0]
                 mean_chan = np.zeros(nchans)
                 std_chan = np.zeros(nchans)
@@ -1644,7 +1662,61 @@ def set_header(header, filename):
     
     return header
 
-    
+
+################################################################################
+
+def define_sections (data_shape):
+
+    """Function that defines and returns [chan_sec], [data_sec],
+    [os_sec_hori], [os_sec_vert] and [data_sec_red], based on the
+    number of channels in x and y and the sizes of the channel data
+    sections defined in the blackbox settings file [set_blackbox], and
+    the input shape (ysize, xsize) that define the total size of the
+    raw image.
+
+    """
+
+    ysize, xsize = data_shape
+    ny = get_par(set_bb.ny,tel)
+    nx = get_par(set_bb.nx,tel)
+    dy = ysize // ny
+    dx = xsize // nx
+
+    ysize_chan = get_par(set_bb.ysize_chan,tel)
+    xsize_chan = get_par(set_bb.xsize_chan,tel)
+    ysize_os = (ysize-ny*ysize_chan) // ny
+    xsize_os = (xsize-nx*xsize_chan) // nx
+
+    # the sections below are defined such that e.g. chan_sec[0] refers
+    # to all pixels of the first channel, where the channel indices
+    # are currently defined to be located on the CCD as follows:
+    #
+    # [ 8, 9, 10, 11, 12, 13, 14, 15]
+    # [ 0, 1,  2,  3,  4,  5,  6,  7]
+
+    # channel section slices including overscan; shape=(16,2)
+    chan_sec = tuple([(slice(y,y+dy), slice(x,x+dx))
+                      for y in range(0,ysize,dy) for x in range(0,xsize,dx)])
+    # channel data section slices; shape=(16,2)
+    data_sec = tuple([(slice(y,y+ysize_chan), slice(x,x+xsize_chan))
+                      for y in range(0,ysize,dy+ysize_os) for x in range(0,xsize,dx)])
+    # channel vertical overscan section slices; shape=(16,2)
+    os_sec_vert = tuple([(slice(y,y+dy), slice(x+xsize_chan,x+dx-1))
+                         for y in range(0,ysize,dy) for x in range(0,xsize,dx)])
+    # channel horizontal overscan sections; shape=(16,2)
+    os_sec_hori = tuple([(slice(y,y+ysize_os), slice(x,x+xsize_chan))
+                         for y in range(ysize_chan,dy+ysize_os,ysize_os) for x in range(0,xsize,dx)])
+    # cut off 5 pixels from ysize_os
+    #os_sec_hori = tuple([(slice(y,y+15), slice(x,x+xsize_chan))
+    #                     for y in range(dy-15,dy+15,15) for x in range(0,xsize,dx)])
+    # channel reduced data section slices; shape=(16,2)
+    data_sec_red = tuple([(slice(y,y+ysize_chan), slice(x,x+xsize_chan))
+                          for y in range(0,ysize-ny*ysize_os,ysize_chan)
+                          for x in range(0,xsize-nx*xsize_os,xsize_chan)])
+
+    return chan_sec, data_sec, os_sec_hori, os_sec_vert, data_sec_red
+
+
 ################################################################################
 
 def os_corr(data, header):
@@ -1661,23 +1733,21 @@ def os_corr(data, header):
     if get_par(set_zogy.timing,tel):
         t = time.time()
 
-    chan_sec = get_par(set_bb.chan_sec,tel)
-    data_sec = get_par(set_bb.data_sec,tel)
-    os_sec_hori = get_par(set_bb.os_sec_hori,tel)
-    os_sec_vert = get_par(set_bb.os_sec_vert,tel)
-    data_sec_red = get_par(set_bb.data_sec_red,tel)
-    
+    chan_sec, data_sec, os_sec_hori, os_sec_vert, data_sec_red = (
+        define_sections(np.shape(data)))
+        
     # PMV 2018/08/01: this is a constant used inside the loop
-    dcol = 21 # after testing, 21 seems a decent width to use
+    dcol = 3 # after testing, 21 seems a decent width to use
+    dcol_half = int(dcol/2.)+1
 
-    # number of data columns and rows in the channel
-    ncols = get_par(set_bb.dx,tel) - get_par(set_bb.os_xsize,tel)
-    nrows = get_par(set_bb.dy,tel) - get_par(set_bb.os_ysize,tel)
-
-    # initialize output data array (without overscan sections)
-    ysize_out = get_par(set_bb.ysize,tel) - get_par(set_bb.ny,tel) * get_par(set_bb.os_ysize,tel)
-    xsize_out = get_par(set_bb.xsize,tel) - get_par(set_bb.nx,tel) * get_par(set_bb.os_xsize,tel)
-    data_out = np.zeros((ysize_out, xsize_out), dtype='float32')
+    # number of data columns and rows in the channel (without overscans)
+    ncols = get_par(set_bb.xsize_chan,tel)
+    nrows = get_par(set_bb.ysize_chan,tel)
+    
+    # initialize output data array (without overscans)
+    ny = get_par(set_bb.ny,tel)
+    nx = get_par(set_bb.nx,tel)
+    data_out = np.zeros((nrows*ny, ncols*nx), dtype='float32')
 
     # and arrays to calculate average means and stds over all channels
     nchans = np.shape(data_sec)[0]
@@ -1696,8 +1766,15 @@ def os_corr(data, header):
         # vertical overcan section from the entire channel
         data_vos = data[os_sec_vert[i_chan]]
         mean_vos[i_chan], std_vos[i_chan] = clipped_stats(data_vos, get_median=False)
-        data[chan_sec[i_chan]] -= mean_vos[i_chan]
+        #data[chan_sec[i_chan]] -= mean_vos[i_chan]
 
+        ## also subtract vertical overscan off each row?
+        #mean_vos, median_vos, std_vos = sigma_clipped_stats(data_vos, axis=1)
+        #oscan = [np.mean(mean_vos[max(k-dcol_half,0):min(k+dcol_half+1,nrows)])
+        #         for k in range(nrows)]
+        ## subtract vertical overscan
+        #data[data_sec[i_chan]] -= np.hstack([oscan]*ncols)
+                
         # add statistics of top and bottom part of vertical overscan
         # to enable checking of any vertical gradient present
         data_vos_top = data_vos[-1000:,:]
@@ -1709,7 +1786,6 @@ def os_corr(data, header):
         # values across [dcol] columns, for [ncols] columns
         data_hos = data[os_sec_hori[i_chan]]
         mean_hos, median_hos, std_hos = sigma_clipped_stats(data_hos, axis=0)
-        dcol_half = int(dcol/2.)+1
         oscan = [np.mean(mean_hos[max(k-dcol_half,0):min(k+dcol_half+1,ncols)])
                  for k in range(ncols)]
         # do not use the running mean for the first column(s)
@@ -1762,7 +1838,7 @@ def xtalk_corr (data, crosstalk_file):
     source -= 1
         
     # channel image sections
-    chan_sec = get_par(set_bb.chan_sec,tel)
+    chan_sec, __, __, __, __ = define_sections(np.shape(data))
     # number of channels
     nchans = np.shape(chan_sec)[0]
         
@@ -1788,81 +1864,65 @@ def xtalk_corr (data, crosstalk_file):
         data[chan_sec[int(victim[k])]] -= data[chan_sec[int(source[k])]]*correction[k]
 
 
-    if False:
+    # keep this info for the moment:
 
-        # this part is basically the same as Kerry's function
-        victim, source, correction = np.loadtxt(crosstalk_file,unpack=True)
-        
-        #data = data[0]
-        height,width = get_par(set_bb.dy,tel), get_par(set_bb.dx,tel) # = ccd_sec()
-        for k in range(len(victim)):
-            if victim[k] < 9:
-                # in original code, this was j,i=1,0
-                j, i = 0, 0
-            else:
-                # in original code, this was j,i=0,8
-                j, i = 1, 8
-            data[height*j:height*(j+1),width*(int(victim[k])-1-i):width*(int(victim[k])-i)] -= data[height*j:height*(j+1),width*(int(source[k])-1-i):width*(int(source[k])-i)]*correction[k]
-
-        # keep this info for the moment:
-
-        # alternatively, an attempt to do it through matrix
-        # multiplication, which should be much faster, but the loop is
-        # only taking 1-2 seconds anyway.
-
-        # build nchans x nchans correction matrix, such that when
-        # matrix-multiplying: data[chan_sec] with the correction matrix,
-        # the required crosstalk correction to data[chan_sec] is
-        # immediately obtained
-        #corr_matrix_old = np.zeros((nchans,nchans))
-        #for k in range(len(victim)):
-        #    corr_matrix_old[int(source[k]-1), int(victim[k]-1)] = correction[k]
-            
-        # since channels were defined differently, shuffle them around
-        #corr_matrix = np.copy(corr_matrix_old)
-        #top_left = tuple([slice(0,nchans/2), slice(0,nchans/2)])
-        #bottom_right = tuple([slice(nchans/2,nchans), slice(nchans/2,nchans)])
-        #corr_matrix[top_left] = corr_matrix_old[bottom_right]
-        #corr_matrix[bottom_right] = corr_matrix_old[top_left]
-
-        #shape_temp = np.shape(chan_sec[0]) + (nchans,)
-        #data_chan_row = np.zeros(shape_temp)
-        #data[chan_sec] -= np.matmul(data[chan_sec], corr_matrix)
-
-        # N.B.: note that the channel numbering here:
-        #
-        # [ 0, 1,  2,  3,  4,  5,  6,  7]
-        # [ 8, 9, 10, 11, 12, 13, 14, 15]
-        # 
-        # is not the same as that assumed with the gain.
-        #
-        # height,width = 5300, 1500 # = ccd_sec()
-        # for victim in range(1,17):
-        #     if victim < 9:
-        #         j, i = 1, 0
-        #     else:
-        #         j, i = 0, 8
-        #     print (victim, height*j, height*(j+1), width*(int(victim)-1-i), width*(int(victim)-i))
-        #
-        # victim is not the channel index, but number
-        #
-        # [vpn224246:~] pmv% python test_xtalk.py
-        # 1 5300 10600 0 1500
-        # 2 5300 10600 1500 3000
-        # 3 5300 10600 3000 4500
-        # 4 5300 10600 4500 6000
-        # 5 5300 10600 6000 7500
-        # 6 5300 10600 7500 9000
-        # 7 5300 10600 9000 10500
-        # 8 5300 10600 10500 12000
-        # 9 0 5300 0 1500
-        # 10 0 5300 1500 3000
-        # 11 0 5300 3000 4500
-        # 12 0 5300 4500 6000
-        # 13 0 5300 6000 7500
-        # 14 0 5300 7500 9000
-        # 15 0 5300 9000 10500
-        # 16 0 5300 10500 12000
+    # alternatively, an attempt to do it through matrix
+    # multiplication, which should be much faster, but the loop is
+    # only taking 1-2 seconds anyway.
+    
+    # build nchans x nchans correction matrix, such that when
+    # matrix-multiplying: data[chan_sec] with the correction matrix,
+    # the required crosstalk correction to data[chan_sec] is
+    # immediately obtained
+    #corr_matrix_old = np.zeros((nchans,nchans))
+    #for k in range(len(victim)):
+    #    corr_matrix_old[int(source[k]-1), int(victim[k]-1)] = correction[k]
+    
+    # since channels were defined differently, shuffle them around
+    #corr_matrix = np.copy(corr_matrix_old)
+    #top_left = tuple([slice(0,nchans/2), slice(0,nchans/2)])
+    #bottom_right = tuple([slice(nchans/2,nchans), slice(nchans/2,nchans)])
+    #corr_matrix[top_left] = corr_matrix_old[bottom_right]
+    #corr_matrix[bottom_right] = corr_matrix_old[top_left]
+    
+    #shape_temp = np.shape(chan_sec[0]) + (nchans,)
+    #data_chan_row = np.zeros(shape_temp)
+    #data[chan_sec] -= np.matmul(data[chan_sec], corr_matrix)
+    
+    # N.B.: note that the channel numbering here:
+    #
+    # [ 0, 1,  2,  3,  4,  5,  6,  7]
+    # [ 8, 9, 10, 11, 12, 13, 14, 15]
+    # 
+    # is not the same as that assumed with the gain.
+    #
+    # height,width = 5300, 1500 # = ccd_sec()
+    # for victim in range(1,17):
+    #     if victim < 9:
+    #         j, i = 1, 0
+    #     else:
+    #         j, i = 0, 8
+    #     print (victim, height*j, height*(j+1), width*(int(victim)-1-i), width*(int(victim)-i))
+    #
+    # victim is not the channel index, but number
+    #
+    # [vpn224246:~] pmv% python test_xtalk.py
+    # 1 5300 10600 0 1500
+    # 2 5300 10600 1500 3000
+    # 3 5300 10600 3000 4500
+    # 4 5300 10600 4500 6000
+    # 5 5300 10600 6000 7500
+    # 6 5300 10600 7500 9000
+    # 7 5300 10600 9000 10500
+    # 8 5300 10600 10500 12000
+    # 9 0 5300 0 1500
+    # 10 0 5300 1500 3000
+    # 11 0 5300 3000 4500
+    # 12 0 5300 4500 6000
+    # 13 0 5300 6000 7500
+    # 14 0 5300 7500 9000
+    # 15 0 5300 9000 10500
+    # 16 0 5300 10500 12000
 
         
     if get_par(set_zogy.timing,tel):
@@ -1884,7 +1944,9 @@ def gain_corr(data, header):
     """
 
     gain = get_par(set_bb.gain,tel)
-    chan_sec = get_par(set_bb.chan_sec,tel)
+    # channel image sections
+    chan_sec, __, __, __, __ = define_sections(np.shape(data))
+
     for i_chan in range(np.shape(chan_sec)[0]):
         data[chan_sec[i_chan]] *= gain[i_chan]
         header['GAIN{}'.format(i_chan+1)] = (gain[i_chan], 'gain applied to channel {}'.format(i_chan+1))
