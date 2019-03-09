@@ -30,7 +30,7 @@ import ephem
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
-__version__ = '0.8.1'
+__version__ = '0.8.2'
 
 #def init(l):
 #    global lock
@@ -810,8 +810,8 @@ def blackbox_reduce (filename, telescope, mode, read_path):
         # [ref_ID_filt] before the next process is calling [check_ref]
         time.sleep(1)
         ref_being_made = check_ref(ref_ID_filt, (obj, filt), put_lock=False)
-        log.info('is reference for same OBJECT: {} and FILTER: {} being_made now?: {}'
-                 .format(obj, filt, ref_being_made))
+        log.info ('is reference image for same OBJECT: {} and FILTER: {} '
+                  'being made now?: {}'.format(obj, filt, ref_being_made))
 
         # release lock
         lock.release()
@@ -819,11 +819,13 @@ def blackbox_reduce (filename, telescope, mode, read_path):
         if ref_being_made:
             # if reference in this filter is being made, let the affected
             # process wait until reference building is done
-            while check_ref(ref_ID_filt, (obj, filt)):
-                log.info ('waiting for reference job to be finished for '+
+            while True:
+                log.info ('waiting for reference image to be made for '+
                           'OBJECT: {}, FILTER: {}'.format(obj, filt))
-                time.sleep(10)
-            log.info ('done waiting for reference job to be finished for '+
+                time.sleep(5)
+                if not check_ref(ref_ID_filt, (obj, filt)):
+                    break
+            log.info ('done waiting for reference image to be made for '+
                       'OBJECT: {}, FILTER: {}'.format(obj, filt))
                     
         # lock the following block to allow only a single process to
@@ -831,19 +833,15 @@ def blackbox_reduce (filename, telescope, mode, read_path):
         #lock.acquire()
 
         # if ref image has not yet been processed:
-        log.info('has reference image: {} been processed already?: {}'
+        log.info('has reference image: {} been made already?: {}'
                  .format(ref_fits_out, os.path.isfile(ref_fits_out)))
         if not os.path.isfile(ref_fits_out):
-#            refjob = True
-#        else:
-#            refjob = False
-#        if refjob:
             
             # update [ref_ID_filt] queue with a tuple with this OBJECT
             # and FILTER combination
             ref_ID_filt.put((obj, filt))
-
-            log.info('making ref image: {}'.format(ref_fits_out))
+            
+            log.info('making reference image: {}'.format(ref_fits_out))
 
             log.info('new_fits: {}'.format(new_fits))
             log.info('new_fits_mask: {}'.format(new_fits_mask))
@@ -866,7 +864,9 @@ def blackbox_reduce (filename, telescope, mode, read_path):
             # now that reference is built, remove this reference ID
             # and filter combination from the [ref_ID_filt] queue
             result = check_ref(ref_ID_filt, (obj, filt), method='remove')
-            
+
+            log.info('finished making reference image: {}'.format(ref_fits_out))
+
         else:
 
          #lock.release()        
@@ -932,10 +932,11 @@ def check_ref (queue_ref, obj_filt, method=None, put_lock=True):
 
     if put_lock:
         lock.acquire()
-    
+        
     # initialize list with copy of queue 
     mycopy = []
     ref_being_made = False
+
     while True:
         try:
             # get (return and remove) next element from input queue
@@ -954,14 +955,18 @@ def check_ref (queue_ref, obj_filt, method=None, put_lock=True):
     # loop over copy of queue to put elements back into input queue
     # N.B.: input queue is empty at this point
     for elem in mycopy:
+        # put element back into original queue
+        queue_ref.put(elem, False)
         # if element matches input [obj_filt] (tuple: (object,
         # filter)), reference image is still being made
         if elem == obj_filt:
             ref_being_made = True
-        # put element back into original queue
-        queue_ref.put(elem)
-        #time.sleep(0.1)
-        
+
+    # need to wait a little bit because putting an element in the
+    # queue is not instantaneous, and so it could (and does) happen
+    # that queue is checked again before element is present
+    time.sleep(0.1)
+
     if put_lock:
         lock.release()
 
@@ -1308,8 +1313,9 @@ def master_prep (data, path, date_eve, imtype, filt=None):
                 # confusing, so don't show it
                 if ((imtype=='bias' and get_par(set_bb.subtract_mbias,tel))
                     or imtype=='flat'):
-                    log.info ('Warning: too few images available to produce master {}; '
-                              'instead using\n{}'.format(imtype, fits_master_close))
+                    log.info ('Warning: too few images to produce master {} for '
+                              'evening date {}; using: {}'.
+                              format(imtype, date_eve, fits_master_close))
                 # previously we created a symbolic link so future
                 # files would automatically use this as the master
                 # file, but as this symbolic link is confusing, let's
