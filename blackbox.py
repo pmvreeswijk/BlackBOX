@@ -30,7 +30,7 @@ import ephem
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
-__version__ = '0.8.2'
+__version__ = '0.8.3'
 
 #def init(l):
 #    global lock
@@ -676,6 +676,10 @@ def blackbox_reduce (filename, telescope, mode, read_path):
             ds9_arrays(mask=data_mask)
 
 
+        # set edge pixel values to zero
+        data[data_mask==get_par(set_zogy.mask_value['edge'],tel)] = 0
+    
+
     # if IMAGETYP=flat, write [data] to fits
     if imgtype == 'flat':
         fits.writeto(fits_out, data.astype('float32'), header, overwrite=True)
@@ -1051,14 +1055,13 @@ def make_dir(path, empty=False):
 
 ################################################################################
 
-def copy_files2keep (tmp_base, dest_base, ext2keep):
+def copy_files2keep (tmp_base, dest_base, ext2keep, move=True):
 
-    """Function to copy files with base name [tmp_base] and extensions
-    [ext2keep] to files with base name [dest_base] with the same
-    extensions. The base names should include the full path.
+    """Function to copy/move files with base name [tmp_base] and
+    extensions [ext2keep] to files with base name [dest_base] with the
+    same extensions. The base names should include the full path.
     """
     
-    lock.acquire()
     # list of all files starting with [tmp_base]
     tmpfiles = glob.glob('{}*'.format(tmp_base))
     # loop this list
@@ -1072,10 +1075,13 @@ def copy_files2keep (tmp_base, dest_base, ext2keep):
                 # if so, and the source and destination names are not
                 # identical, go ahead and copy
                 if tmpfile != destfile:
-                    log.info('copying {} to {}'.format(tmpfile, destfile))
-                    shutil.copyfile(tmpfile, destfile)
-
-    lock.release()
+                    if not move:
+                        log.info('copying {} to {}'.format(tmpfile, destfile))
+                        shutil.copyfile(tmpfile, destfile)
+                    else:
+                        log.info('moving {} to {}'.format(tmpfile, destfile))
+                        shutil.move(tmpfile, destfile)
+                        
     return
 
 
@@ -1203,14 +1209,20 @@ def mask_init (data, header):
     
     if get_par(set_zogy.timing,tel):
         t = time.time()
-
-    fits_bpm = unzip(get_par(set_bb.bad_pixel_mask,tel))
-    if os.path.isfile(fits_bpm):
+    
+    fits_bpm = get_par(set_bb.bad_pixel_mask,tel)
+    if (os.path.isfile(fits_bpm) or os.path.isfile(fits_bpm+'.fz') or
+        os.path.isfile(fits_bpm.replace('.fz',''))):
+        if '.fz' in fits_bpm or '.gz' in fits_bpm:
+            file_ext=1
+        else:
+            file_ext=0
         # if it exists, read it
-        data_mask = read_hdulist(fits_bpm, ext_data=0)
+        data_mask = read_hdulist(fits_bpm, ext_data=file_ext)
     else:
         # if not, create uint8 array of zeros with same shape as
         # [data]
+        log.info('Warning: bad pixel mask {} does not exist'.format(fits_bpm))
         data_mask = np.zeros(np.shape(data), dtype='uint8')
 
     # mask of pixels with non-finite values in [data]
@@ -1229,7 +1241,7 @@ def mask_init (data, header):
 
     # and pixels connected to saturated pixels
     struct = np.ones((3,3), dtype=bool)
-    mask_satconnect = ndimage.binary_dilation(mask_sat, structure=struct)
+    mask_satconnect = ndimage.binary_dilation(mask_sat, structure=struct, iterations=2)
     # add them to the mask
     data_mask[(mask_satconnect) & (~mask_sat)] += get_par(set_zogy.mask_value['saturated-connected'],tel)
 
@@ -1703,23 +1715,37 @@ def define_sections (data_shape):
     # channel section slices including overscan; shape=(16,2)
     chan_sec = tuple([(slice(y,y+dy), slice(x,x+dx))
                       for y in range(0,ysize,dy) for x in range(0,xsize,dx)])
+    #print ('chan_sec: {}'.format(chan_sec))
+
     # channel data section slices; shape=(16,2)
     data_sec = tuple([(slice(y,y+ysize_chan), slice(x,x+xsize_chan))
                       for y in range(0,ysize,dy+ysize_os) for x in range(0,xsize,dx)])
+    #print ('data_sec: {}'.format(data_sec))
+
     # channel vertical overscan section slices; shape=(16,2)
-    os_sec_vert = tuple([(slice(y,y+dy), slice(x+xsize_chan,x+dx-1))
+    # cut off [ncut] pixels to avoid including pixels on the edge of the
+    # overscan that are contaminated with flux from the image
+    # and also discard last column as can have high value
+    ncut = 5
+    os_sec_vert = tuple([(slice(y,y+dy), slice(x+xsize_chan+ncut,x+dx-1))
                          for y in range(0,ysize,dy) for x in range(0,xsize,dx)])
+    #print ('os_sec_vert: {}'.format(os_sec_vert))
+
     # channel horizontal overscan sections; shape=(16,2)
-    os_sec_hori = tuple([(slice(y,y+ysize_os), slice(x,x+xsize_chan))
-                         for y in range(ysize_chan,dy+ysize_os,ysize_os) for x in range(0,xsize,dx)])
-    # cut off 5 pixels from ysize_os
-    #os_sec_hori = tuple([(slice(y,y+15), slice(x,x+xsize_chan))
-    #                     for y in range(dy-15,dy+15,15) for x in range(0,xsize,dx)])
+    # cut off [ncut] pixels to avoid including pixels on the edge of the
+    # overscan that are contaminated with flux from the image
+    ysize_os_cut = ysize_os - ncut
+    os_sec_hori = tuple([(slice(y,y+ysize_os_cut), slice(x,x+dx))
+                         for y in range(dy-ysize_os_cut,dy+ysize_os_cut,ysize_os_cut)
+                         for x in range(0,xsize,dx)])
+    #print ('os_sec_hori: {}'.format(os_sec_hori))
+    
     # channel reduced data section slices; shape=(16,2)
     data_sec_red = tuple([(slice(y,y+ysize_chan), slice(x,x+xsize_chan))
                           for y in range(0,ysize-ny*ysize_os,ysize_chan)
                           for x in range(0,xsize-nx*xsize_os,xsize_chan)])
-
+    #print ('data_sec_red: {}'.format(data_sec_red))
+    
     return chan_sec, data_sec, os_sec_hori, os_sec_vert, data_sec_red
 
 
@@ -1742,8 +1768,14 @@ def os_corr(data, header):
     chan_sec, data_sec, os_sec_hori, os_sec_vert, data_sec_red = (
         define_sections(np.shape(data)))
         
-    # PMV 2018/08/01: this is a constant used inside the loop
-    dcol = 3 # after testing, 21 seems a decent width to use
+    # use median box filter with width [dcol] to decrease the noise
+    # level in the overscan column's clipped mean for the horizontal
+    # overscan when it has a limited amount of pixels
+    if np.shape(data[os_sec_hori[0]])[0] <= 100:
+        dcol = 15 # after testing, 15-21 seem decent widths to use
+    else:
+        # otherwise, determine it per column
+        dcol = 1
     dcol_half = int(dcol/2.)+1
 
     # number of data columns and rows in the channel (without overscans)
@@ -1785,17 +1817,33 @@ def os_corr(data, header):
         # to enable checking of any vertical gradient present
         data_vos_top = data_vos[-1000:,:]
         data_vos_bottom = data_vos[0:1000:,:]
-        mean_vos_top[i_chan], std_vos_top[i_chan] = clipped_stats(data_vos_top, get_median=False)
-        mean_vos_bottom[i_chan], std_vos_bottom[i_chan] = clipped_stats(data_vos_bottom, get_median=False)
+        mean_vos_top[i_chan], std_vos_top[i_chan] = clipped_stats(data_vos_top, 
+                                                                  get_median=False)
+        mean_vos_bottom[i_chan], std_vos_bottom[i_chan] = clipped_stats(data_vos_bottom, 
+                                                                        get_median=False)
 
         # determine the running clipped mean of the overscan using all
         # values across [dcol] columns, for [ncols] columns
         data_hos = data[os_sec_hori[i_chan]]
-        mean_hos, median_hos, std_hos = sigma_clipped_stats(data_hos, axis=0)
-        oscan = [np.mean(mean_hos[max(k-dcol_half,0):min(k+dcol_half+1,ncols)])
-                 for k in range(ncols)]
-        # do not use the running mean for the first column(s)
-        oscan[0:dcol_half] = mean_hos[0:dcol_half]
+        # replace very high values (due to bright objects on edge of
+        # channel) with function [replace_pix] in zogy.py
+        mask_hos = (data_hos > (mean_vos[i_chan]+2000.))
+        # add couple of pixels connected to this mask
+        mask_hos = ndimage.binary_dilation(mask_hos, structure=np.ones((3,3)).astype('bool'))
+        # interpolate spline over these pixels
+        data_hos_replaced = inter_pix (data_hos, std_vos[i_chan], mask_hos, dpix=10, k=2)
+        # determine clipped mean for each column
+        mean_hos, median_hos, std_hos = sigma_clipped_stats(data_hos, axis=0, 
+                                                            #mask=mask_hos,
+                                                            cenfunc='median')
+        if dcol > 1:
+            oscan = [np.median(mean_hos[max(k-dcol_half,0):min(k+dcol_half+1,ncols)])
+                     for k in range(ncols)]
+            # do not use the running mean for the first column(s)
+            oscan[0:dcol_half] = mean_hos[0:dcol_half]
+        else:
+            oscan = mean_hos[0:ncols]           
+            
         # subtract horizontal overscan
         data[data_sec[i_chan]] -= np.vstack([oscan]*nrows)
         # broadcast into [data_out]
@@ -2257,8 +2305,6 @@ def action(item_list):
 
     For new events, continues if it is a file. '''
 
-    print ('event!')
-    
     #get parameters for list
     event, telescope, mode, read_path = item_list.get(True)
     
