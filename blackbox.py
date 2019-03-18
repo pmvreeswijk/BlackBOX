@@ -1081,6 +1081,7 @@ def copy_files2keep (tmp_base, dest_base, ext2keep, move=True):
                     else:
                         log.info('moving {} to {}'.format(tmpfile, destfile))
                         shutil.move(tmpfile, destfile)
+
                         
     return
 
@@ -1600,18 +1601,17 @@ def set_header(header, filename):
         # subsequent image up to 9 Feb 2019 (except when put in by
         # hand with the sexagesimal notation, in which case keywords
         # RA-TEL and DEC-TEL are not present in the header); for these
-        # images we replace the RA by the RA-TEL
+        # images we replace the RA and DEC by the RA-REF and DEC-REF
         if tel=='ML1':
             tcorr_radec = Time('2019-02-09T00:00:00', format='isot').mjd
             if (mjd_obs < tcorr_radec and 'RA-TEL' in header.keys() and
                 'DEC-TEL' in header.keys()):
-                ra_deg = header['RA-TEL']
-                dec_deg = header['DEC-TEL']
+                ra_deg = Angle(header['RA-REF'], unit=u.hour).degree
+                dec_deg = Angle(header['DEC-REF'], unit=u.deg).degree
                 edit_head(header, 'RA', value=ra_deg,
-                          comments='[deg] Right ascension of image centre (=RA-TEL)')
+                          comments='[deg] Right ascension of image centre (=RA-REF)')
                 edit_head(header, 'DEC', value=dec_deg,
-                          comments='[deg] Declination of image centre (=DEC-TEL)')
-
+                          comments='[deg] Declination of image centre (=DEC-REF)')
 
         lat = get_par(set_zogy.obs_lat,tel)
         lon = get_par(set_zogy.obs_long,tel)
