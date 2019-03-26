@@ -861,7 +861,7 @@ def blackbox_reduce (filename, telescope, mode, read_path):
         #lock.acquire()
 
         # if ref image has not yet been processed:
-        ref_present = already_exists (ref_fits_out, get_filename=True)
+        ref_present = already_exists (ref_fits_out)
         log.info('has reference image: {} been made already?: {}'
                  .format(ref_fits_out, ref_present))
                          
