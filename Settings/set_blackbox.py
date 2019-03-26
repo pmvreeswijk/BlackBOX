@@ -9,10 +9,10 @@ import os
 #===============================================================================
 
 # number of processes to run in parallel
-nproc = 8
+nproc = 1
 # maximum number of threads for each process (this parameter
 # cannot be made telescope dependent through a dictionary!)
-nthread = 1
+nthread = 2
 
 #===============================================================================
 # Reduction switches
@@ -33,7 +33,7 @@ run_dir_base = os.environ['DATAHOME']
 # [run_dir_base], but could be anywhere
 tmp_dir_base = run_dir_base
 # switch to keep tmp directories (True) or not (False)
-keep_tmp = False
+keep_tmp = True
 
 # the loop below creates dictionaries with keys ['ML1', 'BG2', 'BG3',
 # 'BG4'] for the different paths to the raw, red, log, ref and tmp
@@ -62,7 +62,7 @@ new_2keep = ['_D.fits', '_Scorr.fits', '_Fpsf.fits','_Fpsferr.fits',
 crosstalk_file = {'ML1': os.environ['ZOGYHOME']+'/CalFiles/crosstalk_20180620.txt'}
 
 # name of initial bad pixel mask
-bad_pixel_mask = {'ML1': os.environ['ZOGYHOME']+'/CalFiles/bpm_u_0p05.fits'}
+bad_pixel_mask = {'ML1': os.environ['ZOGYHOME']+'/CalFiles/bpm_u_0p05.fits.fz'}
 
 #===============================================================================
 # Cosmic ray and satellite trail detection
@@ -75,6 +75,10 @@ sigclip = 6.0
 sigfrac = 0.3
 objlim = 10.0
 niter = 3
+# use separable median filter instead of the full median filter;
+# [sepmed]=True is significantly faster (factor ~3), but can lead to
+# bright stars being masked and corrected as if they are cosmics
+sepmed = False
 
 # binning used for satellite trail detection
 sat_bin = 2
