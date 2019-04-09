@@ -132,7 +132,7 @@ qc_range = {
         #'RDN16'   : {'val_type': 'sigma', 'val_range': [ (     9.044,    0.373) ], 'cat_type': 'all', 'comment': 'channel 16 sigma (STD) vertical overscan'},
         #
         # general
-        'AIRMASS' : {'val_type': 'min_max', 'val_range': [ (1,2), (2,2.5), (2.5, 2.9) ], 'cat_type': 'all', 'comment': 'Airmass (based on RA, DEC, DATE-OBS)'},
+        'AIRMASS' : {'val_type': 'min_max', 'val_range': [ (1,2), (2,2.5), (2.5, 2.95) ], 'cat_type': 'all', 'comment': 'Airmass (based on RA, DEC, DATE-OBS)'},
         'N-INFNAN': {'val_type': 'min_max', 'val_range': [ (0,0), (1,10), (11,1e6) ], 'cat_type': 'all', 'comment': 'number of pixels with infinite/nan values'},
         #
         # master bias (these keywords should not end up in dummy catalogs)
@@ -141,7 +141,7 @@ qc_range = {
         'MBRDN'   : {'val_type': 'sigma', 'val_range':   [ (0, 5) ],               'cat_type': None, 'comment': '[e-] sigma (STD) master bias'},
         #
         # individual flats (this keyword should not end up in dummy catalogs)
-        'MEDSEC'  : {'val_type': 'min_max', 'val_range': [ (2.4*10e3, 2.4*40e3) ], 'cat_type': None, 'comment': '[e-] median flat over STATSEC (bias-subtracted)'},
+        'MEDSEC'  : {'val_type': 'min_max', 'val_range': [ (2.4*20e3, 2.4*30e3), (2.4*15e3, 2.4*35e3), (2.4*10e3, 2.4*40e3) ], 'cat_type': None, 'comment': '[e-] median flat over STATSEC (bias-subtracted)'},
         # master flat (these keywords should not end up in dummy catalogs)
         'NFLAT'   : {'val_type': 'min_max', 'val_range': [ (6,50), (4,5), (3,3) ], 'cat_type': None, 'comment': 'number of flat frames combined'},
         'MFMEDSEC': {'val_type': 'sigma', 'val_range': [ (         1,    0.001) ], 'cat_type': None, 'comment': '[e-] median master flat over STATSEC'},
