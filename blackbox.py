@@ -30,7 +30,10 @@ import ephem
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
-__version__ = '0.8.4'
+from qc import qc_check, run_qc_check
+import platform
+
+__version__ = '0.8.5'
 
 #def init(l):
 #    global lock
@@ -39,7 +42,7 @@ __version__ = '0.8.4'
 ################################################################################
 
 def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
-                  only_filters=None, slack=None):
+                  recursive=None, only_filters=None, slack=None):
 
     global tel, only_filt
     tel = telescope
@@ -112,7 +115,8 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
         # if in day mode, feed all bias, flat and science images (in
         # this order) to [blackbox_reduce] using multiprocessing
-        biases, flats, objects = sort_files(read_path, '*fits*', mode)
+        biases, flats, objects = sort_files(read_path, '*fits*', mode, 
+                                            recursive=recursive)
         filenames = [item for sublist in [biases, flats, objects] 
                      for item in sublist]
         if len(filenames)==0:
@@ -150,10 +154,11 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
         # create and setup observer, but do not start just yet
         observer = Observer()
         observer.schedule(FileWatcher(queue, telescope, mode, read_path),
-                          read_path, recursive=False)
+                          read_path, recursive=recursive)
 
         # glob any files already there
-        biases, flats, objects = sort_files(read_path, '*fits*', mode)
+        biases, flats, objects = sort_files(read_path, '*fits*', mode, 
+                                            recursive=recursive)
         filenames = [item for sublist in [biases, flats, objects] 
                      for item in sublist]
 
@@ -216,12 +221,12 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
                               os.path.isfile(fits_master+'.fz'))
             # if not, prepare it
             if not master_present:
-                if imtype=='bias':
-                    q.put(logger.info('trying to make master {} for evening date {}'
-                                      .format(imtype, date_eve)))
-                elif imtype=='flat':
-                    q.put(logger.info('trying to make master {} in filt {} for evening date {}'
-                                      .format(imtype, filt, date_eve)))
+                #if imtype=='bias':
+                #    q.put(logger.info('checking if master {} for evening date {} can be made'
+                #                      .format(imtype, date_eve)))
+                #elif imtype=='flat':
+                #    q.put(logger.info('checking if master {} in filt {} for evening date {} can be made'
+                #                      .format(imtype, filt, date_eve)))
                 __ = master_prep (data_shape, path, date_eve, imtype, filt=filt)
                 
         return
@@ -358,7 +363,11 @@ def fpack (filename):
             if header['BITPIX'] > 0:
                 cmd = ['fpack', '-D', '-Y', '-v', filename]
             else:
-                cmd = ['fpack', '-q', '16', '-D', '-Y', '-v', filename]
+                if 'Scorr' in filename or 'limmag' in filename:
+                    q = 1
+                else:
+                    q = 16
+                cmd = ['fpack', '-q', str(q), '-D', '-Y', '-v', filename]
             subprocess.call(cmd)
 
 
@@ -447,11 +456,19 @@ def blackbox_reduce (filename, telescope, mode, read_path):
         filename = dest
 
 
+    q.put(logger.info('processing {}'.format(filename)))
+
+    # check if required keywwords are present in the header
+    qc_flag = run_qc_check (header, tel, log=logger)
+    if qc_flag=='red':
+        q.put(logger.info('red QC flag in image {}; returning without making dummy catalogs'
+                          .format(filename)))
+        return
+
     # extend the header with some useful keywords
     result = set_header(header, filename)
 
-    q.put(logger.info('processing {}'.format(filename)))
-
+        
     # defining various paths and output file names
     ##############################################
     
@@ -480,6 +497,12 @@ def blackbox_reduce (filename, telescope, mode, read_path):
             
     fits_out = '{}/{}_{}_{}.fits'.format(path[imgtype], telescope, utdate, uttime)
 
+    # initialize names of output binary fits catalogs to None so that
+    # these will not be created for the bias and flat frames if
+    # [qc_check] detects a red flag
+    fits_out_cat = None
+    fits_out_trans = None
+
     if imgtype == 'bias':
         make_dir (bias_path)
 
@@ -500,11 +523,15 @@ def blackbox_reduce (filename, telescope, mode, read_path):
         fits_out = fits_out.replace('.fits', '_red.fits')
         fits_out_mask = fits_out.replace('_red.fits', '_mask.fits')
 
+        # names of correponding output binary fits catalogs
+        fits_out_cat = fits_out.replace('.fits', '_cat.fits')
+        fits_out_trans = fits_out.replace('.fits', '_trans.fits')
+        
         # and reference image
         ref_path = '{}/{}'.format(get_par(set_bb.ref_dir,tel), obj)
         make_dir (ref_path)
         ref_fits_out = '{}/{}_{}_red.fits'.format(ref_path, telescope, filt)
-
+        
         exists, ref_fits_temp = already_exists (ref_fits_out, get_filename=True)
         if exists:
             header_ref = read_hdulist(ref_fits_temp, get_data=False, get_header=True)
@@ -516,8 +543,8 @@ def blackbox_reduce (filename, telescope, mode, read_path):
 
 
     if already_exists (fits_out):
-        q.put(logger.warning ('corresponding reduced image {} already exist; skipping'
-                           .format(fits_out.split('/')[-1])))
+        q.put(logger.warning ('corresponding reduced {} image {} already exist; skipping'
+                           .format(imgtype, fits_out.split('/')[-1])))
         return
 
     
@@ -559,20 +586,31 @@ def blackbox_reduce (filename, telescope, mode, read_path):
         log.info('ref_path: {}'.format(ref_path))
 
                                   
-    # add some header keywords, BlackBOX version
+    # add some header keywords; python version
+    header['PYTHON-V'] = (platform.python_version(), 'Python version used')
+    # BlackBOX version
     header['BB-V'] = (__version__, 'BlackBOX version used')
     # general log file
     header['LOG'] = (genlogfile.split('/')[-1], 'name general logfile')
     # image log file
     header['LOG-IMA'] = (logfile.split('/')[-1], 'name image logfile')
     # reduced filename
-    header['REDFILE'] = (fits_out.split('/')[-1].replace('.fits',''),
+    header['REDFILE'] = (fits_out.split('/')[-1].split('.fits')[0],
                          'BlackBOX reduced file name')
-
     
     # now also read in the data
     data = read_hdulist(filename, dtype='float32')   
 
+    # determine number of pixels with infinite/nan values
+    mask_infnan = ~np.isfinite(data)
+    n_infnan = np.sum(mask_infnan)
+    header['N-INFNAN'] = (n_infnan, 'number of pixels with infinite/nan values')
+    if n_infnan > 0:
+        log.info('warning: {} pixels with infinite/nan values; replacing with zero'
+                 .format(n_infnan))
+        data[mask_infnan] = 0
+        
+    
     # gain correction
     #################
     try:
@@ -580,25 +618,19 @@ def blackbox_reduce (filename, telescope, mode, read_path):
         gain_processed = False
         data = gain_corr(data, header)
     except Exception as e:
-        q.put(logger.info(traceback.format_exc()))
-        q.put(logger.error('exception was raised during [gain_corr]: {}'.format(e)))
+        #q.put(logger.info(traceback.format_exc()))
+        #q.put(logger.error('exception was raised during [gain_corr]: {}'.format(e)))
         log.info(traceback.format_exc())
         log.error('exception was raised during [gain_corr]: {}'.format(e))
     else:
         gain_processed = True
+    finally:
         header['GAIN'] = (1, '[e-/ADU] effective gain all channels')
-    # following line needs to be outside if/else statements
-    header['GAIN-P'] = (gain_processed, 'corrected for gain?')
+        header['GAIN-P'] = (gain_processed, 'corrected for gain?')
 
+        
     if get_par(set_zogy.display,tel):
         ds9_arrays(gain_cor=data)
-
-    #args_in = [data, header}
-    #args_out = data
-    #proc_ok = try_func (gain_corr, args_in, args_out)
-    #header['GAIN-P'] = (proc_ok, 'corrected for gain?')
-    #if proc_ok:
-    #    header['GAIN'] = (1, '[e-/ADU] effective gain all channels')
 
     
     # crosstalk correction
@@ -611,15 +643,17 @@ def blackbox_reduce (filename, telescope, mode, read_path):
             data = xtalk_corr (data, get_par(set_bb.crosstalk_file,tel))
         except Exception as e:
             q.put(logger.info(traceback.format_exc()))
-            q.put(logger.error('exception was raised during [xtalk_corr]: {}'.format(e)))
+            q.put(logger.error('exception was raised during [xtalk_corr]: {}'
+                               .format(e)))
             log.info(traceback.format_exc())
             log.error('exception was raised during [xtalk_corr]: {}'.format(e))
         else:
             xtalk_processed = True
-        # following line needs to be outside if/else statements
-        header['XTALK-P'] = (xtalk_processed, 'corrected for crosstalk?')
-        header['XTALK-F'] = (get_par(set_bb.crosstalk_file,tel).split('/')[-1],
-                             'name crosstalk coefficients file')
+        finally:
+            header['XTALK-P'] = (xtalk_processed, 'corrected for crosstalk?')
+            header['XTALK-F'] = (get_par(set_bb.crosstalk_file,tel).split('/')[-1],
+                                 'name crosstalk coefficients file')
+            
 
         if get_par(set_zogy.display,tel):
             ds9_arrays(Xtalk_cor=data)
@@ -636,7 +670,7 @@ def blackbox_reduce (filename, telescope, mode, read_path):
     try: 
         log.info('correcting for the overscan')
         os_processed = False
-        data = os_corr(data, header)
+        data = os_corr(data, header, imgtype)
     except Exception as e:
         q.put(logger.info(traceback.format_exc()))
         q.put(logger.error('exception was raised during [os_corr]: {}'.format(e)))
@@ -644,14 +678,17 @@ def blackbox_reduce (filename, telescope, mode, read_path):
         log.error('exception was raised during [os_corr]: {}'.format(e))
     else:
         os_processed = True
-    # following line needs to be outside if/else statements
-    header['OS-P'] = (os_processed, 'corrected for overscan?')
+    finally:
+        header['OS-P'] = (os_processed, 'corrected for overscan?')
+        
 
     if get_par(set_zogy.display,tel):
         ds9_arrays(os_cor=data)
 
     # if IMAGETYP=bias, write [data] to fits and return
     if imgtype == 'bias':
+        # call [run_qc_check] to update header with any QC flags
+        run_qc_check (header, tel, log=log)
         fits.writeto(fits_out, data.astype('float32'), header, overwrite=True)
         return
     
@@ -660,19 +697,31 @@ def blackbox_reduce (filename, telescope, mode, read_path):
     ######################################
     try: 
         mbias_processed = False
-        lock.acquire()
-        # prepare or point to the master bias
-        fits_mbias = master_prep (np.shape(data), bias_path, date_eve, 'bias')
-        lock.release()
 
         # and subtract it from the flat or object image
         if get_par(set_bb.subtract_mbias,tel):
-            log.info('subtracting the master bias')
-            data_mbias = read_hdulist(fits_mbias)
-            data -= data_mbias
-            header['MBIAS-F'] = (fits_mbias.split('/')[-1], 
-                                 'name of master bias applied')
 
+            lock.acquire()
+            # prepare or point to the master bias
+            fits_mbias = master_prep (np.shape(data), bias_path, date_eve, 'bias', 
+                                      log=log)
+            lock.release()
+
+            log.info('subtracting the master bias')
+            data_mbias, header_mbias = read_hdulist(fits_mbias, get_header=True)
+            data -= data_mbias
+            header['MBIAS-F'] = (fits_mbias.split('/')[-1].split('.fits')[0], 
+                                 'name of master bias applied')
+            
+            # for object image, add number of days separating image and master bias
+            if imgtype == 'object':
+                mjd_obs = header['MJD-OBS']
+                mjd_obs_mb = header_mbias['MJD-OBS']
+                header['MB-NDAYS'] = (
+                    np.abs(mjd_obs-mjd_obs_mb), 
+                    '[days] time between image and master bias used')
+                
+                
     except Exception as e:
         q.put(logger.info(traceback.format_exc()))
         q.put(logger.error('exception was raised during [mbias_corr]: {}'.format(e)))
@@ -681,9 +730,10 @@ def blackbox_reduce (filename, telescope, mode, read_path):
     else:
         if get_par(set_bb.subtract_mbias,tel):
             mbias_processed = True
-    # following line needs to be outside if/else statements
-    header['MBIAS-P'] = (mbias_processed, 'corrected for master bias?')
+    finally:
+        header['MBIAS-P'] = (mbias_processed, 'corrected for master bias?')
 
+        
     # display
     if get_par(set_zogy.display,tel):
         ds9_arrays(bias_sub=data)
@@ -703,9 +753,10 @@ def blackbox_reduce (filename, telescope, mode, read_path):
             log.error('exception was raised during [mask_init]: {}'.format(e))
         else:
             mask_processed = True
-        # following line needs to be outside if/else statements
-        header['MASK-P'] = (mask_processed, 'mask image created?')
-
+        finally:
+            header['MASK-P'] = (mask_processed, 'mask image created?')
+            
+            
         if get_par(set_zogy.display,tel):
             ds9_arrays(mask=data_mask)
 
@@ -716,6 +767,11 @@ def blackbox_reduce (filename, telescope, mode, read_path):
 
     # if IMAGETYP=flat, write [data] to fits and return
     if imgtype == 'flat':
+        # first add some statistics to header
+        get_flatstats (data, header)
+        # call [run_qc_check] to update header with any QC flags
+        run_qc_check (header, tel, log=log)
+        # write to fits
         fits.writeto(fits_out, data.astype('float32'), header, overwrite=True)
         return
 
@@ -727,16 +783,23 @@ def blackbox_reduce (filename, telescope, mode, read_path):
         lock.acquire()
         # prepare or point to the master bias
         fits_mflat = master_prep(np.shape(data), flat_path, date_eve, 'flat',
-                                 filt=filt)
+                                 filt=filt, log=log)
         lock.release()
         
         # and divide the object image by the master flat
         log.info('dividing by the master flat')
-        data_mflat = read_hdulist(fits_mflat)
-        mask_ok = ((data_mflat != 0) & 
-                   (data_mask != get_par(set_zogy.mask_value['edge'],tel)))
-        data[mask_ok] /= data_mflat[mask_ok]
-        header['MFLAT-F'] = (fits_mflat.split('/')[-1], 'name of master flat applied')
+        data_mflat, header_mflat = read_hdulist(fits_mflat, get_header=True)
+        data /= data_mflat
+        header['MFLAT-F'] = (fits_mflat.split('/')[-1].split('.fits')[0], 
+                             'name of master flat applied')
+        # for object image, add number of days separating image and master bias
+        if imgtype == 'object':
+            mjd_obs = header['MJD-OBS']
+            mjd_obs_mf = header_mflat['MJD-OBS']
+            header['MF-NDAYS'] = (
+                np.abs(mjd_obs-mjd_obs_mf), 
+                '[days] time between image and master flat used')
+
 
     except Exception as e:
         q.put(logger.info(traceback.format_exc()))
@@ -745,8 +808,7 @@ def blackbox_reduce (filename, telescope, mode, read_path):
         log.error('exception was raised during [mflat_corr]: {}'.format(e))
     else:
         mflat_processed = True
-    # following line needs to be outside if/else statements
-    header['MFLAT-P'] = (mflat_processed, 'corrected for master flat?')
+        header['MFLAT-P'] = (mflat_processed, 'corrected for master flat?')
 
     
     # PMV 2018/12/20: fringe correction is not yet done, but
@@ -773,8 +835,8 @@ def blackbox_reduce (filename, telescope, mode, read_path):
         log.error('exception was raised during [cosmics_corr]: {}'.format(e))
     else:
         cosmics_processed = True
-    # following line needs to be outside if/else statements
-    header['COSMIC-P'] = (cosmics_processed, 'corrected for cosmic rays?')
+    finally:
+        header['COSMIC-P'] = (cosmics_processed, 'corrected for cosmic rays?')
 
     
     if get_par(set_zogy.display,tel):
@@ -796,169 +858,252 @@ def blackbox_reduce (filename, telescope, mode, read_path):
         log.error('exception was raised during [sat_detect]: {}'.format(e))
     else:
         sat_processed = True
-    # following line needs to be outside if/else statements
-    header['SAT-P'] = (sat_processed, 'processed for satellite trails?')
-    
+    finally:
+        header['SAT-P'] = (sat_processed, 'processed for satellite trails?')
+
+
     # add some more info to mask header
     result = mask_header(data_mask, header_mask)
 
-    # write data and mask to output images in [tmp_path]
-    log.info('writing reduced image and mask to {}'.format(tmp_path))
-    new_fits = '{}/{}'.format(tmp_path, fits_out.split('/')[-1]) 
-    new_fits_mask = new_fits.replace('_red.fits', '_mask.fits')
-    fits.writeto(new_fits, data.astype('float32'), header, overwrite=True)
-    fits.writeto(new_fits_mask, data_mask.astype('uint8'), header_mask,
-                 overwrite=True)
-    
     if get_par(set_zogy.display,tel):
         ds9_arrays(mask=data_mask)
         print (header['NSATS'])
 
+    
+    # if header of object image contains a red flag, create dummy
+    # binary fits catalogs (both 'new' and 'trans') and return,
+    # skipping zogy's [optimal subtraction] below
+    qc_flag = run_qc_check (header, tel, log=log)
+    if qc_flag=='red':
+        log.error('red QC flag in image {}; making dummy catalogs and returning'
+                  .format(fits_out))
+        run_qc_check (header, tel, 'new', fits_out_cat, log=log)
+        run_qc_check (header, tel, 'trans', fits_out_trans, log=log)
+        return
+
+    
+    # write data and mask to output images in [tmp_path]
+    log.info('writing reduced image and mask to {}'.format(tmp_path))
+    new_fits = '{}/{}'.format(tmp_path, fits_out.split('/')[-1]) 
+    new_fits_mask = new_fits.replace('_red.fits', '_mask.fits')    
+    fits.writeto(new_fits, data.astype('float32'), header, overwrite=True)
+    fits.writeto(new_fits_mask, data_mask.astype('uint8'), header_mask,
+                 overwrite=True)
+    
         
     # run zogy's [optimal_subtraction]
     ##################################
-    try: 
-        log.info ('running optimal image subtraction')
-        zogy_processed = False
+    log.info ('running optimal image subtraction')
         
-        # using the function [check_ref], check if the reference image
-        # with the same header OBJECT and FILTER as the currently
-        # processed image happens to be made right now, using a lock
-        lock.acquire()
+    # using the function [check_ref], check if the reference image
+    # with the same header OBJECT and FILTER as the currently
+    # processed image happens to be made right now, using a lock
+    lock.acquire()
 
-        # change to [tmp_path]; only necessary if making plots as
-        # PSFEx is producing its diagnostic output fits and plots in
-        # the current directory
-        if get_par(set_zogy.make_plots,tel):
-            os.chdir(tmp_path)
+    # change to [tmp_path]; only necessary if making plots as
+    # PSFEx is producing its diagnostic output fits and plots in
+    # the current directory
+    if get_par(set_zogy.make_plots,tel):
+        os.chdir(tmp_path)
         
-        # this extra second is to provide a head start to the process
-        # that is supposed to be making the reference image; that
-        # process needs to add its OBJECT and FILTER to the queue
-        # [ref_ID_filt] before the next process is calling [check_ref]
-        time.sleep(1)
-        ref_being_made = check_ref(ref_ID_filt, (obj, filt), put_lock=False)
-        log.info ('is reference image for same OBJECT: {} and FILTER: {} '
-                  'being made now?: {}'.format(obj, filt, ref_being_made))
+    # this extra second is to provide a head start to the process
+    # that is supposed to be making the reference image; that
+    # process needs to add its OBJECT and FILTER to the queue
+    # [ref_ID_filt] before the next process is calling [check_ref]
+    time.sleep(1)
+    ref_being_made = check_ref(ref_ID_filt, (obj, filt), put_lock=False)
+    log.info ('is reference image for same OBJECT: {} and FILTER: {} '
+              'being made now?: {}'.format(obj, filt, ref_being_made))
 
-        # release lock
-        lock.release()
-        
-        if ref_being_made:
-            # if reference in this filter is being made, let the affected
-            # process wait until reference building is done
-            while True:
-                log.info ('waiting for reference image to be made for '+
-                          'OBJECT: {}, FILTER: {}'.format(obj, filt))
-                time.sleep(5)
-                if not check_ref(ref_ID_filt, (obj, filt)):
-                    break
-            log.info ('done waiting for reference image to be made for '+
+    # release lock
+    lock.release()
+    
+    if ref_being_made:
+        # if reference in this filter is being made, let the affected
+        # process wait until reference building is done
+        while True:
+            log.info ('waiting for reference image to be made for '+
                       'OBJECT: {}, FILTER: {}'.format(obj, filt))
+            time.sleep(5)
+            if not check_ref(ref_ID_filt, (obj, filt)):
+                break
+        log.info ('done waiting for reference image to be made for '+
+                  'OBJECT: {}, FILTER: {}'.format(obj, filt))
                     
-        # lock the following block to allow only a single process to
-        # execute the reference image creation
-        #lock.acquire()
 
-        # if ref image has not yet been processed:
-        ref_present = already_exists (ref_fits_out)
-        log.info('has reference image: {} been made already?: {}'
-                 .format(ref_fits_out, ref_present))
+    # if ref image has not yet been processed:
+    ref_present = already_exists (ref_fits_out)
+    log.info('has reference image: {} been made already?: {}'
+             .format(ref_fits_out, ref_present))
                          
-        if not ref_present:
-            # update [ref_ID_filt] queue with a tuple with this OBJECT
-            # and FILTER combination
-            ref_ID_filt.put((obj, filt))
-            
-            log.info('making reference image: {}'.format(ref_fits_out))
+    if not ref_present:
+        # update [ref_ID_filt] queue with a tuple with this OBJECT
+        # and FILTER combination
+        ref_ID_filt.put((obj, filt))
+        
+        log.info('making reference image: {}'.format(ref_fits_out))
+        log.info('new_fits: {}'.format(new_fits))
+        log.info('new_fits_mask: {}'.format(new_fits_mask))
 
-            log.info('new_fits: {}'.format(new_fits))
-            log.info('new_fits_mask: {}'.format(new_fits_mask))
+        
+        try:
+            zogy_processed = False
+            header_optsub = optimal_subtraction(
+                ref_fits=new_fits, ref_fits_mask=new_fits_mask, 
+                set_file='Settings.set_zogy', log=log, verbose=None,
+                nthread=get_par(set_bb.nthread,tel), telescope=tel)
+        except Exception as e:
+            log.info(traceback.format_exc())
+            log.error('exception was raised during reference [optimal_subtraction]: {}'
+                      .format(e))
+        else:
+            zogy_processed = True
+        finally:
+            if not zogy_processed:
+                log.error('due to exception: returning without copying reference files')
+                return
+            else:
+                # feed [header_optsub] to [run_qc_check], and return if
+                # there is a red flag, but do not make output dummy catalog
+                qc_flag = run_qc_check (header_optsub, tel, log=log)
+                if qc_flag=='red':
+                    log.error('red QC flag in [header_optsub] returned by reference '
+                              '[optimal_subtraction]; making dummy catalogs as if it '
+                              'were a new image')
+                    run_qc_check (header, tel, 'new', fits_out_cat, log=log)
+                    run_qc_check (header, tel, 'trans', fits_out_trans, log=log)
 
-            result = optimal_subtraction(ref_fits=new_fits,
-                                         ref_fits_mask=new_fits_mask,
-                                         set_file='Settings.set_zogy',
-                                         log=log, verbose=None,
-                                         nthread=get_par(set_bb.nthread,tel),
-                                         telescope=telescope)
 
-            if get_par(set_zogy.timing,tel):
-                log_timing_memory (t0=t_blackbox_reduce, label='blackbox_reduce', log=log)
+        if get_par(set_zogy.timing,tel):
+            log_timing_memory (t0=t_blackbox_reduce, label='blackbox_reduce',
+                               log=log)
                 
-            # copy the set of files [all_2keep] to the reduced
-            # directory for future building of new reference image
-            tmp_base = new_fits.split('_red.fits')[0]
-            new_base = fits_out.split('_red.fits')[0]
-            result = copy_files2keep(tmp_base, new_base, 
-                                     get_par(set_bb.all_2keep,tel), move=False)
+        # copy the set of files [all_2keep] to the reduced
+        # directory for future building of new reference image
+        tmp_base = new_fits.split('_red.fits')[0]
+        new_base = fits_out.split('_red.fits')[0]
+        result = copy_files2keep(tmp_base, new_base, 
+                                 get_par(set_bb.all_2keep,tel), move=False)
+
+        if qc_flag != 'red':
             # now move [ref_2keep] to the reference directory
             ref_base = ref_fits_out.split('_red.fits')[0]
             result = copy_files2keep(tmp_base, ref_base, get_par(set_bb.ref_2keep,tel))
 
-            
-            # now that reference is built, remove this reference ID
-            # and filter combination from the [ref_ID_filt] queue
-            result = check_ref(ref_ID_filt, (obj, filt), method='remove')
+        # now that reference is built, remove this reference ID
+        # and filter combination from the [ref_ID_filt] queue
+        result = check_ref(ref_ID_filt, (obj, filt), method='remove')
 
+        if qc_flag != 'red':
             log.info('finished making reference image: {}'.format(ref_fits_out))
-
         else:
-
-            # make symbolic links to all files in the reference
-            # directory with the same filter
-            ref_files = glob.glob('{}/{}_{}_*'.format(ref_path, telescope, filt))
-            for ref_file in ref_files:
-                # and funpack/unzip if necessary (before symbolic link
-                # to avoid unpacking multiple times during the same night)
-                ref_file = unzip(ref_file)
-                # and create symbolic link
-                os.symlink(ref_file, '{}/{}'.format(tmp_path, ref_file.split('/')[-1]))
-                
-            ref_fits = '{}/{}'.format(tmp_path, ref_fits_out.split('/')[-1])
-            ref_fits_mask = ref_fits.replace('_red.fits', '_mask.fits')
+            log.info('encountered red flag; not using image: {} as reference'.format(ref_fits_out))
             
-            log.info('new_fits: {}'.format(new_fits))
-            log.info('new_fits_mask: {}'.format(new_fits_mask))
-            log.info('ref_fits: {}'.format(ref_fits))
-            log.info('ref_fits_mask: {}'.format(ref_fits_mask))
-        
-            result = optimal_subtraction(new_fits=new_fits,
-                                         ref_fits=ref_fits,
-                                         new_fits_mask=new_fits_mask,
-                                         ref_fits_mask=ref_fits_mask,
-                                         set_file='Settings.set_zogy',
-                                         log=log, verbose=None,
-                                         nthread=get_par(set_bb.nthread,tel),
-                                         telescope=telescope)
-
-            if get_par(set_zogy.timing,tel):
-                log_timing_memory (t0=t_blackbox_reduce, label='blackbox_reduce', log=log)
-
-            # copy selected output files to new directory
-            new_base = fits_out.split('_red.fits')[0]
-            tmp_base = new_fits.split('_red.fits')[0]
-            result = copy_files2keep(tmp_base, new_base, get_par(set_bb.new_2keep,tel))
-
-
-        lock.acquire()
-        # change to [run_dir]
-        if get_par(set_zogy.make_plots,tel):
-            os.chdir(get_par(set_bb.run_dir,tel))
-        # and delete [tmp_path] if [set_bb.keep_tmp] not True
-        if not get_par(set_bb.keep_tmp,tel) and os.path.isdir(tmp_path):
-            shutil.rmtree(tmp_path)
-        lock.release()
-        
-            
-    except Exception as e:
-        log.info(traceback.format_exc())
-        log.error('exception was raised during [optimal_subtraction]: {}'.format(e))
     else:
-        zogy_processed = True
 
+        # make symbolic links to all files in the reference
+        # directory with the same filter
+        ref_files = glob.glob('{}/{}_{}_*'.format(ref_path, telescope, filt))
+        for ref_file in ref_files:
+            # and funpack/unzip if necessary (before symbolic link
+            # to avoid unpacking multiple times during the same night)
+            ref_file = unzip(ref_file)
+            # and create symbolic link
+            os.symlink(ref_file, '{}/{}'.format(tmp_path, ref_file.split('/')[-1]))
+                
+        ref_fits = '{}/{}'.format(tmp_path, ref_fits_out.split('/')[-1])
+        ref_fits_mask = ref_fits.replace('_red.fits', '_mask.fits')
         
+        log.info('new_fits: {}'.format(new_fits))
+        log.info('new_fits_mask: {}'.format(new_fits_mask))
+        log.info('ref_fits: {}'.format(ref_fits))
+        log.info('ref_fits_mask: {}'.format(ref_fits_mask))
+
+
+        try:
+            zogy_processed = False
+            header_optsub = optimal_subtraction(
+                new_fits=new_fits, ref_fits=ref_fits, new_fits_mask=new_fits_mask,
+                ref_fits_mask=ref_fits_mask, set_file='Settings.set_zogy', log=log, 
+                verbose=None, nthread=get_par(set_bb.nthread,tel), telescope=tel)
+        except Exception as e:
+            log.info(traceback.format_exc())
+            log.error('exception was raised during new [optimal_subtraction]: {}'.format(e))
+        else:
+            zogy_processed = True
+        finally:
+            if not zogy_processed:
+                log.error('due to exception: returning without copying new files')
+                return
+            else:
+                # feed [header_optsub] to [run_qc_check], and if there
+                # is a red flag make output dummy catalog and return
+                qc_flag = run_qc_check (header_optsub, tel, log=log)
+                if qc_flag=='red':
+                    log.error('red QC flag in [header_optsub] returned by new '
+                              '[optimal_subtraction]: making dummy catalogs')
+                    run_qc_check (header, tel, 'new', fits_out_cat, log=log)
+                    run_qc_check (header, tel, 'trans', fits_out_trans, log=log)
+                
+                
+        if get_par(set_zogy.timing,tel):
+            log_timing_memory (t0=t_blackbox_reduce, label='blackbox_reduce', log=log)
+
+        # copy selected output files to new directory
+        new_base = fits_out.split('_red.fits')[0]
+        tmp_base = new_fits.split('_red.fits')[0]
+        result = copy_files2keep(tmp_base, new_base, get_par(set_bb.new_2keep,tel))
+
+
+    lock.acquire()
+    # change to [run_dir]
+    if get_par(set_zogy.make_plots,tel):
+        os.chdir(get_par(set_bb.run_dir,tel))
+    # and delete [tmp_path] if [set_bb.keep_tmp] not True
+    if not get_par(set_bb.keep_tmp,tel) and os.path.isdir(tmp_path):
+        shutil.rmtree(tmp_path)
+    lock.release()
+    
+    
     return
+
+
+################################################################################
+
+def get_flatstats (data, header):
+    
+    # add some header keywords with the statistics
+    sec_temp = get_par(set_bb.flat_norm_sec,tel)
+    value_temp = '[{}:{},{}:{}]'.format(
+        sec_temp[0].start+1, sec_temp[0].stop+1, 
+        sec_temp[1].start+1, sec_temp[1].stop+1) 
+    header['STATSEC'] = (
+        value_temp, 'pre-defined statistics section [y1:y2,x1:x2]')
         
+    
+    # statistics on STATSEC
+    mean_sec, std_sec, median_sec = clipped_stats(data[sec_temp])
+    header['MEDSEC'] = (median_sec, '[e-] median flat over STATSEC')
+    header['STDSEC'] = (std_sec, '[e-] sigma (STD) flat over STATSEC')
+
+    # full image statistics
+    mean, std, median = clipped_stats(data)
+    header['FLATMED'] = (median, '[e-] median flat')
+    header['FLATSTD'] = (std, '[e-] sigma (STD) flat')
+
+    
+    # add the channel median level to the flatfield header
+    chan_sec, data_sec, os_sec_hori, os_sec_vert, data_sec_red = (
+        define_sections(np.shape(data)))
+    nchans = np.shape(data_sec)[0]
+    
+    for i_chan in range(nchans):
+        header['FLATM{}'.format(i_chan+1)] = (
+            np.median(data[data_sec_red[i_chan]]),
+            '[e-] channel {} median flat (bias-subtracted)'.format(i_chan+1))
+
+    return
+
 
 ################################################################################
 
@@ -1243,7 +1388,9 @@ def mask_init (data, header):
         t = time.time()
     
     fits_bpm = get_par(set_bb.bad_pixel_mask,tel)
-    if os.path.isfile(fits_bpm):
+
+    bpm_present, fits_bpm = already_exists (fits_bpm, get_filename=True)
+    if bpm_present:
         # if it exists, read it
         data_mask = read_hdulist(fits_bpm)
     else:
@@ -1323,30 +1470,45 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
     elif imtype=='bias':
         fits_master = '{}/{}_{}.fits'.format(path, imtype, date_eve)
 
-    master_present = (os.path.isfile(fits_master) or
-                      os.path.isfile(fits_master+'.fz'))
+    # check if already present (if fpacked, fits_master below will
+    # point to fpacked file)
+    master_present, fits_master = already_exists (fits_master, get_filename=True)
 
+    # check if master bias/flat does not contain any red flags:
+    master_ok = True
     if master_present:
-        
-        # if fpacked, refer to the right filename
-        if os.path.isfile(fits_master+'.fz'):
-            fits_master += '.fz'
+        header_master = read_hdulist (fits_master, get_data=False, get_header=True)
+        qc_flag = run_qc_check (header_master, tel, log=log)
+        if qc_flag=='red':
+            master_ok = False
+             
 
-    else:
-                
+    if not (master_present and master_ok):
+    
         # prepare master from files in [path]
         if imtype=='flat':
             file_list = sorted(glob.glob('{}/*_{}.fits*'.format(path, filt)))
         elif imtype=='bias':
             file_list = sorted(glob.glob('{}/*fits*'.format(path)))
 
+
+        # do not consider image with header QC-FLAG set to red
+        mask_keep = np.ones(len(file_list), dtype=bool)
+        for i_file, filename in enumerate(file_list):
+            header_temp = read_hdulist (filename, get_data=False, get_header=True)
+            if 'QC-FLAG' in header_temp:
+                if header_temp['QC-FLAG'] == 'red':
+                    mask_keep[i_file] = False
+        file_list = np.array(file_list)[mask_keep]
+
+        
         # initialize cube of images to be combined
-        nfiles = np.shape(file_list)[0]
+        nfiles = len(file_list)
 
-        # if there are too few frames to make tonight's master, look
-        # for a nearby master flat instead
-        if nfiles < 3:
-
+        # if master bias/flat contains a red flag, look for a nearby
+        # master flat instead
+        if nfiles < 3 or not master_ok:
+            
             fits_master_close = get_closest_biasflat(date_eve, imtype, filt=filt)
 
             if fits_master_close is not None:
@@ -1389,7 +1551,12 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
             ysize, xsize = data_shape
             master_cube = np.zeros((nfiles, ysize, xsize), dtype='float32')
 
+            # initialize master header
+            header_master = fits.Header()        
+
             # fill the cube
+            ra_flats = []
+            dec_flats = []
             for i_file, filename in enumerate(file_list):
 
                 master_cube[i_file], header_temp = read_hdulist(filename,
@@ -1403,54 +1570,119 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
                         log.info ('flat name: {}, mean: {}, std: {}, median: {}'
                                   .format(filename, mean, std, median))
                     master_cube[i_file] /= median
+
+                    # collect RA and DEC to check for dithering
+                    if 'RA' in header_temp and 'DEC' in header_temp:
+                        ra_flats.append(header_temp['RA'])
+                        dec_flats.append(header_temp['DEC'])
                     
+
+                # copy some header keyword values from first file
                 if i_file==0:
-                    for key in header_temp.keys():
-                        if 'BIASM' in key or 'RDN' in key:
-                            del header_temp[key]
-                    header_master = header_temp
-                    
+                    for key in ['IMAGETYP', 'DATE-OBS', 'FILTER', 'RA', 'DEC',
+                                'XBINNING', 'YBINNING', 'MJD-OBS', 'AIRMASS', 
+                                'ORIGIN', 'TELESCOP', 'PYTHON-V', 'BB-V']:
+                        if key in header_temp:
+                            header_master[key] = header_temp[key]
+
+                            
                 if imtype=='flat':
                     comment = 'name reduced flat'
                 elif imtype=='bias':
                     comment = 'name gain/os-corrected bias frame'
 
                 header_master['{}{}'.format(imtype.upper(), i_file+1)] = (
-                    filename.split('/')[-1], '{} {}'.format(comment, i_file+1))
+                    filename.split('/')[-1].split('.fits')[0],
+                    '{} {}'.format(comment, i_file+1))
                 
                 if 'ORIGFILE' in header_temp.keys():
                     header_master['{}OR{}'.format(imtype.upper(), i_file+1)] = (
                         header_temp['ORIGFILE'], 'name original {} {}'
                         .format(imtype, i_file+1))
 
+                # also copy a few header keyword values from the last file
+                if i_file==nfiles-1:
+                    for key in ['DATE-END', 'MJD-END']:
+                        if key in header_temp:
+                            header_master[key] = header_temp[key]
 
+                    
             # determine the median
             master_median = np.median(master_cube, axis=0)
+
+            # add number of files combined
+            header_master['N{}'.format(imtype.upper())] = (
+                nfiles, 'number of {} frames combined'.format(imtype.lower()))
             
             # add some header keywords to the master flat
             if imtype=='flat':
                 sec_temp = get_par(set_bb.flat_norm_sec,tel)
-                value_temp = '[{}:{},{}:{}]'.format(sec_temp[0].start+1, sec_temp[0].stop+1,
-                                                    sec_temp[1].start+1, sec_temp[1].stop+1) 
-                header_master['STATSEC'] = (value_temp,
-                                            'pre-defined statistics section [y1:y2,x1:x2]')
-                header_master['SECMED'] = (np.median(master_median[sec_temp]),
-                                           '[e-] median master flat over STATSEC')
-                header_master['SECSTD'] = (np.std(master_median[sec_temp]),
-                                           '[e-] sigma (STD) master flat over STATSEC')
+                value_temp = '[{}:{},{}:{}]'.format(
+                    sec_temp[0].start+1, sec_temp[0].stop+1, 
+                    sec_temp[1].start+1, sec_temp[1].stop+1) 
+                header_master['STATSEC'] = (
+                    value_temp, 'pre-defined statistics section [y1:y2,x1:x2]')
 
-                # for full image statistics, discard masked pixels
-                header_master['FLATMED'] = (np.median(master_median),
-                                            '[e-] median master flat')
-                header_master['FLATSTD'] = (np.std(master_median),
-                                            '[e-] sigma (STD) master flat')
+                header_master['MFMEDSEC'] = (
+                    np.median(master_median[sec_temp]), 
+                    '[e-] median master flat over STATSEC')
+                
+                header_master['MFSTDSEC'] = (
+                    np.std(master_median[sec_temp]),
+                    '[e-] sigma (STD) master flat over STATSEC')
+
+                # full image statistics
+                mean_master, std_master, median_master = clipped_stats(master_median)
+                header_master['MFMED'] = (median_master, '[e-] median master flat')
+                header_master['MFSTD'] = (std_master, '[e-] sigma (STD) master flat')
+
+                # check if flats were dithered; calculate offset in
+                # arcsec of each flat with respect to the previous one
+                ra_flats = np.array(ra_flats)
+                dec_flats = np.array(dec_flats)
+                if len(ra_flats) > 0 and len(dec_flats) > 0:
+                    offset = 3600 * haversine (ra_flats, dec_flats, 
+                                               np.roll(ra_flats,1), np.roll(dec_flats,1))
+                    # count how many were offset by at least 5"
+                    mask_off = (offset >= 5)
+                    noffset = np.sum(mask_off)
+                    offset_mean = np.mean(offset[mask_off])
+                else:
+                    offset = 0
+                    noffset = 0
+                    offset_mean = 0                    
+
+                header_master['N-OFFSET'] = (noffset, 
+                                             'number of flats with offsets > 5 arcsec')
+                header_master['OFF-MEAN'] = (offset_mean, 
+                                             '[arcsec] mean dithering offset')
+                if float(noffset)/nfiles >= 0.66:
+                    flat_dithered = True
+                else:
+                    flat_dithered = False
+                header_master['FLATDITH'] = (flat_dithered, 'majority of flats were dithered')
+
+                # set edge and non-positive pixels to 1; edge pixels
+                # are idenfitied by reading in bad pixel mask as
+                # master preparation is not necessariliy linked to the
+                # mask of an object image, e.g. in function
+                # [masters_left]
+                fits_bpm = get_par(set_bb.bad_pixel_mask,tel)
+                bpm_present, fits_bpm = already_exists (fits_bpm, get_filename=True)
+                if bpm_present:
+                    # if it exists in whatever compressed format, read it
+                    data_mask = read_hdulist(fits_bpm)
+                    mask_replace = ((data_mask==get_par(set_zogy.mask_value['edge'],tel)) |
+                                    (master_median<=0))
+                    master_median[mask_replace] = 1
+                    
 
             elif imtype=='bias':
 
                 # add some header keywords to the master bias
                 mean_master, std_master = clipped_stats(master_median, get_median=False)
-                header_master['BIASMEAN'] = (mean_master, '[e-] mean master bias')
-                header_master['RDNOISE'] = (std_master, '[e-] sigma (STD) master bias')
+                header_master['MBMEAN'] = (mean_master, '[e-] mean master bias')
+                header_master['MBRDN'] = (std_master, '[e-] sigma (STD) master bias')
 
                 # including the means and standard deviations of the master
                 # bias in the separate channels
@@ -1463,13 +1695,15 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
                     data_chan = master_median[data_sec_red[i_chan]]
                     mean_chan[i_chan], std_chan[i_chan] = clipped_stats(data_chan, get_median=False)
                 for i_chan in range(nchans):
-                    header_master['BIASM{}'.format(i_chan+1)] = (
+                    header_master['MBIASM{}'.format(i_chan+1)] = (
                         mean_chan[i_chan], '[e-] channel {} mean master bias'.format(i_chan+1))
                 for i_chan in range(nchans):
-                    header_master['RDN{}'.format(i_chan+1)] = (
+                    header_master['MBRDN{}'.format(i_chan+1)] = (
                         std_chan[i_chan], '[e-] channel {} sigma (STD) master bias'.format(i_chan+1))
 
-
+            
+            # call [run_qc_check] to update master header with any QC flags
+            run_qc_check (header_master, tel, log=log)
             # write to output file
             fits.writeto(fits_master, master_median.astype('float32'), header_master,
                          overwrite=True)
@@ -1650,7 +1884,7 @@ def set_header(header, filename):
         edit_head(header, 'AIRMASS', value=float(airmass), comments='Airmass (based on RA, DEC, DATE-OBS)')
 
         
-    arcfile = '{}.{}.fits'.format(tel, date_obs_str)
+    arcfile = '{}.{}'.format(tel, date_obs_str)
     edit_head(header, 'ARCFILE', value=arcfile, comments='Archive filename')
     edit_head(header, 'ORIGFILE', value=filename.split('/')[-1].split('.fits')[0],
               comments='ABOT original filename')
@@ -1781,7 +2015,7 @@ def define_sections (data_shape):
 
 ################################################################################
 
-def os_corr(data, header):
+def os_corr(data, header, imgtype):
 
     """Function that corrects [data] for the overscan signal in the
        vertical and horizontal overscan strips. The definitions of the
@@ -1866,9 +2100,9 @@ def os_corr(data, header):
                                        log=log)
         
         # determine clipped mean for each column
-        mean_hos, median_hos, std_hos = sigma_clipped_stats(data_hos, axis=0, 
+        mean_hos, median_hos, std_hos = sigma_clipped_stats(data_hos, axis=0)
                                                             #mask=mask_hos,
-                                                            cenfunc='median')
+                                                            #cenfunc='median')
         if dcol > 1:
             oscan = [np.median(mean_hos[max(k-dcol_half,0):min(k+dcol_half+1,ncols)])
                      for k in range(ncols)]
@@ -1879,7 +2113,7 @@ def os_corr(data, header):
             
         # subtract horizontal overscan
         data[data_sec[i_chan]] -= np.vstack([oscan]*nrows)
-        # broadcast into [data_out]
+        # place into [data_out]
         data_out[data_sec_red[i_chan]] = data[data_sec[i_chan]] 
 
 
@@ -1905,6 +2139,30 @@ def os_corr(data, header):
     result = add_stats(mean_vos_top, std_vos_top, 'top', 'T')
     result = add_stats(mean_vos_bottom, std_vos_bottom, 'bot.', 'B')        
         
+    # if the image is a flatfield, add some header keywords with
+    # the statistics of [data_out]
+    if imgtype == 'flat':
+        sec_temp = get_par(set_bb.flat_norm_sec,tel)
+        value_temp = '[{}:{},{}:{}]'.format(
+            sec_temp[0].start+1, sec_temp[0].stop+1, 
+            sec_temp[1].start+1, sec_temp[1].stop+1) 
+        header['STATSEC'] = (
+            value_temp, 'pre-defined statistics section [y1:y2,x1:x2]')
+        
+        header['MEDSEC'] = (
+            np.median(data_out[sec_temp]), 
+            '[e-] median flat over STATSEC')
+        
+        header['STDSEC'] = (
+            np.std(data_out[sec_temp]),
+            '[e-] sigma (STD) flat over STATSEC')
+
+        # full image statistics
+        mean, std, median = clipped_stats(data_out)
+        header['FLATMED'] = (median, '[e-] median flat')
+        header['FLATSTD'] = (std, '[e-] sigma (STD) flat')
+
+    
     if get_par(set_zogy.timing,tel):
         log_timing_memory (t0=t, label='os_corr', log=log)
 
@@ -2143,7 +2401,7 @@ def get_date_time (header):
     
 ################################################################################
 
-def sort_files(read_path, file_name, mode):
+def sort_files(read_path, search_str, mode, recursive=False):
 
     """Function to sort raw files by type.  Globs all files in read_path
        and to sorts files into bias, flat and science images using the
@@ -2152,14 +2410,27 @@ def sort_files(read_path, file_name, mode):
 
     """
        
-    all_files = sorted(glob.glob(read_path+'/'+file_name)) #glob all raw files and sort
+    #glob all raw files and sort
+    if recursive:
+        all_files = sorted(glob.glob(read_path+'/**/'+search_str), 
+                           recursive=recursive)
+    else:
+        all_files = sorted(glob.glob(read_path+'/'+search_str))
+
     biases = [] #list of biases
     flats = [] #list of flats
     objects = [] # list of science images
 
-    for i in range(len(all_files)): #loop through raw files
+    for i, filename in enumerate(all_files): #loop through raw files
+        
+        header = read_hdulist(filename, get_data=False, get_header=True)
+        
+        if 'IMAGETYP' not in header or 'FILTER' not in header:
+            q.put(logger.info('keyword IMAGETYP or FILTER not present in '
+                              'header of image {}; skipping it'.format(filename)))
+            continue
 
-        header = read_hdulist(all_files[i], get_data=False, get_header=True)
+                  
         imgtype = header['IMAGETYP'].lower() #get image type
         filt = header['FILTER'].lower() 
         
@@ -2332,24 +2603,34 @@ def action(item_list):
     
     while True:
         try:
-            filename = str(event.src_path) #get name of new file
-            if 'fits' in filename: #only continue if event is a fits file
-                if '_mask' or '_red' not in filename:
-                    # this while True block below replaces the
-                    # [copying] function, but probably need to add a
-                    # time-out in case the file never completely
-                    # arrives
-                    while True:
-                        try:
-                            data = read_hdulist(filename)
-                        except:
-                            q.put(logger.info('Waiting for file {} to completely arrive'
-                                              .format(filename)))
-                            time.sleep(1)
-                        else:
-                            break
-                    #copying(filename) #check to see if write is finished writing
-                    q.put(logger.info('Found new file '+filename))
+            # get name of new file
+            filename = str(event.src_path) 
+            #only continue if event is a fits
+            if 'fits' in filename: 
+                # file N.B.: when copying files to [read_path]
+                # directory using rsync without --inplace option, a
+                # temporary file (starting with
+                # .[filename].[randomstr]) is first created, which
+                # causes an infinite loop below as that filename is
+                # subsequently not found when the syncing has
+                # finished. Using rsync --inplace or cp is fine.
+
+                # this while True block below replaces the
+                # [copying] function, but probably need to add a
+                # time-out in case the file never completely
+                # arrives
+                while True:
+                    try:
+                        data = read_hdulist(filename)
+                    except Exception as e:
+                        q.put(logger.info('Waiting for file {} to completely arrive'
+                                          .format(filename)))
+                        #print (e)
+                        time.sleep(3)
+                    else:
+                        break
+                #copying(filename) #check to see if write is finished writing
+                q.put(logger.info('Found new file '+filename))
         except AttributeError: #if event is a file
             filename = event
             q.put(logger.info('Found old file '+filename))
@@ -2388,9 +2669,11 @@ if __name__ == "__main__":
     params.add_argument('--mode', type=str, default='day', help='Day or night mode of pipeline')
     params.add_argument('--date', type=str, default=None, help='Date to process (yyyymmdd, yyyy-mm-dd, yyyy/mm/dd or yyyy.mm.dd)')
     params.add_argument('--read_path', type=str, default=None, help='Full path to the input raw data directory; if not defined it is determined from [set_blackbox.raw_dir], [telescope] and [date]') 
+    params.add_argument('--recursive', action='store_true', help='Recursively include subdirectories for input files')
     params.add_argument('--only_filters', type=str, default=None, help='Only consider flatfields and object images in these filter(s)')
     params.add_argument('--slack', default=True, help='Upload messages for night mode to slack.')
     args = params.parse_args()
 
-    run_blackbox (telescope=args.telescope, mode=args.mode, date=args.date, read_path=args.read_path, only_filters=args.only_filters, slack=args.slack)
+    run_blackbox (telescope=args.telescope, mode=args.mode, date=args.date, read_path=args.read_path, 
+                  recursive=args.recursive, only_filters=args.only_filters, slack=args.slack)
 
