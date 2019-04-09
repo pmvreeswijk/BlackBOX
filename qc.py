@@ -1,0 +1,399 @@
+
+import argparse
+import numpy as np
+import astropy.io.fits as fits
+from zogy import format_cat, get_par
+
+from Settings import set_qc, set_zogy
+
+__version__ = '0.1'
+
+def qc_check (header, telescope='ML1', keywords=None, cat_dummy=None, 
+              cat_type=None, return_range_comment=False, 
+              hide_greens=True, hide_warnings=True):
+    
+    """Function to determine whether the value of a given keyword is
+       within an acceptable range or not. The input parameters are
+       [header]: a FITS header as extracted using astropy or a python
+       dictionary, and, optionally [keywords]: a list of one or more
+       keywords to check.  If [keywords] is not provided, all keywords
+       in [header] are checked and if any of them matches with a key
+       in the [qc_range] dictionary, it will get processed.
+
+       The [header] keywords' values are compared to a dictionary
+       'qc_range' (defined in [set_qc]) in which the quality control
+       ranges are defined for a number of keys.
+
+       The value in the qc_range dictionary is also a dictionary with
+       2 keys:
+         1) 'type': providing the type of range provided
+         2) 'range': a list of tuples, each containing either one
+            (for type='bool') or two values (for the other types).
+
+       Depending on 'type', these values are interpreted differently
+         1) 'min_max': (C1, C2) such that C1 <= value <= C2
+         2) 'bool': (C) such that value==C or value==C2
+         3) 'sigma': (E, STD) such that abs(value-E) <= n*STD,
+                     where n is a list of predefined factors
+                     corresponding to the accepted ranges.
+                     currently: n_std = [2, 3, 7]
+         4) 'exp_abs': (E, C) such that abs(value-E) <= C
+         5) 'exp_frac': (E, f) such that abs((value-E)/E) <= f 
+
+       The value of each keyword is first checked against the 
+       first element of the 'range' key. If the value within this
+       range, the key gets a 'green' flag. If it is not within
+       this range, it checks the value with the 2nd range provided.
+       If there is no 2nd range provided, the key gets a 'red' flag.
+       If the value is within the 2nd range, the corresponding
+       flag will be 'yellow'. The 3rd range corresponds to the
+       'orange' flag, and if the keyword value is not within any
+       of the ranges provided, it gets a 'red' flag.
+
+       For the value type 'sigma' only the expected value (E) and a
+       standard deviation can be provided, and these are expanded to
+       three ranges using: n_std = [2, 3, 7]. So if a keyword value is
+       within n_std * STD, its color flag will be 'green', 'yellow'
+       and 'orange', respectively. If outside of this, it will be
+       flagged 'red'.
+
+       If any keyword is flagged red and [cat_dummy] is defined, the
+       function [format_cat] in zogy will be used to create a zero
+       entry binary fits table with the column definitions determined
+       with [cat_type], which can be 'new', 'ref' or 'trans'.
+
+       The function returns: 
+       - the list of keywords that were checked and found to be
+         non-green. If [hide_greens] is set to False, all
+         keywords that were checked are returned in a list.
+       - the list of color flags corresponding to the above
+         output keywords
+       - if [return_range_comment] is True (default=False), two
+         additional lists are returned: (1) the allowed range of
+         values corresponding to the color flag, and (2) the header
+         comment field of the keyword.
+       - if [hide_warnings] is True (default), no warnings
+         are provided
+       - in case of a red flag and [cat_dummy] is not None, an empty
+         output catalog of type [cat_type] will be created.
+
+    """
+
+    # refer to qc_range for [telescope] defined in [set_qc] module
+    qc_range = set_qc.qc_range[telescope]
+
+    # if no keywords are provided, go through all keys in [qc_range]
+    if keywords is None:
+        keywords = list(qc_range.keys())
+
+    # number of keywords in input [keywords] list
+    nkeys = len(keywords)
+    
+    # initialize output color array to 'green':
+    colors_out = ['green' for _ in range(nkeys)]
+    
+    # colors corresponding to the different ranges, following the KNMI
+    # color codes to indicate the severeness of the weather in the
+    # Netherlands
+    colors = ['green', 'yellow', 'orange', 'red']
+
+    # factors that will multiplied by the standard deviation provided
+    # in the 'sigma' case for the qc_range 'val_type', that together
+    # with the expected value determines the qc value ranges:
+    # abs(value-E) <= n_std * std
+    # For instance, values within n_std[0] are flagged green, values
+    # between n_std[1] and n_std[2] will be flagged orange, and values
+    # beyond n_std[2] are flagged red.
+    n_std = [2, 3, 7]
+
+    # determine filter if available
+    if 'FILTER' in header.keys():
+        filt = header['FILTER']
+        
+    # dictionary for allowed absolute range for given color
+    dict_range_ok = {}
+    dict_ranges = {}
+    
+    # loop input [keywords]
+    for nkey, key in enumerate(keywords):
+
+        # check if keyword is present in qc_range
+        if key.upper() not in qc_range.keys():
+            if not hide_warnings:
+                print ('Warning: keyword {} not present in qc_range'
+                       .format(key))
+            # change color to empty string
+            colors_out[nkey] = ''
+            continue
+        
+        # check if keyword is present in the header
+        if key.upper() not in header.keys():
+            if not hide_warnings:
+                print ('Warning: keyword {} not present in the input header'
+                       .format(key))
+            # change color to empty string
+            colors_out[nkey] = ''
+            continue
+
+        val_type = qc_range[key]['val_type']
+        val_range = qc_range[key]['val_range']
+
+        # check if value range is specified per filter (e.g. for zeropoint)
+        try:
+            filt in val_range.keys()
+        except:
+            pass
+        else:
+            val_range = val_range[filt]
+        
+        header_val = header[key]
+
+        # Processed keywords added by BGreduce are
+        # strings rather than booleans:
+        if val_type == 'bool':
+            if type(header_val)==str:
+                if header_val[0] == 'T':
+                    header_val = True
+                else:
+                    header_val = False
+        
+        if val_type=='sigma':
+            # expand [val_range] to three ranges
+            val_range = np.array(3*val_range)
+            # and multiply 2nd column with [n_std]
+            val_range[:,1] *= n_std
+            
+
+        nranges = np.shape(val_range)[0]
+        for i in range(nranges):
+
+            if val_type == 'exp_abs' or val_type=='sigma':
+
+                bool_temp = np.abs(header_val-val_range[i][0]) <= val_range[i][1]
+                range_ok = (val_range[i][0]-val_range[i][1], 
+                            val_range[i][0]+val_range[i][1])
+                
+                
+            elif val_type == 'exp_frac':
+
+                bool_temp = (np.abs((header_val-val_range[i][0])/val_range[i][0])
+                             <= val_range[i][1])
+                range_ok = (val_range[i][0]*(1.-val_range[i][1]), 
+                            val_range[i][0]*(1.+val_range[i][1]))
+
+
+            elif val_type == 'min_max':
+
+                bool_temp = (header_val >= val_range[i][0] and
+                             header_val <= val_range[i][1])
+                range_ok = (val_range[i][0], val_range[i][1])
+
+                
+            elif val_type == 'bool':
+
+                bool_temp = (header_val == val_range[i])
+                if i==0:
+                    range_ok = val_range[i]
+                else:
+                    range_ok = (range_ok, val_range[i])
+                    
+            else:
+
+                print ('Error: [val_type] not one of "exp_abs", "exp_frac", '
+                       '"min_max", "bool" or "sigma"')
+                raise SystemExit
+            
+                    
+            if bool_temp:
+                # if within current range, assign i color to this key and leave loop
+                colors_out[nkey] = colors[i]
+                # if first iteration, assign green range to [dict_range_ok]
+                if i==0:
+                    if type(range_ok) != bool:
+                        dict_range_ok[key] = '{:g},{:g}'.format(*range_ok)
+                    else:
+                        dict_range_ok[key] = '{}'.format(range_ok)                
+                break
+            else:
+                # if False
+                if i<nranges-1:
+                    # assign i+1 color to this key
+                    colors_out[nkey] = colors[i+1]
+                else:
+                    # if this is the last iteration, assigned the last color
+                    colors_out[nkey] = colors[-1]
+
+
+            # this will effectively assign range_ok of previous color
+            if type(range_ok) != bool:
+                dict_range_ok[key] = '{:g},{:g}'.format(*range_ok)
+            else:
+                dict_range_ok[key] = '{}'.format(range_ok)
+            
+                    
+    colors_out = np.array(colors_out)
+    mask = (colors_out != '')
+
+    if hide_greens:
+        mask = ((colors_out != 'green') & mask)
+
+    # determine qc_flag color
+    qc_flag = 'green'
+    for col in colors:
+        if col in colors_out[mask]:
+            qc_flag = col
+            
+    # add info on the general flag and worst flag to the input header
+    header['QC-FLAG'] = (qc_flag, 'QC flag color (green|yellow|orange|red)')
+    if qc_flag != 'green':
+        mask_col = (colors_out == qc_flag)
+        prev_col = colors[colors.index(qc_flag)-1]
+        for ncol, key_col in enumerate(np.array(keywords)[mask_col]):
+            header['QC-{}{}'.format(qc_flag[0:3].upper(), ncol+1)] = (
+                key_col, '{} range: {}'.format(prev_col, dict_range_ok[key_col]))
+        
+    # if qc_flag is red and [cat_dummy] is provided then make dummy
+    # catalog
+    if qc_flag == 'red' and cat_dummy is not None:
+    #if cat_dummy is not None:
+        
+        # create header_dummy copy; if header is dictionary, convert
+        # to fits header
+        if type(header)==dict:
+            header_fits = fits.Header()
+            for key in header_dummy.keys():
+                header_fits[key] = header[key]
+            header_dummy = header_fits
+        else:
+            header_dummy = header.copy()
+            
+            
+        # need to make sure that all keys of [qc_range] are
+        # in the header to be added to the dummy catalog; if
+        # not provide default value of 'None'?
+        for nkey, key in enumerate(qc_range.keys()):
+            if key not in header_dummy:
+                if (qc_range[key]['cat_type']==cat_type or 
+                    qc_range[key]['cat_type']=='all'):
+                    header_dummy[key] = ('None', qc_range[key]['comment'])
+
+        # create produce empty output catalog of type [cat_type] using
+        # function [format_cat] in zogy.py
+        result = format_cat(None, cat_dummy, cat_type=cat_type,
+                            header_toadd=header_dummy, apphot_radii=get_par(
+                                set_zogy.apphot_radii,telescope))
+                                
+            
+    keywords_out = np.array(keywords)[mask].tolist()
+    colors_out = np.array(colors_out)[mask].tolist()
+
+    
+    if return_range_comment:
+        list_range_ok = [dict_range_ok[key] for key in keywords_out]
+        list_comment = [qc_range[key]['comment'] for key in keywords_out]
+        return keywords_out, colors_out, list_range_ok, list_comment
+    else:
+        return keywords_out, colors_out
+    
+
+################################################################################
+
+def run_qc_check (header, telescope, cat_type=None, cat_dummy=None, log=None):
+    
+    """Helper function to execute [qc_check] in BlackBOX and to return a
+       single flag color - the most severe color - from the output
+       [colors]. If 'red' then also add some info to the [log] if it
+       is provided.
+
+    """
+
+    # check that all crucial keywords are present in the header; N.B.:
+    # [sort_files] function in BlackBOX already requires the IMAGETYP
+    # and FILTER keywords so these need not really be checked here
+    keys_crucial = ['DATE-OBS', 'IMAGETYP', 'FILTER', 'EXPTIME',
+                    'OBJECT', 'RA', 'DEC', 'NAXIS1', 'NAXIS2']
+    qc_flag = 'green'
+    nred = 0
+    for key in keys_crucial:
+        if key not in header:
+            # for biases and flats, OBJECT, RA and DEC not necessary
+            # (although for flats they are used to check if they were
+            # dithered; if RA and DEC not present, any potential
+            # dithering will not be detected)
+            if ('IMAGETYP' in header and 
+                header['IMAGETYP'].lower()!='object' and
+                (key=='OBJECT' or key=='RA' or key=='DEC')):
+                pass
+            else:
+                qc_flag = 'red'
+                nred += 1
+                header['QC-RED{}'.format(nred)] = (key, 'required keyword missing')
+                if log is not None:
+                    log.error('keyword {} not present in header'.format(key))
+
+    if qc_flag == 'red':
+        header['QC-FLAG'] = (qc_flag, 'QC flag color (green|yellow|orange|red)')
+        return qc_flag
+
+    
+    # now check if the header keyword values are within specified range
+    keys, colors, ranges, comments = qc_check(header, telescope=telescope, 
+                                              cat_type=cat_type,
+                                              cat_dummy=cat_dummy,
+                                              return_range_comment=True)
+    qc_flag = 'green'
+    for col in ['yellow', 'orange', 'red']:
+        if col in colors:
+            qc_flag = col
+            
+    if qc_flag == 'red':
+        for nkey, key in enumerate(keys):
+            logstr = ('{} flag for keyword: {}, value: {}, allowed range: {}, '
+                      ' comment: {}'.format(colors[nkey], key, header[key], 
+                                            ranges[nkey], comments[nkey]))
+            if log is not None:
+                if colors[nkey] == 'red':
+                    log.error(logstr)
+                #else:
+                #    log.info(logstr)                
+            
+    return qc_flag
+
+
+################################################################################
+
+## reading the header of a MeerLICHT reduced fits file:
+image = '/Volumes/SSD-Data/Data/ML1/tmp/ML1_20190113_232812_red/ML1_20190113_232812_red_trans.fits'
+#image = '/Volumes/SSD-Data/Data/ML1/tmp/ML1_20190113_230707_red/ML1_20190113_230707_red.fits'
+with fits.open(image) as hdulist:
+    header_test = hdulist[1].header
+    
+example = 3
+    
+if example==1:
+
+    # Examples: 1) create dictionary with a few keys, and check    
+    dict = {'RDNOISE': 10.0, 'S-SEEING': 5.5, 'AIRMASS': 2.7, 'Z-P': True}
+    print (qc_check(dict, keywords=['RDNOISE', 'S-SEEING', 'AIRMASS', 'Z-P'],
+                    return_range_comment=True, hide_greens=False, hide_warnings=False))
+
+elif example==2:
+
+    #2) check header of an image for specific keywords:
+    print (qc_check(header_test, keywords=['RDNOISE', 'S-SEEING', 'AIRMASS', 'Z-P'],
+                   return_range_comment=True, hide_greens=False, hide_warnings=False))
+
+elif example==3:
+
+    # 3) check header of an image for all keywords in QC_range dictionary
+    print (qc_check(header_test, hide_greens=False))
+
+elif example==4:
+
+    # 4) same as 3 but also create dummy full-source catalog
+    print (qc_check(header_test, cat_dummy='test_cat.fits', cat_type='new'))
+
+elif example==5:
+
+    # 5) same as 3 but also create dummy transient catalog
+    print (qc_check(header_test, cat_dummy='test_trans.fits', cat_type='trans'))
