@@ -255,7 +255,6 @@ def qc_check (header, telescope='ML1', keywords=None, cat_dummy=None,
     # if qc_flag is red and [cat_dummy] is provided then make dummy
     # catalog
     if qc_flag == 'red' and cat_dummy is not None:
-    #if cat_dummy is not None:
         
         # create header_dummy copy; if header is dictionary, convert
         # to fits header
@@ -362,38 +361,41 @@ def run_qc_check (header, telescope, cat_type=None, cat_dummy=None, log=None):
 
 ################################################################################
 
-## reading the header of a MeerLICHT reduced fits file:
-image = '/Volumes/SSD-Data/Data/ML1/tmp/ML1_20190113_232812_red/ML1_20190113_232812_red_trans.fits'
-#image = '/Volumes/SSD-Data/Data/ML1/tmp/ML1_20190113_230707_red/ML1_20190113_230707_red.fits'
-with fits.open(image) as hdulist:
-    header_test = hdulist[1].header
+# some use examples
+if False:
+
+    ## reading the header of a MeerLICHT reduced fits file:
+    filename = '/Volumes/SSD-Data/Data/ML1/red/2019/01/13/ML1_20190113_233133_red_trans.fits'
+    with fits.open(filename) as hdulist:
+        header_test = hdulist[1].header
     
-example = 3
+    example = 4
     
-if example==1:
+    if example==1:
+        
+        # Examples: 1) create dictionary with a few keys, and check    
+        dict = {'RDNOISE': 10.0, 'S-SEEING': 5.5, 'AIRMASS': 2.7, 'Z-P': True}
+        print (qc_check(dict, keywords=['RDNOISE', 'S-SEEING', 'AIRMASS', 'Z-P'],
+                        return_range_comment=True, hide_greens=False, hide_warnings=False))
+        
+    elif example==2:
 
-    # Examples: 1) create dictionary with a few keys, and check    
-    dict = {'RDNOISE': 10.0, 'S-SEEING': 5.5, 'AIRMASS': 2.7, 'Z-P': True}
-    print (qc_check(dict, keywords=['RDNOISE', 'S-SEEING', 'AIRMASS', 'Z-P'],
-                    return_range_comment=True, hide_greens=False, hide_warnings=False))
-
-elif example==2:
-
-    #2) check header of an image for specific keywords:
-    print (qc_check(header_test, keywords=['RDNOISE', 'S-SEEING', 'AIRMASS', 'Z-P'],
-                   return_range_comment=True, hide_greens=False, hide_warnings=False))
-
-elif example==3:
-
-    # 3) check header of an image for all keywords in QC_range dictionary
-    print (qc_check(header_test, hide_greens=False))
-
-elif example==4:
-
-    # 4) same as 3 but also create dummy full-source catalog
-    print (qc_check(header_test, cat_dummy='test_cat.fits', cat_type='new'))
-
-elif example==5:
-
-    # 5) same as 3 but also create dummy transient catalog
-    print (qc_check(header_test, cat_dummy='test_trans.fits', cat_type='trans'))
+        #2) check header of an image for specific keywords:
+        print (qc_check(header_test, keywords=['RDNOISE', 'S-SEEING', 'AIRMASS', 'Z-P'],
+                        return_range_comment=True, hide_greens=False, hide_warnings=False))
+        
+    elif example==3:
+        
+        # 3) check header of an image for all keywords in QC_range dictionary
+        print (qc_check(header_test, hide_greens=False))
+        
+    elif example==4:
+        
+        # 4) same as 3 but also create dummy full-source catalog
+        print (qc_check(header_test, cat_dummy='test_cat.fits', cat_type='new'))
+        
+    elif example==5:
+        
+        # 5) same as 3 but also create dummy transient catalog
+        print (qc_check(header_test, cat_dummy='test_trans.fits', cat_type='trans'))
+        
