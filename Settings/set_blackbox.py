@@ -51,8 +51,7 @@ for tel in ['ML1', 'BG2', 'BG3', 'BG4']:
 # name endings of files to keep for the reference and new images
 all_2keep = ['_red.fits', '_mask.fits', '_cat.fits', '_mini.fits', '_red.log']
 ref_2keep = ['_ldac.fits', '_psf.fits', '_psfex.cat'] + all_2keep
-new_2keep = ['_D.fits', '_Scorr.fits', '_Fpsf.fits','_Fpsferr.fits',
-             '_trans.fits'] + all_2keep
+new_2keep = ['_D.fits', '_Scorr.fits', '_trans_limmag.fits', '_trans.fits'] + all_2keep
 
 #===============================================================================
 # Calibration files
