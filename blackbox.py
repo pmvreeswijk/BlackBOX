@@ -889,7 +889,10 @@ def blackbox_reduce (filename, telescope, mode, read_path):
     fits.writeto(new_fits, data.astype('float32'), header, overwrite=True)
     fits.writeto(new_fits_mask, data_mask.astype('uint8'), header_mask,
                  overwrite=True)
-    
+
+    # output catalogs to refer to [tmp] directory
+    fits_tmp_cat = '{}/{}'.format(tmp_path, fits_out_cat.split('/')[-1]) 
+    fits_tmp_trans = '{}/{}'.format(tmp_path, fits_out_trans.split('/')[-1]) 
         
     # run zogy's [optimal_subtraction]
     ##################################
@@ -970,8 +973,8 @@ def blackbox_reduce (filename, telescope, mode, read_path):
                     log.error('red QC flag in [header_optsub] returned by reference '
                               '[optimal_subtraction]; making dummy catalogs as if it '
                               'were a new image')
-                    run_qc_check (header, tel, 'new', fits_out_cat, log=log)
-                    run_qc_check (header, tel, 'trans', fits_out_trans, log=log)
+                    run_qc_check (header_optsub, tel, 'new', fits_tmp_cat, log=log)
+                    run_qc_check (header_optsub, tel, 'trans', fits_tmp_trans, log=log)
 
 
         if get_par(set_zogy.timing,tel):
@@ -985,11 +988,15 @@ def blackbox_reduce (filename, telescope, mode, read_path):
         result = copy_files2keep(tmp_base, new_base, 
                                  get_par(set_bb.all_2keep,tel), move=False)
 
-        if qc_flag != 'red':
+        if qc_flag == 'red':
+            # also copy dummy transient catalog in case of red flag
+            result = copy_files2keep(tmp_base, new_base, ['_trans.fits'])
+        else:
             # now move [ref_2keep] to the reference directory
             ref_base = ref_fits_out.split('_red.fits')[0]
             result = copy_files2keep(tmp_base, ref_base, get_par(set_bb.ref_2keep,tel))
-
+            
+            
         # now that reference is built, remove this reference ID
         # and filter combination from the [ref_ID_filt] queue
         result = check_ref(ref_ID_filt, (obj, filt), method='remove')
@@ -1042,8 +1049,8 @@ def blackbox_reduce (filename, telescope, mode, read_path):
                 if qc_flag=='red':
                     log.error('red QC flag in [header_optsub] returned by new '
                               '[optimal_subtraction]: making dummy catalogs')
-                    run_qc_check (header, tel, 'new', fits_out_cat, log=log)
-                    run_qc_check (header, tel, 'trans', fits_out_trans, log=log)
+                    run_qc_check (header_optsub, tel, 'new', fits_tmp_cat, log=log)
+                    run_qc_check (header_optsub, tel, 'trans', fits_tmp_trans, log=log)
                 
                 
         if get_par(set_zogy.timing,tel):
@@ -1640,18 +1647,18 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
                 # arcsec of each flat with respect to the previous one
                 ra_flats = np.array(ra_flats)
                 dec_flats = np.array(dec_flats)
+                noffset = 0
+                offset_mean = 0                    
                 if len(ra_flats) > 0 and len(dec_flats) > 0:
                     offset = 3600 * haversine (ra_flats, dec_flats, 
                                                np.roll(ra_flats,1), np.roll(dec_flats,1))
                     # count how many were offset by at least 5"
                     mask_off = (offset >= 5)
                     noffset = np.sum(mask_off)
-                    offset_mean = np.mean(offset[mask_off])
-                else:
-                    offset = 0
-                    noffset = 0
-                    offset_mean = 0                    
+                    if noffset > 0:
+                        offset_mean = np.mean(offset[mask_off])
 
+                        
                 header_master['N-OFFSET'] = (noffset, 
                                              'number of flats with offsets > 5 arcsec')
                 header_master['OFF-MEAN'] = (offset_mean, 
@@ -1801,7 +1808,7 @@ def set_header(header, filename):
         else:
             # convert RA decimal hours to degrees
             ra_deg = header['RA'] * 15.
-        edit_head(header, 'RA', value=ra_deg, comments='[deg] Right ascension of image centre')
+        edit_head(header, 'RA', value=ra_deg, comments='[deg] Right ascension')
         edit_head(header, 'RA-REF', comments='Requested right ascension')
         edit_head(header, 'RA-TEL', comments='[deg] Telescope right ascension')
 
@@ -1812,7 +1819,7 @@ def set_header(header, filename):
         else:
             # for airmass determination below
             dec_deg = header['DEC']
-        edit_head(header, 'DEC', value=dec_deg, comments='[deg] Declination of image centre')
+        edit_head(header, 'DEC', value=dec_deg, comments='[deg] Declination')
         edit_head(header, 'DEC-REF', comments='Requested declination')
         edit_head(header, 'DEC-TEL', comments='[deg] Telescope declination')
             
