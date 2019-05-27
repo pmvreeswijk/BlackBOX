@@ -6,7 +6,7 @@ from zogy import format_cat, get_par
 
 from Settings import set_qc, set_zogy
 
-__version__ = '0.1'
+__version__ = '0.2'
 
 def qc_check (header, telescope='ML1', keywords=None, cat_dummy=None, 
               cat_type=None, return_range_comment=False, 
@@ -25,12 +25,17 @@ def qc_check (header, telescope='ML1', keywords=None, cat_dummy=None,
        ranges are defined for a number of keys.
 
        The value in the qc_range dictionary is also a dictionary with
-       2 keys:
-         1) 'type': providing the type of range provided
-         2) 'range': a list of tuples, each containing either one
+       the keys:
+         1) 'default': the default value that will be used in case
+            the keyword is not present in the input header and a dummy 
+            catalog is being created
+         2) 'val_type': providing the type of range provided
+         3) 'val_range': a list of tuples, each containing either one
             (for type='bool') or two values (for the other types).
+         4) 'cat_type': catalog type ('new', 'ref', 'trans' or 'all')
+         5) 'comment': header comment / brief description of keyword
 
-       Depending on 'type', these values are interpreted differently
+       Depending on 'val_type', these values are interpreted differently
          1) 'min_max': (C1, C2) such that C1 <= value <= C2
          2) 'bool': (C) such that value==C or value==C2
          3) 'sigma': (E, STD) such that abs(value-E) <= n*STD,
@@ -39,6 +44,7 @@ def qc_check (header, telescope='ML1', keywords=None, cat_dummy=None,
                      currently: n_std = [2, 3, 7]
          4) 'exp_abs': (E, C) such that abs(value-E) <= C
          5) 'exp_frac': (E, f) such that abs((value-E)/E) <= f 
+         6) 'skip': the keyword's val_range is not considered
 
        The value of each keyword is first checked against the 
        first element of the 'range' key. If the value within this
@@ -134,8 +140,11 @@ def qc_check (header, telescope='ML1', keywords=None, cat_dummy=None,
             # change color to empty string
             colors_out[nkey] = ''
             continue
-
+        
+        # if qc_range[key] val_type is set to 'skip' then skip it
         val_type = qc_range[key]['val_type']
+        if val_type == 'skip':
+            continue
         val_range = qc_range[key]['val_range']
 
         # check if value range is specified per filter (e.g. for zeropoint)
@@ -274,14 +283,27 @@ def qc_check (header, telescope='ML1', keywords=None, cat_dummy=None,
             if key not in header_dummy:
                 if (qc_range[key]['cat_type']==cat_type or 
                     qc_range[key]['cat_type']=='all'):
-                    header_dummy[key] = ('None', qc_range[key]['comment'])
-
-        # create produce empty output catalog of type [cat_type] using
+                    header_dummy[key] = (qc_range[key]['default'], qc_range[key]['comment'])
+                    
+        # create empty output catalog of type [cat_type] using
         # function [format_cat] in zogy.py
-        result = format_cat(None, cat_dummy, cat_type=cat_type,
-                            header_toadd=header_dummy, apphot_radii=get_par(
-                                set_zogy.apphot_radii,telescope))
-                                
+        if cat_type == 'trans' and get_par(set_zogy.save_thumbnails,tel):
+            # for transient catalog, also produce thumbnail definitions
+            thumbnail_keys = ['THUMBNAIL_RED', 'THUMBNAIL_REF', 'THUMBNAIL_D', 
+                              'THUMBNAIL_SCORR']
+            result = format_cat(None, cat_dummy, cat_type=cat_type,
+                                header_toadd=header_dummy, 
+                                apphot_radii=get_par(
+                                    set_zogy.apphot_radii,telescope),
+                                thumbnail_keys=thumbnail_keys,
+                                thumbnail_size=get_par(
+                                    set_zogy.size_thumbnails,telescope))
+        else:
+            result = format_cat(None, cat_dummy, cat_type=cat_type,
+                                header_toadd=header_dummy, 
+                                apphot_radii=get_par(
+                                    set_zogy.apphot_radii,telescope))
+            
             
     keywords_out = np.array(keywords)[mask].tolist()
     colors_out = np.array(colors_out)[mask].tolist()
@@ -329,6 +351,23 @@ def run_qc_check (header, telescope, cat_type=None, cat_dummy=None, log=None):
                 header['QC-RED{}'.format(nred)] = (key, 'required keyword missing')
                 if log is not None:
                     log.error('keyword {} not present in header'.format(key))
+        else:
+            # check if OBJECT keyword value corresponds to an integer
+            if key=='OBJECT' and ('IMAGETYP' in header and 
+                                  header['IMAGETYP'].lower()=='object'):
+                #print ('value: {}, type(header[key]): {}'.
+                #       format(header[key], type(header[key])))
+                try:
+                    int(header[key])
+                except Exception as e:
+                    if log is not None:
+                        log.error(e)
+                        log.error('keyword {} is not an integer'.format(key))
+                    # if not an integer, raise a red flag
+                    qc_flag = 'red'
+                    # set object keyword to zero 
+                    header[key] = 0                    
+
 
     if qc_flag == 'red':
         header['QC-FLAG'] = (qc_flag, 'QC flag color (green|yellow|orange|red)')
