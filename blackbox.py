@@ -33,7 +33,7 @@ from watchdog.events import FileSystemEventHandler
 from qc import qc_check, run_qc_check
 import platform
 
-__version__ = '0.8.5'
+__version__ = '0.8.6'
 
 #def init(l):
 #    global lock
@@ -68,7 +68,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
                                        dt.datetime.now().strftime('%Y%m%d_%H%m%S'))
     filehandler = logging.FileHandler(genlogfile, 'w+') #create log file
     filehandler.setFormatter(formatter) #add format to log file
-    genlog.addHandler(filehandler) #link log file to logger
+    #genlog.addHandler(filehandler) #link log file to logger
 
     log_stream = StringIO() #create log stream for upload to slack
     streamhandler_slack = logging.StreamHandler(log_stream) #add log stream to logger
@@ -426,8 +426,14 @@ def blackbox_reduce (filename, telescope, mode, read_path):
 
     # just read the header for the moment
     header = read_hdulist(filename, get_data=False, get_header=True)
-    # and determine the raw data path (which is not necessarily the
-    # same as the input [read_path])
+
+    # add some header keywords; python version
+    header['PYTHON-V'] = (platform.python_version(), 'Python version used')
+    # BlackBOX version
+    header['BB-V'] = (__version__, 'BlackBOX version used')
+        
+    # determine the raw data path (which is not necessarily the same
+    # as the input [read_path])
     raw_path, __ = get_path(header['DATE-OBS'], 'read')
 
     if raw_path == read_path:
@@ -586,10 +592,6 @@ def blackbox_reduce (filename, telescope, mode, read_path):
         log.info('ref_path: {}'.format(ref_path))
 
                                   
-    # add some header keywords; python version
-    header['PYTHON-V'] = (platform.python_version(), 'Python version used')
-    # BlackBOX version
-    header['BB-V'] = (__version__, 'BlackBOX version used')
     # general log file
     header['LOG'] = (genlogfile.split('/')[-1], 'name general logfile')
     # image log file
@@ -799,17 +801,18 @@ def blackbox_reduce (filename, telescope, mode, read_path):
             header['MF-NDAYS'] = (
                 np.abs(mjd_obs-mjd_obs_mf), 
                 '[days] time between image and master flat used')
-
-
+            
     except Exception as e:
         q.put(logger.info(traceback.format_exc()))
         q.put(logger.error('exception was raised during [mflat_corr]: {}'.format(e)))
         log.info(traceback.format_exc())
         log.error('exception was raised during [mflat_corr]: {}'.format(e))
     else:
-        mflat_processed = True
+        if fits_mflat is not None:
+            mflat_processed = True
+    finally:
         header['MFLAT-P'] = (mflat_processed, 'corrected for master flat?')
-
+        
     
     # PMV 2018/12/20: fringe correction is not yet done, but
     # still add these keywords to the header
@@ -1373,7 +1376,8 @@ def cosmics_corr (data, header, data_mask, header_mask):
     # same cosmic also if they are only connected diagonally
     struct = np.ones((3,3), dtype=bool)
     __, ncosmics = ndimage.label(mask_cr, structure=struct)
-    header['NCOSMICS'] = (ncosmics, 'number of cosmic rays identified')
+    ncosmics_persec = ncosmics / header['EXPTIME']
+    header['NCOSMICS'] = (ncosmics_persec, '[/s] number of cosmic rays identified')
 
     if get_par(set_zogy.timing,tel):
         log_timing_memory (t0=t, label='cosmics_corr', log=log)
@@ -1542,7 +1546,7 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
                     or imtype=='flat'):
                     if log is not None:
                         log.error('no alternative master {} found'.format(imtype))
-                return
+                return None
                 
         else:
             
@@ -2500,11 +2504,11 @@ class MyLogger(object):
 
     def info(self, text):
         '''Function to log at the INFO level.
-
+        
         Logs messages to log file at the INFO level. If the night mode of the pipeline
         is running and 'Successfully' appears in the message, upload the message to slack.
         This allows only the overall running of the night pipeline to be uploaded to slack.
-
+        
         :param text: message from pipeline
         :type text: str
         :exceptions: ConnectionError
