@@ -17,6 +17,7 @@ import datetime as dt
 from dateutil.tz import gettz
 from astropy.stats import sigma_clipped_stats
 from astropy.coordinates import Angle
+from astropy.time import Time
 from astropy import units as u
 import astroscrappy
 from acstools.satdet import detsat, make_mask, update_dq
@@ -33,7 +34,8 @@ from watchdog.events import FileSystemEventHandler
 from qc import qc_check, run_qc_check
 import platform
 
-__version__ = '0.8.6'
+__version__ = '0.9'
+keywords_version = '0.9'
 
 #def init(l):
 #    global lock
@@ -68,7 +70,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
                                        dt.datetime.now().strftime('%Y%m%d_%H%m%S'))
     filehandler = logging.FileHandler(genlogfile, 'w+') #create log file
     filehandler.setFormatter(formatter) #add format to log file
-    #genlog.addHandler(filehandler) #link log file to logger
+    genlog.addHandler(filehandler) #link log file to logger
 
     log_stream = StringIO() #create log stream for upload to slack
     streamhandler_slack = logging.StreamHandler(log_stream) #add log stream to logger
@@ -110,15 +112,14 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     # following line shows how shared Array can be initialized
     #count = Array('i', [0, 0, 0], lock=True)
 
+    # for both day and night mode, create list of all
+    # files present in [read_path], in image type order:
+    # bias, dark, flat, object and other
+    filenames = sort_files(read_path, '*fits*', recursive=recursive)
+
     # split into 'day' or 'night' mode
     if mode == 'day':
 
-        # if in day mode, feed all bias, flat and science images (in
-        # this order) to [blackbox_reduce] using multiprocessing
-        biases, flats, objects = sort_files(read_path, '*fits*', mode, 
-                                            recursive=recursive)
-        filenames = [item for sublist in [biases, flats, objects] 
-                     for item in sublist]
         if len(filenames)==0:
             q.put(logger.warning('no files to reduce'))
         
@@ -127,22 +128,21 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
             # if only 1 process is requested, run it witout
             # multiprocessing; this will allow images to be shown on
             # the fly if [set_zogy.display] is set to True. In
-            # multiprocessing mode this is not allowed (at least not a
-            # macbook).
+            # multiprocessing mode this is not allowed (at least not
+            # on a macbook).
             print ('running with single processor')
             for filename in filenames:
                 result = try_blackbox_reduce(filename, telescope, mode, read_path)
 
         else:
-
             # use [pool_func] to process list of files
-            for files in [biases, flats, objects]:
+            for files in filenames:
                 result = pool_func (try_blackbox_reduce, files, telescope, mode, read_path)
 
 
     elif mode == 'night':
 
-        # if in night mode, check if anythin changes in input directory
+        # if in night mode, check if anything changes in input directory
         # and if there is a new file, feed it to [blackbox_reduce]
 
         # create queue for submitting jobs
@@ -155,12 +155,6 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
         observer = Observer()
         observer.schedule(FileWatcher(queue, telescope, mode, read_path),
                           read_path, recursive=recursive)
-
-        # glob any files already there
-        biases, flats, objects = sort_files(read_path, '*fits*', mode, 
-                                            recursive=recursive)
-        filenames = [item for sublist in [biases, flats, objects] 
-                     for item in sublist]
 
         # loop through waiting files and add to pool
         for filename in filenames: 
@@ -417,20 +411,18 @@ def blackbox_reduce (filename, telescope, mode, read_path):
     if get_par(set_zogy.timing,tel):
         t_blackbox_reduce = time.time()
 
-    # For night mode, the image needs to be moved out of the directory
-    # that is being monitored.
-    #
-    # We can do the same for day mode, as it is interesting to be able
-    # put a bunch of files from various nights in a single directory,
-    # and to let BlackBOX move the files to the correct raw directory.
+    q.put(logger.info('processing {}'.format(filename)))
 
     # just read the header for the moment
     header = read_hdulist(filename, get_data=False, get_header=True)
 
-    # add some header keywords; python version
-    header['PYTHON-V'] = (platform.python_version(), 'Python version used')
-    # BlackBOX version
-    header['BB-V'] = (__version__, 'BlackBOX version used')
+    # if DATE-OBS does not exist in header, need to return without
+    # doing anything; need it to be able to move/copy file to
+    # [raw_path]
+    if 'DATE-OBS' not in header:
+        q.put(logger.error('DATE-OBS keyword not present; not processing {}'
+                           .format(filename)))    
+        return
         
     # determine the raw data path (which is not necessarily the same
     # as the input [read_path])
@@ -438,43 +430,82 @@ def blackbox_reduce (filename, telescope, mode, read_path):
 
     if raw_path == read_path:
 
-        if mode == 'night':
-            # in night mode, [read_path] should not be the same as
-            # [raw_path] because the images will be transferred to and
-            # unpacked in [raw_path], which is problematic if that is the
-            # same as the directory that is being monitored for new images
-            q.put(logger.critical('in night mode, the directory [read_path] that '+
-                                  'is being monitored should not be identical to '+
-                                  'the standard [raw_path] directory: {}'
-                                  .format(raw_path)))
+        # probably this block and the explanation below is not valid
+        # anymore, i.e. also in night mode, raw_path can be equal to
+        # read_path, as the images are not funpacked anymore; skipping
+        # this block for now
+        if False:
+        
+            if mode == 'night':
+                # in night mode, [read_path] should probably not be the
+                # same as [raw_path] because the images will be
+                # transferred to [raw_path], which is
+                # problematic if that is the same as the directory that is
+                # being monitored for new images
+                q.put(logger.critical('in night mode, the directory [read_path] that '+
+                                      'is being monitored should not be identical to '+
+                                      'the standard [raw_path] directory: {}'
+                                      .format(raw_path)))
+                return
+        
     else:
 
-        # move the image to [raw_path] if it does not already exist
+        # move or copy the image over to [raw_path] if it does not already exist
         src = filename
         dest = '{}/{}'.format(raw_path, filename.split('/')[-1])
         if already_exists (dest):
-            q.put(logger.warning('{} already exists; not moving file'.format(dest)))
+            q.put(logger.warning('{} already exists; not copying/moving file'.format(dest)))
         else:
             make_dir (raw_path)
-            shutil.move(src, dest)
+            # moving:
+            #shutil.move(src, dest)
+            # copying:
+            shutil.copy2(src, dest)
 
         # and let [filename] refer to the image in [raw_path]
         filename = dest
 
 
-    q.put(logger.info('processing {}'.format(filename)))
-
-    # check if required keywwords are present in the header
+    # check if all crucial keywwords are present in the header
     qc_flag = run_qc_check (header, tel, log=logger)
     if qc_flag=='red':
-        q.put(logger.info('red QC flag in image {}; returning without making dummy catalogs'
-                          .format(filename)))
+        q.put(logger.error('red QC flag in image {}; returning without making '
+                           ' dummy catalogs'.format(filename)))
+        return
+    
+    # if 'IMAGETYP' keyword not one of ['bias', 'dark', 'flat', 'object'], also return
+    imgtypes2process = ['bias', 'dark', 'flat', 'object']
+    imgtype = header['IMAGETYP'].lower()
+    if imgtype not in imgtypes2process:
+        q.put(logger.error('IMAGETYP keyword not one of bias, dark, flat, object; '
+                           'not processing {}'.format(filename)))
         return
 
-    # extend the header with some useful keywords
-    result = set_header(header, filename)
+    # if binning is not 1x1, also return
+    if 'XBINNING' in header and 'YBINNING' in header: 
+        if header['XBINNING'] != 1 or header['YBINNING'] != 1:
+            q.put(logger.error('BINNING not 1x1; not processing {}'
+                               .format(filename)))
+            return
 
-        
+    
+    # extend the header with some useful/required keywords
+    try: 
+        result = set_header(header, filename)
+    except Exception as e:
+        q.put(logger.info(traceback.format_exc()))
+        q.put(logger.error('exception was raised during [set_header]: {}'.format(e)))
+        q.put(logger.error('returning without making dummy catalogs'))
+        return
+    
+    
+    # add additional header keywords
+    header['PYTHON-V'] = (platform.python_version(), 'Python version used')
+    header['BB-V'] = (__version__, 'BlackBOX version used')
+    header['BB-START'] = (Time.now().isot, 'start UTC date of BlackBOX image run')
+    header['KW-V'] = (keywords_version, 'header keywords version used')
+    
+    
     # defining various paths and output file names
     ##############################################
     
@@ -482,23 +513,25 @@ def blackbox_reduce (filename, telescope, mode, read_path):
     write_path, date_eve = get_path(header['DATE-OBS'], 'write')
     make_dir (write_path)
     bias_path = '{}/bias'.format(write_path)
+    dark_path = '{}/dark'.format(write_path)
     flat_path = '{}/flat'.format(write_path)
 
     # UT date (yyyymmdd) and time (hhmmss)
     utdate, uttime = get_date_time(header)
 
     # if output file already exists, do not bother to redo it
-    path = {'bias': bias_path, 'flat': flat_path, 'object': write_path}
-    # 'IMAGETYP' keyword in lower case
-    imgtype = header['IMAGETYP'].lower()
+    path = {'bias': bias_path, 
+            'dark': dark_path, 
+            'flat': flat_path, 
+            'object': write_path}
     filt = header['FILTER']
     exptime = int(header['EXPTIME'])
 
     # if [only_filt] is specified, skip image if not relevant
     if only_filt is not None:
-        if filt not in only_filt and imgtype != 'bias':
+        if filt not in only_filt and imgtype != 'bias' and imgtype != 'dark':
             q.put(logger.warning ('filter of image ({}) not in [only_filters] ({}); skipping'
-                               .format(filt, only_filt)))
+                                  .format(filt, only_filt)))
             return
             
     fits_out = '{}/{}_{}_{}.fits'.format(path[imgtype], telescope, utdate, uttime)
@@ -512,6 +545,9 @@ def blackbox_reduce (filename, telescope, mode, read_path):
     if imgtype == 'bias':
         make_dir (bias_path)
 
+    elif imgtype == 'dark':
+        make_dir (dark_path)
+        
     elif imgtype == 'flat':
         make_dir (flat_path)
         fits_out = fits_out.replace('.fits', '_{}.fits'.format(filt))
@@ -525,7 +561,11 @@ def blackbox_reduce (filename, telescope, mode, read_path):
             obj = header['OBJECT']
         # remove all non-alphanumeric characters from [obj] except for
         # '-' and '_'
-        obj = ''.join(e for e in obj if e.isalnum() or e=='-' or e=='_')
+        #obj = ''.join(e for e in obj if e.isalnum() or e=='-' or e=='_')
+        # now assuming field_id or object is ML/BG field number 
+        # pad with zeros
+        obj = '{:0>5}'.format(obj)
+                
         fits_out = fits_out.replace('.fits', '_red.fits')
         fits_out_mask = fits_out.replace('_red.fits', '_mask.fits')
 
@@ -570,7 +610,7 @@ def blackbox_reduce (filename, telescope, mode, read_path):
     # now that output filename is known, create a logger that will
     # append the log commands to [logfile]
     if imgtype != 'object':
-        # for biases and flats
+        # for biases, darks and flats
         logfile = fits_out.replace('.fits','.log')
     else:
         # for object files, prepare the logfile in [tmp_path]
@@ -586,6 +626,7 @@ def blackbox_reduce (filename, telescope, mode, read_path):
 
     log.info('write_path: {}'.format(write_path))
     log.info('bias_path: {}'.format(bias_path))
+    log.info('dark_path: {}'.format(dark_path))
     log.info('flat_path: {}'.format(flat_path))
     if imgtype == 'object':
         log.info('tmp_path: {}'.format(tmp_path))
@@ -597,8 +638,6 @@ def blackbox_reduce (filename, telescope, mode, read_path):
     # image log file
     header['LOG-IMA'] = (logfile.split('/')[-1], 'name image logfile')
     # reduced filename
-    header['REDFILE'] = (fits_out.split('/')[-1].split('.fits')[0],
-                         'BlackBOX reduced file name')
     
     # now also read in the data
     data = read_hdulist(filename, dtype='float32')   
@@ -638,7 +677,7 @@ def blackbox_reduce (filename, telescope, mode, read_path):
     # crosstalk correction
     ######################
     if imgtype == 'object':
-        # not needed for biases or flats
+        # not needed for biases, darks or flats
         try: 
             log.info('correcting for the crosstalk')
             xtalk_processed = False
@@ -687,10 +726,11 @@ def blackbox_reduce (filename, telescope, mode, read_path):
     if get_par(set_zogy.display,tel):
         ds9_arrays(os_cor=data)
 
-    # if IMAGETYP=bias, write [data] to fits and return
-    if imgtype == 'bias':
+    # if IMAGETYP=bias or dark, write [data] to fits and return
+    if imgtype == 'bias' or imgtype == 'dark':
         # call [run_qc_check] to update header with any QC flags
         run_qc_check (header, tel, log=log)
+        header['DATEFILE'] = (Time.now().isot, 'UTC date of writing file')
         fits.writeto(fits_out, data.astype('float32'), header, overwrite=True)
         return
     
@@ -774,6 +814,7 @@ def blackbox_reduce (filename, telescope, mode, read_path):
         # call [run_qc_check] to update header with any QC flags
         run_qc_check (header, tel, log=log)
         # write to fits
+        header['DATEFILE'] = (Time.now().isot, 'UTC date of writing file')
         fits.writeto(fits_out, data.astype('float32'), header, overwrite=True)
         return
 
@@ -850,17 +891,19 @@ def blackbox_reduce (filename, telescope, mode, read_path):
     # satellite trail detection
     ###########################
     try: 
-        log.info('detecting satellite trails')
         sat_processed = False
-        data_mask = sat_detect(data, header, data_mask, header_mask,
-                               tmp_path)
+        if get_par(set_bb.detect_sats,tel):
+            log.info('detecting satellite trails')
+            data_mask = sat_detect(data, header, data_mask, header_mask,
+                                   tmp_path)
     except Exception as e:
         q.put(logger.info(traceback.format_exc()))
         q.put(logger.error('exception was raised during [sat_detect]: {}'.format(e)))
         log.info(traceback.format_exc())
         log.error('exception was raised during [sat_detect]: {}'.format(e))
     else:
-        sat_processed = True
+        if get_par(set_bb.detect_sats,tel):
+            sat_processed = True
     finally:
         header['SAT-P'] = (sat_processed, 'processed for satellite trails?')
 
@@ -887,9 +930,17 @@ def blackbox_reduce (filename, telescope, mode, read_path):
     
     # write data and mask to output images in [tmp_path]
     log.info('writing reduced image and mask to {}'.format(tmp_path))
-    new_fits = '{}/{}'.format(tmp_path, fits_out.split('/')[-1]) 
-    new_fits_mask = new_fits.replace('_red.fits', '_mask.fits')    
+    new_fits = '{}/{}'.format(tmp_path, fits_out.split('/')[-1])
+    new_fits_mask = new_fits.replace('_red.fits', '_mask.fits')
+    # add name of reduced image and corresponding mask in header just
+    # before writing it
+    redfile = fits_out.split('/')[-1].split('.fits')[0]
+    header['REDFILE'] = (redfile, 'BlackBOX reduced image name')
+    header['MASKFILE'] = (redfile.replace('_red', '_mask'), 
+                          'BlackBOX mask image name')
+    header['DATEFILE'] = (Time.now().isot, 'UTC date of writing file')
     fits.writeto(new_fits, data.astype('float32'), header, overwrite=True)
+    header_mask['DATEFILE'] = (Time.now().isot, 'UTC date of writing file')
     fits.writeto(new_fits_mask, data_mask.astype('uint8'), header_mask,
                  overwrite=True)
 
@@ -997,7 +1048,8 @@ def blackbox_reduce (filename, telescope, mode, read_path):
         else:
             # now move [ref_2keep] to the reference directory
             ref_base = ref_fits_out.split('_red.fits')[0]
-            result = copy_files2keep(tmp_base, ref_base, get_par(set_bb.ref_2keep,tel))
+            result = copy_files2keep(tmp_base, ref_base, get_par(set_bb.ref_2keep,tel),
+                                     move=False)
             
             
         # now that reference is built, remove this reference ID
@@ -1007,7 +1059,8 @@ def blackbox_reduce (filename, telescope, mode, read_path):
         if qc_flag != 'red':
             log.info('finished making reference image: {}'.format(ref_fits_out))
         else:
-            log.info('encountered red flag; not using image: {} as reference'.format(ref_fits_out))
+            log.info('encountered red flag; not using image: {} (original name: {}) '
+                     'as reference'.format(header['REDFILE'], header['ORIGFILE']))
             
     else:
 
@@ -1055,14 +1108,20 @@ def blackbox_reduce (filename, telescope, mode, read_path):
                     run_qc_check (header_optsub, tel, 'new', fits_tmp_cat, log=log)
                     run_qc_check (header_optsub, tel, 'trans', fits_tmp_trans, log=log)
                 
-                
+
+        # update reduced image header with extended header from ZOGY [header_optsub]
+        with fits.open(new_fits, 'update') as hdulist:
+            hdulist[0].header = header_optsub
+        
+                    
         if get_par(set_zogy.timing,tel):
             log_timing_memory (t0=t_blackbox_reduce, label='blackbox_reduce', log=log)
 
         # copy selected output files to new directory
         new_base = fits_out.split('_red.fits')[0]
         tmp_base = new_fits.split('_red.fits')[0]
-        result = copy_files2keep(tmp_base, new_base, get_par(set_bb.new_2keep,tel))
+        result = copy_files2keep(tmp_base, new_base, get_par(set_bb.new_2keep,tel),
+                                 move=False)
 
 
     lock.acquire()
@@ -1089,18 +1148,18 @@ def get_flatstats (data, header):
         sec_temp[1].start+1, sec_temp[1].stop+1) 
     header['STATSEC'] = (
         value_temp, 'pre-defined statistics section [y1:y2,x1:x2]')
-        
-    
+            
     # statistics on STATSEC
     mean_sec, std_sec, median_sec = clipped_stats(data[sec_temp])
     header['MEDSEC'] = (median_sec, '[e-] median flat over STATSEC')
     header['STDSEC'] = (std_sec, '[e-] sigma (STD) flat over STATSEC')
+    header['RSTDSEC'] = (std_sec/median_sec, 'relative sigma (STD) flat over STATSEC')
 
     # full image statistics
     mean, std, median = clipped_stats(data)
     header['FLATMED'] = (median, '[e-] median flat')
     header['FLATSTD'] = (std, '[e-] sigma (STD) flat')
-
+    header['FLATRSTD'] = (std/median, 'relative sigma (STD) flat')
     
     # add the channel median level to the flatfield header
     chan_sec, data_sec, os_sec_hori, os_sec_vert, data_sec_red = (
@@ -1108,9 +1167,21 @@ def get_flatstats (data, header):
     nchans = np.shape(data_sec)[0]
     
     for i_chan in range(nchans):
+        
+        median_temp = np.median(data[data_sec_red[i_chan]])
         header['FLATM{}'.format(i_chan+1)] = (
-            np.median(data[data_sec_red[i_chan]]),
+            median_temp,
             '[e-] channel {} median flat (bias-subtracted)'.format(i_chan+1))
+        
+        std_temp = np.std(data[data_sec_red[i_chan]])
+        header['FLATS{}'.format(i_chan+1)] = (
+            std_temp,
+            '[e-] channel {} sigma (STD) flat'.format(i_chan+1))
+        
+        header['FLATRS{}'.format(i_chan+1)] = (
+            std_temp/median_temp,
+            'channel {} relative sigma (STD) flat'.format(i_chan+1))
+
 
     return
 
@@ -1275,6 +1346,8 @@ def copy_files2keep (tmp_base, dest_base, ext2keep, move=True):
 
 def sat_detect (data, header, data_mask, header_mask, tmp_path):
 
+    # could also try skimage.transform.probabilistic_hough_line()
+    
     if get_par(set_zogy.timing,tel):
         t = time.time()
 
@@ -1291,9 +1364,21 @@ def sat_detect (data, header, data_mask, header_mask, tmp_path):
             tmp_path, tmp_path.split('/')[-1].replace('_red','_binned_satmask.fits')))
         fits.writeto(fits_binned_mask, binned_data, overwrite=True)
         #detect satellite trails
-        results, errors = detsat(fits_binned_mask, chips=[0],
-                                 n_processes=get_par(set_bb.nthread,tel),
-                                 buf=40, sigma=3, h_thresh=0.2)
+        try:
+            results, errors = detsat(fits_binned_mask, chips=[0],
+                                     n_processes=get_par(set_bb.nthread,tel),
+                                     buf=40, sigma=3, h_thresh=0.2, plot=False,
+                                     verbose=False)
+        except Exception as e:
+            log.error('exception was raised during [detsat]: {}'.format(e))
+            # raise exception
+            raise RuntimeError ('problem with running detsat module')
+        else:
+            # also raise exception if detsat module returns errors
+            if len(errors) != 0:
+                log.error('detsat errors: {}'.format(errors))
+                raise RuntimeError ('problem with running detsat module')
+            
         #create satellite trail if found
         trail_coords = results[(fits_binned_mask,0)] 
         #continue if satellite trail found
@@ -1305,8 +1390,8 @@ def sat_detect (data, header, data_mask, header_mask, tmp_path):
                                         pad=0, sigma=5, subwidth=5000).astype(np.uint8)
             except ValueError:
                 #if error occurs, add comment
-                print ('Warning: satellite trail found but could not be fitted for file {} and is not included in the mask.'
-                       .format(tmp_path.split('/')[-1]))
+                log.info ('Warning: satellite trail found but could not be fitted for file {} and is not included in the mask.'
+                          .format(tmp_path.split('/')[-1]))
                 break
             satellite_fitting = True
             binned_data[mask_binned == 1] = np.median(binned_data)
@@ -1317,11 +1402,12 @@ def sat_detect (data, header, data_mask, header_mask, tmp_path):
             fits.writeto(fits_old_mask, mask_binned, overwrite=True)
         else:
             break
+    
     if satellite_fitting == True:
         #unbin mask
         mask_sat = np.kron(mask_binned, np.ones((get_par(set_bb.sat_bin,tel),
                                                  get_par(set_bb.sat_bin,tel)))).astype(np.uint8)
-        # add pixels affected by cosmic rays to [data_mask]
+        # add pixels affected by satellite trails to [data_mask]
         data_mask[mask_sat==1] += get_par(set_zogy.mask_value['satellite trail'],tel)
         # determining number of trails; 2 pixels are considered from the
         # same trail also if they are only connected diagonally
@@ -1333,7 +1419,10 @@ def sat_detect (data, header, data_mask, header_mask, tmp_path):
         nsatpixels = 0
 
     header['NSATS'] = (nsats, 'number of satellite trails identified')
+    header_mask['NSATS'] = (nsats, 'number of satellite trails identified')
 
+    log.info('number of satellite trails identified: {}'.format(nsats))
+    
     if get_par(set_zogy.timing,tel):
         log_timing_memory (t0=t, label='sat_detect', log=log)
 
@@ -1378,7 +1467,11 @@ def cosmics_corr (data, header, data_mask, header_mask):
     __, ncosmics = ndimage.label(mask_cr, structure=struct)
     ncosmics_persec = ncosmics / header['EXPTIME']
     header['NCOSMICS'] = (ncosmics_persec, '[/s] number of cosmic rays identified')
-
+    # also add this to header of mask image
+    header_mask['NCOSMICS'] = (ncosmics_persec, '[/s] number of cosmic rays identified')
+    log.info('Number of cosmic rays identified: {}'.format(ncosmics))
+    
+    
     if get_par(set_zogy.timing,tel):
         log_timing_memory (t0=t, label='cosmics_corr', log=log)
 
@@ -1424,6 +1517,12 @@ def mask_init (data, header):
     # add them to the mask of edge and bad pixels
     data_mask[mask_sat] += get_par(set_zogy.mask_value['saturated'],tel)
 
+    # determining number of saturated objects; 2 saturated pixels are
+    # considered from the same object also if they are only connected
+    # diagonally
+    struct = np.ones((3,3), dtype=bool)
+    __, nobj_sat = ndimage.label(mask_sat, structure=struct)
+    
     # and pixels connected to saturated pixels
     struct = np.ones((3,3), dtype=bool)
     mask_satconnect = ndimage.binary_dilation(mask_sat, structure=struct, iterations=2)
@@ -1433,8 +1532,10 @@ def mask_init (data, header):
     # create initial mask header 
     header_mask = fits.Header()
     header_mask['SATURATE'] = (satlevel_electrons, '[e-] adopted saturation threshold')
-    # also add this to the header of image itself
+    header['NOBJ-SAT'] = (nobj_sat, 'number of saturated objects')
+    # also add these to the header of image itself
     header['SATURATE'] = (satlevel_electrons, '[e-] adopted saturation threshold')
+    header['NOBJ-SAT'] = (nobj_sat, 'number of saturated objects')
     # rest of the mask header entries are added in one go using
     # function [mask_header] once all the reduction steps have
     # finished
@@ -1495,14 +1596,27 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
              
 
     if not (master_present and master_ok):
-    
-        # prepare master from files in [path]
+
+        # prepare master image from files in [path] +/- the specified
+        # time window
         if imtype=='flat':
-            file_list = sorted(glob.glob('{}/*_{}.fits*'.format(path, filt)))
+            nwindow = int(get_par(set_bb.flat_window,tel))
         elif imtype=='bias':
-            file_list = sorted(glob.glob('{}/*fits*'.format(path)))
+            nwindow = int(get_par(set_bb.bias_window,tel))
+                
+        file_list = []
+        for n_day in range(-nwindow, nwindow+1):
+            # determine mjd at noon of date_eve +- n_day
+            mjd_noon = date2mjd ('{} 12:00'.format(date_eve)) + n_day
+            # corresponding path
+            date_temp = Time(mjd_noon, format='mjd').isot.split('T')[0].replace('-','/')
+            path_temp = '/'.join(path.split('/')[0:-4])+'/'+date_temp+'/flat'
+            file_list.append(sorted(glob.glob('{}/{}*_{}.fits*'.format(path_temp, tel, filt))))
+            
 
-
+        # clean up [file_list]
+        file_list = [f for sublist in file_list for f in sublist]
+                             
         # do not consider image with header QC-FLAG set to red
         mask_keep = np.ones(len(file_list), dtype=bool)
         for i_file, filename in enumerate(file_list):
@@ -1511,7 +1625,7 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
                 if header_temp['QC-FLAG'] == 'red':
                     mask_keep[i_file] = False
         file_list = np.array(file_list)[mask_keep]
-
+        
         
         # initialize cube of images to be combined
         nfiles = len(file_list)
@@ -1531,8 +1645,9 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
                     or imtype=='flat'):
                     if log is not None:
                         log.info ('Warning: too few images to produce master {} for '
-                                  'evening date {}; using: {}'.
-                                  format(imtype, date_eve, fits_master_close))
+                                  'evening date {} +/- window of {} days\n'
+                                  'instead using: {}'.
+                                  format(imtype, date_eve, nwindow, fits_master_close))
                 # previously we created a symbolic link so future
                 # files would automatically use this as the master
                 # file, but as this symbolic link is confusing, let's
@@ -1551,12 +1666,13 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
         else:
             
             if imtype=='bias':
-                q.put(logger.info ('making master {}'.format(imtype)))
+                q.put(logger.info ('making master {} for night {}'.format(imtype, date_eve)))
                 if not get_par(set_bb.subtract_mbias,tel):
                     q.put(logger.info ('(but will not be used as [subtract_mbias] '
                                       'is set to False)'))
             if imtype=='flat':
-                q.put(logger.info ('making master {} in filter {}'.format(imtype, filt)))
+                q.put(logger.info ('making master {} in filter {} for night {}'
+                                   .format(imtype, filt, date_eve)))
                 
             # assuming that individual flats/biases have the same shape as the input data
             ysize, xsize = data_shape
@@ -1624,6 +1740,11 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
             # add number of files combined
             header_master['N{}'.format(imtype.upper())] = (
                 nfiles, 'number of {} frames combined'.format(imtype.lower()))
+
+            # add time window used
+            header_master['{}-WIN'.format(imtype.upper())] = (
+                nwindow, '[days] input time window to include {} frames'
+                .format(imtype.lower()))
             
             # add some header keywords to the master flat
             if imtype=='flat':
@@ -1636,16 +1757,16 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
 
                 header_master['MFMEDSEC'] = (
                     np.median(master_median[sec_temp]), 
-                    '[e-] median master flat over STATSEC')
+                    'median master flat over STATSEC')
                 
                 header_master['MFSTDSEC'] = (
                     np.std(master_median[sec_temp]),
-                    '[e-] sigma (STD) master flat over STATSEC')
+                    'sigma (STD) master flat over STATSEC')
 
                 # full image statistics
                 mean_master, std_master, median_master = clipped_stats(master_median)
-                header_master['MFMED'] = (median_master, '[e-] median master flat')
-                header_master['MFSTD'] = (std_master, '[e-] sigma (STD) master flat')
+                header_master['MFMED'] = (median_master, 'median master flat')
+                header_master['MFSTD'] = (std_master, 'sigma (STD) master flat')
 
                 # check if flats were dithered; calculate offset in
                 # arcsec of each flat with respect to the previous one
@@ -1681,13 +1802,84 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
                 fits_bpm = get_par(set_bb.bad_pixel_mask,tel)
                 bpm_present, fits_bpm = already_exists (fits_bpm, get_filename=True)
                 if bpm_present:
-                    # if it exists in whatever compressed format, read it
+                    # if mask exists, read it
                     data_mask = read_hdulist(fits_bpm)
                     mask_replace = ((data_mask==get_par(set_zogy.mask_value['edge'],tel)) |
                                     (master_median<=0))
                     master_median[mask_replace] = 1
                     
+                # now that master flat is produced, normalize the
+                # different channels such that the final image
+                # appears smooth without any jumps in levels 
+                # between the different channels
 
+                __, __, __, __, data_sec_red = define_sections(data_shape)
+                nchans = np.shape(data_sec_red)[0]
+                med_chan_cntr = np.zeros(nchans)
+                std_chan_cntr = np.zeros(nchans)
+
+                # copy of master_median
+                master_median_corr = np.copy(master_median)
+                
+                # first match the channels vertically, by using the
+                # statistics of the regions at the top of the bottom
+                # channels and bottom of the top channels
+                nrows = 200
+                for i_chan in range(nchans):
+                    data_chan = master_median_corr[data_sec_red[i_chan]]
+                    if i_chan < 8:
+                        med_chan_cntr[i_chan] = np.median(data_chan[-nrows:,:])
+                    else:
+                        med_chan_cntr[i_chan] = np.median(data_chan[0:nrows,:])
+                        
+                    # correct master image channel
+                    master_median_corr[data_sec_red[i_chan]] /= med_chan_cntr[i_chan]
+                        
+                # channel correction factor applied so far
+                factor_chan = 1./med_chan_cntr
+                                
+                # now match channels horizontally
+                ysize, xsize = data_shape
+                ny = get_par(set_bb.ny,tel)
+                nx = get_par(set_bb.nx,tel)
+                dy = ysize // ny
+                dx = xsize // nx
+
+                nrows = 2000
+                ncols = 200
+                for i in range(1,nx):
+                    # index of lower left pixel of upper right channel
+                    # of the 4 being considered
+                    y_index = dy
+                    x_index = i*dx
+                    # statistics of right side of previous channel pair
+                    data_stat1 = master_median_corr[y_index-nrows:y_index+nrows,
+                                                    x_index-ncols:x_index]
+                    # statistics of right side of previous channel pair
+                    data_stat2 = master_median_corr[y_index-nrows:y_index+nrows,
+                                                    x_index:x_index+ncols]
+                    ratio = np.median(data_stat1)/np.median(data_stat2)
+                    # correct relevant channels
+                    master_median_corr[data_sec_red[i]] *= ratio
+                    master_median_corr[data_sec_red[i+nx]] *= ratio
+                    # update correction factor
+                    factor_chan[i] *= ratio
+                    factor_chan[i+nx] *= ratio
+                 
+
+                # normalise corrected master to [flat_norm_sec] section
+                sec_temp = get_par(set_bb.flat_norm_sec,tel)
+                ratio_norm = np.median(master_median_corr[sec_temp])
+                master_median_corr /= ratio_norm
+                factor_chan /= ratio_norm
+
+                # add factor_chan values to header
+                for i_chan in range(nchans):
+                    header_master['GAINCF{}'.format(i_chan+1)] = (
+                        factor_chan[i_chan], 'channel {} gain correction factor'
+                        .format(i_chan+1))
+
+                    
             elif imtype=='bias':
 
                 # add some header keywords to the master bias
@@ -1716,6 +1908,7 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
             # call [run_qc_check] to update master header with any QC flags
             run_qc_check (header_master, tel, log=log)
             # write to output file
+            header_master['DATEFILE'] = (Time.now().isot, 'UTC date of writing file')
             fits.writeto(fits_master, master_median.astype('float32'), header_master,
                          overwrite=True)
             
@@ -1743,8 +1936,10 @@ def get_closest_biasflat (date_eve, file_type, filt=None):
 
     if nfiles > 0:
         # find file that is closest in time to [date_eve]
-        mjds = np.array([date2mjd(files[i].split('/')[-1][5:13])
+        mjds = np.array([date2mjd(files[i].split('/')[-1].split('_')[1])
                          for i in range(nfiles)])
+        # these mjds corresponding to the very start of the day
+        # (midnight) but in the comparison this offset cancels out
         i_close = np.argmin(abs(mjds - date2mjd(date_eve)))
         return files[i_close]
 
@@ -1754,18 +1949,21 @@ def get_closest_biasflat (date_eve, file_type, filt=None):
 
 ################################################################################
 
-def date2mjd (date_str, get_jd=False, date_format='%Y%m%d'):
+def date2mjd (date_str, get_jd=False):
     
-    """convert [date_str] in format [date_format] to MJD or JD if [get_jd]
-       is set"""
-
-    date = dt.datetime.strptime(date_str, date_format)
-    jd = int(date.toordinal()) + 1721424.5
+    """convert [date_str] to MJD or JD with possible formats: 
+         yyyymmdd [hh:mm[:ss.s]]
+         yyyy-mm-dd [hh:mm[:ss.s]] 
+         yyyy-mm-dd[Thh:mm[:ss.s]]
+    """
     
+    if '-' not in date_str:
+        date_str = '{}-{}-{}'.format(date_str[0:4], date_str[4:6], date_str[6:8])
+        
     if get_jd:
-        return jd
+        return Time(date_str).jd
     else:
-        return jd - 2400000.5
+        return Time(date_str).mjd
     
 
 ################################################################################
@@ -1790,7 +1988,7 @@ def set_header(header, filename):
                 print ('warning: keyword {} does not exist: comment is not updated'
                        .format(key))
 
-    edit_head(header, 'BUNIT', value='ADU', comments='Physical unit of array values')
+    edit_head(header, 'BUNIT', value='e-', comments='Physical unit of array values')
     edit_head(header, 'BSCALE', comments='value = fits_value*BSCALE+BZERO')
     edit_head(header, 'BZERO', comments='value = fits_value*BSCALE+BZERO')
     #edit_head(header, 'CCD-AMP', value='', comments='Amplifier mode of the CCD camera')
@@ -1799,7 +1997,6 @@ def set_header(header, filename):
     edit_head(header, 'YBINNING', value=1, comments='[pix] Binning factor Y axis')
     edit_head(header, 'ALTITUDE', comments='[deg] Altitude in horizontal coordinates')
     edit_head(header, 'AZIMUTH', comments='[deg] Azimuth in horizontal coordinates')
-    edit_head(header, 'HA', comments='[deg] Hour angle')
     edit_head(header, 'RADESYS', value='ICRS', comments='Coordinate reference frame')
 
     # RA and DEC
@@ -1812,7 +2009,7 @@ def set_header(header, filename):
         else:
             # convert RA decimal hours to degrees
             ra_deg = header['RA'] * 15.
-        edit_head(header, 'RA', value=ra_deg, comments='[deg] Right ascension')
+        edit_head(header, 'RA', value=ra_deg, comments='[deg] Telescope right ascension')
         edit_head(header, 'RA-REF', comments='Requested right ascension')
         edit_head(header, 'RA-TEL', comments='[deg] Telescope right ascension')
 
@@ -1823,13 +2020,15 @@ def set_header(header, filename):
         else:
             # for airmass determination below
             dec_deg = header['DEC']
-        edit_head(header, 'DEC', value=dec_deg, comments='[deg] Declination')
+        edit_head(header, 'DEC', value=dec_deg, comments='[deg] Telescope declination')
         edit_head(header, 'DEC-REF', comments='Requested declination')
         edit_head(header, 'DEC-TEL', comments='[deg] Telescope declination')
             
             
     edit_head(header, 'FLIPSTAT', comments='Telescope side of the pier')
     edit_head(header, 'EXPTIME', comments='[s] Requested exposure time')
+    # ***CHECK***
+    # exptime aanpassen naar gpsend-gpsstart 
     if 'ISTRACKI' in header.keys():
         edit_head(header, 'ISTRACKI', header['ISTRACKI']=='True', comments='Telescope is tracking')
     #edit_head(header, 'ACQSTART', value='', comments='Time of PC acquisition request sent to camera')
@@ -1837,32 +2036,80 @@ def set_header(header, filename):
     edit_head(header, 'GPSSTART', comments='GPS timing start of opening shutter')
     edit_head(header, 'GPSEND', comments='GPS timing end of closing shutter')
 
-    exptime_days = header['EXPTIME']/3600./24.
+    # record original DATE-OBS and END-OBS in ACQSTART and ACQEND
+    edit_head(header, 'ACQSTART', value=header['DATE-OBS'], 
+              comments='start of acquisition (server timing)')
+    if 'END-OBS' in header:
+        edit_head(header, 'ACQEND', value=header['END-OBS'], 
+                  comments='end of acquisition (server timing)')
+        
+    # previously:
+    #exptime_days = header['EXPTIME']/3600./24.
+    #keys = header.keys()
+    #if 'GPSSTART' in keys and 'GPSEND' in keys and 'EXPTIME' in keys:
+    #    # replace DATE-OBS with (GPSSTART+GPSEND-EXPTIME)/2
+    #    gps_mjd = Time([header['GPSSTART'], header['GPSEND']], format='isot').mjd
+    #    mjd_obs = (np.sum(gps_mjd)-exptime_days)/2.
+    #    date_obs_str = Time(mjd_obs, format='mjd').isot
+    #    date_obs = Time(date_obs_str, format='isot') # change from a string to time class
+    #    edit_head(header, 'DATE-OBS', value=date_obs_str,
+    #              comments='Date at start: (GPSSTART+GPSEND-EXPTIME)/2')
+    #else:
+    #    date_obs_str = header['DATE-OBS']
+    #    date_obs = Time(date_obs_str, format='isot')
+    #    edit_head(header, 'DATE-OBS', comments='Date at start')
+    #    mjd_obs = Time(date_obs, format='isot').mjd
+
+    #mjd_end = mjd_obs + exptime_days
+    #date_end = Time(mjd_end, format='mjd').isot
+    #edit_head(header, 'DATE-END', value=date_end, comments='Date at end: (DATE-OBS+EXPTIME)')
+    #edit_head(header, 'MJD-OBS', value=mjd_obs, comments='[d] MJD at start (based on DATE-OBS)')
+    #edit_head(header, 'MJD-END', value=mjd_end, comments='[d] MJD at end (based on DATE-END)')
+
+    # the above is now replaced with midexposure DATE-OBS based on
+    # GPSSTART and GPSEND; if these keywords are not present in the
+    # header, or if the image is a bias or dark frame (which both
+    # should not contain these keywords, and if they do, the keyword
+    # values are actually identical to those of the image preceding
+    # the bias/dark), then just adopt the original DATE-OBS
+    # (=ACQSTART) as the date of observation    
     keys = header.keys()
-    if 'GPSSTART' in keys and 'GPSEND' in keys and 'EXPTIME' in keys:
-        # replace DATE-OBS with (GPSSTART+GPSEND-EXPTIME)/2
+    imgtype = header['IMAGETYP'].lower()
+    if 'GPSSTART' in keys and 'GPSEND' in keys and imgtype == 'object':
+        
+        # replace DATE-OBS with (GPSSTART+GPSEND)/2
         gps_mjd = Time([header['GPSSTART'], header['GPSEND']], format='isot').mjd
-        mjd_obs = (np.sum(gps_mjd)-exptime_days)/2.
+        mjd_obs = np.sum(gps_mjd)/2.
         date_obs_str = Time(mjd_obs, format='mjd').isot
-        date_obs = Time(date_obs_str, format='isot') # change from a string to time class
         edit_head(header, 'DATE-OBS', value=date_obs_str,
-                  comments='Date at start: (GPSSTART+GPSEND-EXPTIME)/2')
+                  comments='Midexp. date @img cntr:(GPSSTART+GPSEND)/2')
+        date_obs = Time(date_obs_str, format='isot') # change from a string to time class
+
+        # also add keyword to check (GPSEND-GPSSTART) - EXPTIME
+        gps_shut = (gps_mjd[1]-gps_mjd[0])*24*3600 - header['EXPTIME']
+        edit_head(header, 'GPS-SHUT', value=gps_shut,
+                  comments='[s] Shutter time:(GPSEND-GPSSTART)-EXPTIME')
+        
     else:
         date_obs_str = header['DATE-OBS']
         date_obs = Time(date_obs_str, format='isot')
-        edit_head(header, 'DATE-OBS', comments='Date at start')
+        # DATE-OBS already present; just edit the comments
+        edit_head(header, 'DATE-OBS', comments='Date at start (=ACQSTART)')
         mjd_obs = Time(date_obs, format='isot').mjd
 
-    mjd_end = mjd_obs + exptime_days
-    date_end = Time(mjd_end, format='mjd').isot
-    edit_head(header, 'DATE-END', value=date_end, comments='Date at end: (DATE-OBS+EXPTIME)')
-    edit_head(header, 'MJD-OBS', value=mjd_obs, comments='[d] MJD at start (based on DATE-OBS)')
-    edit_head(header, 'MJD-END', value=mjd_end, comments='[d] MJD at end (based on DATE-END)')
-    lst = date_obs.sidereal_time('mean', longitude=get_par(set_zogy.obs_lon,tel)).hour * 3600.
-    edit_head(header, 'LST', value=lst, comments='[s] LMST at start (based on DATE-OBS)')
+        
+    edit_head(header, 'MJD-OBS', value=mjd_obs, comments='[d] MJD (based on DATE-OBS)')
+
+    # in degrees:
+    lon_temp = get_par(set_zogy.obs_lon,tel)
+    lst = date_obs.sidereal_time('apparent', longitude=lon_temp)
+    lst_deg = lst.deg
+    # in hh:mm:ss.ssss
+    lst_str = lst.to_string(sep=':', precision=3)
+    edit_head(header, 'LST', value=lst_str, comments='apparent LST (based on DATE-OBS)')
     
     utc = (mjd_obs-np.floor(mjd_obs)) * 3600. * 24.
-    edit_head(header, 'UTC', value=utc, comments='[s] UTC at start (based on DATE-OBS)')
+    edit_head(header, 'UTC', value=utc, comments='[s] UTC (based on DATE-OBS)')
     edit_head(header, 'TIMESYS', value='UTC', comments='Time system used')
     
     edit_head(header, 'FOCUSPOS', comments='[micron] Focuser position')
@@ -1884,19 +2131,27 @@ def set_header(header, filename):
                 ra_deg = Angle(header['RA-REF'], unit=u.hour).degree
                 dec_deg = Angle(header['DEC-REF'], unit=u.deg).degree
                 edit_head(header, 'RA', value=ra_deg,
-                          comments='[deg] Right ascension of image centre (=RA-REF)')
+                          comments='[deg] Telescope right ascension (=RA-REF)')
                 edit_head(header, 'DEC', value=dec_deg,
-                          comments='[deg] Declination of image centre (=DEC-REF)')
+                          comments='[deg] Telescope declination (=DEC-REF)')
 
         lat = get_par(set_zogy.obs_lat,tel)
         lon = get_par(set_zogy.obs_lon,tel)
         height = get_par(set_zogy.obs_height,tel)
         airmass = get_airmass(ra_deg, dec_deg, date_obs_str, lat, lon, height)
-        edit_head(header, 'AIRMASS', value=float(airmass), comments='Airmass (based on RA, DEC, DATE-OBS)')
+        edit_head(header, 'AIRMASS', value=float(airmass), 
+                  comments='Airmass (based on RA, DEC, DATE-OBS)')
 
-        
-    arcfile = '{}.{}'.format(tel, date_obs_str)
-    edit_head(header, 'ARCFILE', value=arcfile, comments='Archive filename')
+
+    # now that RA/DEC are (potentially) corrected, determine local
+    # hour angle this keyword was in the raw image header for a while,
+    # but seems to have disappeared during the 2nd half of March 2019
+    lha_deg = lst_deg - ra_deg
+    edit_head(header, 'HA', value=lha_deg, comments='[deg] Local hour angle (=LST-RA)')
+
+    # do not add ARCFILE name for the moment
+    #arcfile = '{}.{}'.format(tel, date_obs_str)
+    #edit_head(header, 'ARCFILE', value=arcfile, comments='Archive filename')
     edit_head(header, 'ORIGFILE', value=filename.split('/')[-1].split('.fits')[0],
               comments='ABOT original filename')
 
@@ -2046,7 +2301,8 @@ def os_corr(data, header, imgtype):
     # use median box filter with width [dcol] to decrease the noise
     # level in the overscan column's clipped mean for the horizontal
     # overscan when it has a limited amount of pixels
-    if np.shape(data[os_sec_hori[0]])[0] <= 100:
+    nrows_hos = np.shape(data[os_sec_hori[0]])[0]
+    if nrows_hos <= 100:
         dcol = 15 # after testing, 15-21 seem decent widths to use
     else:
         # otherwise, determine it per column
@@ -2072,30 +2328,72 @@ def os_corr(data, header, imgtype):
     std_vos_top = np.zeros(nchans)
     mean_vos_bottom = np.zeros(nchans)
     std_vos_bottom = np.zeros(nchans)
+    meandiff_vos = np.zeros(nchans)
+    
+    vos_poldeg = get_par(set_bb.voscan_poldeg,tel)
+    nrows_chan = np.shape(data[chan_sec[0]])[0]
     
     for i_chan in range(nchans):
 
-        # first subtract the clipped mean (not median!) of the
-        # vertical overcan section from the entire channel
-        data_vos = data[os_sec_vert[i_chan]]
-        mean_vos[i_chan], std_vos[i_chan] = clipped_stats(data_vos, get_median=False)
-        #data[chan_sec[i_chan]] -= mean_vos[i_chan]
+        # -----------------
+        # vertical overscan
+        # -----------------
+        
+        # first subtract a low-order polynomial fit to the clipped
+        # mean (not median!) of the vertical overcan section from the
+        # entire channel
 
-        ## also subtract vertical overscan off each row?
-        #mean_vos, median_vos, std_vos = sigma_clipped_stats(data_vos, axis=1)
-        #oscan = [np.mean(mean_vos[max(k-dcol_half,0):min(k+dcol_half+1,nrows)])
-        #         for k in range(nrows)]
-        ## subtract vertical overscan
-        #data[data_sec[i_chan]] -= np.hstack([oscan]*ncols)
+        # determine clipped mean for each row
+        data_vos = data[os_sec_vert[i_chan]]
+        mean_vos_col, median_vos_col, std_vos_col = sigma_clipped_stats(data_vos,
+                                                                        axis=1)
+        y_vos = np.arange(nrows_chan)
+        # fit low order polynomial
+        try:
+            p = np.polyfit(y_vos, mean_vos_col, vos_poldeg)
+        except Exception as e:
+            log.info(traceback.format_exc())
+            log.info('exception was raised during polynomial fit to channel {} '
+                     'vertical overscan'.format(i_chan))
+
+        # add fit coefficients to image header
+        for nc in range(len(p)):
+            p_reverse = p[::-1]
+            header['BIAS{}A{}'.format(i_chan+1, nc)] = (
+                p_reverse[nc], '[e-] channel {} vert. overscan A{} polyfit coeff'
+                .format(i_chan+1, nc))
+            
+        # fit values
+        fit_vos_col = np.polyval(p, y_vos)
+        # subtract this off the entire channel
+        data[chan_sec[i_chan]] -= fit_vos_col.reshape(nrows_chan,1)
+        
+        #plt.plot(y_vos, mean_vos_col, color='black')
+        #plt.plot(y_vos, fit_vos_col, color='red')
+        #plt.savefig('test_poly_{}.pdf'.format(i_chan))
+        #plt.close()        
+        
+        data_vos = data[os_sec_vert[i_chan]]
+        # determine mean and std of overscan subtracted vos:
+        mean_vos[i_chan], std_vos[i_chan] = clipped_stats(data_vos, get_median=False)
+        # the above mean_vos is close to zero; overwrite it with the mean polyfit value
+        mean_vos[i_chan] = np.mean(fit_vos_col)
                 
-        # add statistics of top and bottom part of vertical overscan
-        # to enable checking of any vertical gradient present
-        data_vos_top = data_vos[-1000:,:]
-        data_vos_bottom = data_vos[0:1000:,:]
-        mean_vos_top[i_chan], std_vos_top[i_chan] = clipped_stats(data_vos_top, 
-                                                                  get_median=False)
-        mean_vos_bottom[i_chan], std_vos_bottom[i_chan] = clipped_stats(data_vos_bottom, 
-                                                                        get_median=False)
+        if False:
+            # add statistics of top and bottom part of vertical overscan
+            # to enable checking of any vertical gradient present
+            data_vos_top = data_vos[-1000:,:]
+            data_vos_bottom = data_vos[0:1000:,:]
+            mean_vos_top[i_chan], std_vos_top[i_chan] = clipped_stats(
+                data_vos_top, get_median=False)
+            mean_vos_bottom[i_chan], std_vos_bottom[i_chan] = clipped_stats(
+                data_vos_bottom, get_median=False)
+            meandiff_vos[i_chan] = mean_vos_top[i_chan] - mean_vos_bottom[i_chan]
+        
+
+        # -------------------
+        # horizontal overscan
+        # -------------------
 
         # determine the running clipped mean of the overscan using all
         # values across [dcol] columns, for [ncols] columns
@@ -2103,12 +2401,14 @@ def os_corr(data, header, imgtype):
 
         # replace very high values (due to bright objects on edge of
         # channel) with function [replace_pix] in zogy.py
-        mask_hos = (data_hos > (mean_vos[i_chan]+2000.))
+        mask_hos = (data_hos > 2000.)
         # add couple of pixels connected to this mask
         mask_hos = ndimage.binary_dilation(mask_hos, structure=np.ones((3,3)).astype('bool'))
+
         # interpolate spline over these pixels
-        data_hos_replaced = inter_pix (data_hos, std_vos[i_chan], mask_hos, dpix=10, k=2,
-                                       log=log)
+        if imgtype == 'object':
+            data_hos_replaced = inter_pix (data_hos, std_vos[i_chan], mask_hos, dpix=10, k=2,
+                                           log=log)
         
         # determine clipped mean for each column
         mean_hos, median_hos, std_hos = sigma_clipped_stats(data_hos, axis=0)
@@ -2120,14 +2420,15 @@ def os_corr(data, header, imgtype):
             # do not use the running mean for the first column(s)
             oscan[0:dcol_half] = mean_hos[0:dcol_half]
         else:
-            oscan = mean_hos[0:ncols]           
+            oscan = mean_hos[0:ncols]
             
         # subtract horizontal overscan
-        data[data_sec[i_chan]] -= np.vstack([oscan]*nrows)
+        data[data_sec[i_chan]] -= oscan
         # place into [data_out]
         data_out[data_sec_red[i_chan]] = data[data_sec[i_chan]] 
 
 
+        
     def add_stats(mean_arr, std_arr, label, key_label):
         # add headers outside above loop to make header more readable
         for i_chan in range(nchans):
@@ -2147,8 +2448,15 @@ def os_corr(data, header, imgtype):
     header['RDNOISE'] = (np.mean(std_vos), '[e-] average all channel sigmas vert. overscan')
 
     # add top and bottom parts as well
-    result = add_stats(mean_vos_top, std_vos_top, 'top', 'T')
-    result = add_stats(mean_vos_bottom, std_vos_bottom, 'bot.', 'B')        
+    #result = add_stats(mean_vos_top, std_vos_top, 'top', 'T')
+    #result = add_stats(mean_vos_bottom, std_vos_bottom, 'bot.', 'B')        
+    
+    # add the difference between mean levels at top and bottom
+    if False:
+        for i_chan in range(nchans):
+            header['BIASTB{}'.format(i_chan+1)] = (
+                meandiff_vos[i_chan], '[e-] channel {} mean diff. top-bottom vert. overcan'
+                .format(i_chan+1))
         
     # if the image is a flatfield, add some header keywords with
     # the statistics of [data_out]
@@ -2359,7 +2667,8 @@ def get_path (date, dir_type):
         # evening before UT midnight
         if 'T' in date:
             if '.' in date:
-                date = str(Time(date, format='isot')) # rounds date to microseconds as more digits can't be defined in the format (next line)
+                # rounds date to microseconds as more digits can't be defined in the format (next line)
+                date = str(Time(date, format='isot')) 
                 date_format = '%Y-%m-%dT%H:%M:%S.%f'
                 high_noon = 'T12:00:00.0'
             else:
@@ -2412,7 +2721,7 @@ def get_date_time (header):
     
 ################################################################################
 
-def sort_files(read_path, search_str, mode, recursive=False):
+def sort_files(read_path, search_str, recursive=False):
 
     """Function to sort raw files by type.  Globs all files in read_path
        and to sorts files into bias, flat and science images using the
@@ -2429,30 +2738,41 @@ def sort_files(read_path, search_str, mode, recursive=False):
         all_files = sorted(glob.glob(read_path+'/'+search_str))
 
     biases = [] #list of biases
+    darks = [] #list of darks
     flats = [] #list of flats
     objects = [] # list of science images
-
+    others = [] # list of other images 
+    
     for i, filename in enumerate(all_files): #loop through raw files
         
         header = read_hdulist(filename, get_data=False, get_header=True)
         
-        if 'IMAGETYP' not in header or 'FILTER' not in header:
-            q.put(logger.info('keyword IMAGETYP or FILTER not present in '
-                              'header of image {}; skipping it'.format(filename)))
-            continue
+        if 'IMAGETYP' not in header:
+            q.put(logger.info('keyword IMAGETYP not present in header of image '
+                              '{}; skipping it'.format(filename)))
+            # add this file to [others] list, which will not be reduced
+            others.append(filename)
 
+        else:
                   
-        imgtype = header['IMAGETYP'].lower() #get image type
-        filt = header['FILTER'].lower() 
-        
-        if 'bias' in imgtype: #add bias files to bias list
-            biases.append(all_files[i])
-        if 'flat' in imgtype: #add flat files to flat list
-            flats.append(all_files[i])
-        if 'object' in imgtype: #add science files to science list
-            objects.append(all_files[i])
+            imgtype = header['IMAGETYP'].lower() #get image type
+            
+            if 'bias' in imgtype: #add bias files to bias list
+                biases.append(filename)
+            elif 'dark' in imgtype: #add dark files to dark list
+                darks.append(filename)
+            elif 'flat' in imgtype: #add flat files to flat list
+                flats.append(filename)
+            elif 'object' in imgtype: #add science files to science list
+                objects.append(filename)
+            else:
+                # none of the above, add to others list
+                others.append(filename)
 
-    return biases, flats, objects
+    lists = [biases, darks, flats, objects, others]
+    files = [f for sublist in lists for f in sublist] 
+            
+    return files
 
 
 ################################################################################
@@ -2673,6 +2993,20 @@ class FileWatcher(FileSystemEventHandler, object):
 
 ################################################################################
 
+# from https://stackoverflow.com/questions/15008758/parsing-boolean-values-with-argparse
+def str2bool(v):
+    if isinstance(v, bool):
+        return v
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
+
+
+################################################################################
+
 if __name__ == "__main__":
     
     params = argparse.ArgumentParser(description='User parameters')
@@ -2680,8 +3014,8 @@ if __name__ == "__main__":
     params.add_argument('--mode', type=str, default='day', help='Day or night mode of pipeline')
     params.add_argument('--date', type=str, default=None, help='Date to process (yyyymmdd, yyyy-mm-dd, yyyy/mm/dd or yyyy.mm.dd)')
     params.add_argument('--read_path', type=str, default=None, help='Full path to the input raw data directory; if not defined it is determined from [set_blackbox.raw_dir], [telescope] and [date]') 
-    params.add_argument('--recursive', action='store_true', help='Recursively include subdirectories for input files')
-    params.add_argument('--only_filters', type=str, default=None, help='Only consider flatfields and object images in these filter(s)')
+    params.add_argument('--recursive', type=str2bool, default=False, help='Recursively include subdirectories for input files')
+    params.add_argument('--only_filters', type=str, default=None, help='Only consider flatfields and object images in this(these) filter(s)')
     params.add_argument('--slack', default=True, help='Upload messages for night mode to slack.')
     args = params.parse_args()
 

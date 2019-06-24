@@ -276,18 +276,19 @@ def qc_check (header, telescope='ML1', keywords=None, cat_dummy=None,
             header_dummy = header.copy()
             
             
-        # need to make sure that all keys of [qc_range] are
-        # in the header to be added to the dummy catalog; if
-        # not provide default value of 'None'?
+        # need to make sure that all keys of [qc_range] are in the
+        # header to be added to the dummy catalog; if not provide
+        # default value
         for nkey, key in enumerate(qc_range.keys()):
             if key not in header_dummy:
                 if (qc_range[key]['cat_type']==cat_type or 
                     qc_range[key]['cat_type']=='all'):
                     header_dummy[key] = (qc_range[key]['default'], qc_range[key]['comment'])
                     
+
         # create empty output catalog of type [cat_type] using
         # function [format_cat] in zogy.py
-        if cat_type == 'trans' and get_par(set_zogy.save_thumbnails,tel):
+        if cat_type == 'trans' and get_par(set_zogy.save_thumbnails,telescope):
             # for transient catalog, also produce thumbnail definitions
             thumbnail_keys = ['THUMBNAIL_RED', 'THUMBNAIL_REF', 'THUMBNAIL_D', 
                               'THUMBNAIL_SCORR']
@@ -330,17 +331,17 @@ def run_qc_check (header, telescope, cat_type=None, cat_dummy=None, log=None):
 
     # check that all crucial keywords are present in the header; N.B.:
     # [sort_files] function in BlackBOX already requires the IMAGETYP
-    # and FILTER keywords so these need not really be checked here
+    # keyword so this need not really be checked here
     keys_crucial = ['DATE-OBS', 'IMAGETYP', 'FILTER', 'EXPTIME',
                     'OBJECT', 'RA', 'DEC']
     qc_flag = 'green'
     nred = 0
     for key in keys_crucial:
         if key not in header:
-            # for biases and flats, OBJECT, RA, DEC and EXPTIME not
-            # strictly necessary (although for flats they are used to
-            # check if they were dithered; if RA and DEC not present,
-            # any potential dithering will not be detected)
+            # for biases, darks and flats, OBJECT, RA, DEC and EXPTIME
+            # not strictly necessary (although for flats they are used
+            # to check if they were dithered; if RA and DEC not
+            # present, any potential dithering will not be detected)
             if ('IMAGETYP' in header and 
                 header['IMAGETYP'].lower()!='object' and
                 (key=='OBJECT' or key=='RA' or key=='DEC' or key=='EXPTIME')):
@@ -351,24 +352,24 @@ def run_qc_check (header, telescope, cat_type=None, cat_dummy=None, log=None):
                 header['QC-RED{}'.format(nred)] = (key, 'required keyword missing')
                 if log is not None:
                     log.error('keyword {} not present in header'.format(key))
-        else:
-            # check if OBJECT keyword value corresponds to an integer
-            if key=='OBJECT' and ('IMAGETYP' in header and 
-                                  header['IMAGETYP'].lower()=='object'):
-                #print ('value: {}, type(header[key]): {}'.
-                #       format(header[key], type(header[key])))
-                try:
-                    int(header[key])
-                except Exception as e:
-                    if log is not None:
-                        log.error(e)
-                        log.error('keyword {} is not an integer'.format(key))
-                    # if not an integer, raise a red flag
-                    qc_flag = 'red'
-                    # set object keyword to zero 
-                    header[key] = 0                    
+                    
+                    
+    # check if OBJECT keyword value corresponds to an integer
+    if 'IMAGETYP' in header and header['IMAGETYP'].lower()=='object':
+        #print ('value: {}, type(header[key]): {}'.
+        #       format(header[key], type(header[key])))
+        try:
+            int(header['OBJECT'])
+        except Exception as e:
+            if log is not None:
+                log.error(e)
+                log.error('keyword OBJECT is not an integer')
+            # if not an integer, raise a red flag
+            qc_flag = 'red'
+            # set object keyword to zero 
+            #header['OBJECT'] = 0
 
-
+            
     if qc_flag == 'red':
         header['QC-FLAG'] = (qc_flag, 'QC flag color (green|yellow|orange|red)')
         return qc_flag

@@ -44,14 +44,21 @@
 
 qc_range = {
     'ML1': {
+
+        # 'raw' image header keywords
+        'GPS-SHUT': {'default': None, 'val_type': 'sigma', 'val_range': [ (0.88, 0.03) ],            'cat_type': 'all', 'comment': '[s] Shutter time:(GPSEND-GPSSTART)-EXPTIME'},
+        
         # Main processing steps
         'XTALK-P' : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'cat_type': 'all', 'comment': 'corrected for crosstalk?'},
         'NONLIN-P': {'default': False, 'val_type': 'bool', 'val_range': [ True, False ],             'cat_type': 'all', 'comment': 'corrected for non-linearity?'},
         'GAIN-P'  : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'cat_type': 'all', 'comment': 'corrected for gain?'},
         'OS-P'    : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'cat_type': 'all', 'comment': 'corrected for overscan?'},
         'MBIAS-P' : {'default': False, 'val_type': 'bool', 'val_range': [ True, False ],             'cat_type': 'all', 'comment': 'corrected for master bias?'},
+        'MBIAS-F' : {'default': None,  'val_type': 'skip', 'val_range': None,                        'cat_type': 'all', 'comment': 'name of master bias applied'},
         'MFLAT-P' : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'cat_type': 'all', 'comment': 'corrected for master flat?'},
+        'MFLAT-F' : {'default': None,  'val_type': 'skip', 'val_range': None,                        'cat_type': 'all', 'comment': 'name of master flat applied'},
         'MFRING-P': {'default': False, 'val_type': 'bool', 'val_range': [ True, False ],             'cat_type': 'all', 'comment': 'corrected for master fringe map?'},
+        'MFRING-F': {'default': None,  'val_type': 'skip', 'val_range': None,                        'cat_type': 'all', 'comment': 'name of master fringe map applied'},
         'COSMIC-P': {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'cat_type': 'all', 'comment': 'corrected for cosmics rays?'},
         'SAT-P'   : {'default': False, 'val_type': 'bool', 'val_range': [ True, False ],             'cat_type': 'all', 'comment': 'processed for satellite trails?'},
         'S-P'     : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'cat_type': 'all', 'comment': 'successfully processed by SExtractor?'},
@@ -60,7 +67,7 @@ qc_range = {
         'PC-P'    : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'cat_type': 'all', 'comment': 'successfully processed by phot. calibration?'},
         'SWARP-P' : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'cat_type': 'trans', 'comment': 'reference image successfully SWarped?'},
         'Z-P'     : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'cat_type': 'trans', 'comment': 'successfully processed by ZOGY?'},
-        #
+
         # Channel bias levels [e-]
         # 2019 values
         'BIASMEAN': {'default': None, 'val_type': 'sigma', 'val_range': [ (  7333.520, 3*30.891) ], 'cat_type': 'all', 'comment': 'average all channel means vertical overscan'},
@@ -99,7 +106,7 @@ qc_range = {
         #'BIASM14' : {'val_type': 'sigma', 'val_range': [ (  7275.009,   25.343) ], 'cat_type': 'all', 'comment': 'channel 14 mean vertical overscan'},
         #'BIASM15' : {'val_type': 'sigma', 'val_range': [ (  7101.251,   28.866) ], 'cat_type': 'all', 'comment': 'channel 15 mean vertical overscan'},
         #'BIASM16' : {'val_type': 'sigma', 'val_range': [ (  7154.681,   30.773) ], 'cat_type': 'all', 'comment': 'channel 16 mean vertical overscan'},
-        #
+
         # Channel read noise [e-]
         # 2019 values
         'RDNOISE' : {'default': None, 'val_type': 'sigma', 'val_range': [ (    11.258,   3*0.181) ], 'cat_type': 'all', 'comment': 'average all channel sigmas vertical overscan'},
@@ -138,27 +145,29 @@ qc_range = {
         #'RDN14'   : {'val_type': 'sigma', 'val_range': [ (    11.382,    0.978) ], 'cat_type': 'all', 'comment': 'channel 14 sigma (STD) vertical overscan'},
         #'RDN15'   : {'val_type': 'sigma', 'val_range': [ (     9.258,    0.412) ], 'cat_type': 'all', 'comment': 'channel 15 sigma (STD) vertical overscan'},
         #'RDN16'   : {'val_type': 'sigma', 'val_range': [ (     9.044,    0.373) ], 'cat_type': 'all', 'comment': 'channel 16 sigma (STD) vertical overscan'},
-        #
+
         # general
         'AIRMASS' : {'default': None, 'val_type': 'min_max', 'val_range': [ (1,2), (2,2.5), (2.5, 2.95) ], 'cat_type': 'all', 'comment': 'Airmass (based on RA, DEC, DATE-OBS)'},
         'N-INFNAN': {'default': None, 'val_type': 'min_max', 'val_range': [ (0,0), (1,10), (11,1e6) ], 'cat_type': 'all', 'comment': 'number of pixels with infinite/nan values'},
-        #
+
         # master bias (these keywords should not end up in dummy catalogs)
         'NBIAS'   : {'default': None, 'val_type': 'min_max', 'val_range': [ (10,50), (7,9), (5,6) ], 'cat_type': None, 'comment': 'number of bias frames combined'},
         'MBMEAN'  : {'default': None, 'val_type': 'sigma', 'val_range':   [ (0, 5) ],               'cat_type': None, 'comment': '[e-] mean master bias'},
         'MBRDN'   : {'default': None, 'val_type': 'sigma', 'val_range':   [ (0, 5) ],               'cat_type': None, 'comment': '[e-] sigma (STD) master bias'},
-        #
+
         # individual flats (this keyword should not end up in dummy catalogs)
         'MEDSEC'  : {'default': None, 'val_type': 'min_max', 'val_range': [ (2.4*20e3, 2.4*30e3), (2.4*15e3, 2.4*35e3), (2.4*10e3, 2.4*40e3) ], 'cat_type': None, 'comment': '[e-] median flat over STATSEC (bias-subtracted)'},
+        'RSTDSEC' : {'default': None, 'val_type': 'sigma', 'val_range': [ (0, 0.01) ],              'cat_type': None, 'comment': 'relative sigma (STD) flat over STATSEC'},
+        
         # master flat (these keywords should not end up in dummy catalogs)
         'NFLAT'   : {'default': None, 'val_type': 'min_max', 'val_range': [ (6,50), (4,5), (3,3) ], 'cat_type': None, 'comment': 'number of flat frames combined'},
-        'MFMEDSEC': {'default': None, 'val_type': 'sigma', 'val_range': [ (         1,    0.001) ], 'cat_type': None, 'comment': '[e-] median master flat over STATSEC'},
-        'MFSTDSEC': {'default': None, 'val_type': 'sigma', 'val_range': [ (         0,     0.01) ], 'cat_type': None, 'comment': '[e-] sigma (STD) master flat over STATSEC'},
+        'MFMEDSEC': {'default': None, 'val_type': 'sigma', 'val_range': [ (         1,    0.001) ], 'cat_type': None, 'comment': 'median master flat over STATSEC'},
+        'MFSTDSEC': {'default': None, 'val_type': 'sigma', 'val_range': [ (         0,     0.01) ], 'cat_type': None, 'comment': 'sigma (STD) master flat over STATSEC'},
         'FLATDITH': {'default': None, 'val_type': 'bool', 'val_range': [ True, False ],             'cat_type': None, 'comment': 'majority of flats were dithered'},
-        #
+
         'NCOSMICS': {'default': None, 'val_type': 'min_max', 'val_range': [ (3,50), (2.5,100), (2,200) ], 'cat_type': 'all', 'comment': '[/s] number of cosmic rays identified'},
         'NSATS'   : {'default': None, 'val_type': 'min_max', 'val_range': [ (0,1), (2,3), (4,5) ],  'cat_type': 'all', 'comment': 'number of satellite trails identified'},
-        #
+
         # SExtractor
         'S-NOBJ'  : {'default': None, 'val_type': 'min_max', 'val_range': [ (5e3,5e4), (3e3,2e5), (1e3,1e6) ], 'cat_type': 'all', 'comment': 'number of objects detected by SExtractor'},
         'S-SEEING': {'default': None, 'val_type': 'min_max', 'val_range': [ (2,4), (1,5), (0.5,7) ],'cat_type': 'all', 'comment': '[arcsec] SExtractor seeing estimate'},
@@ -167,22 +176,25 @@ qc_range = {
         'S-ELOSTD': {'default': None, 'val_type': 'sigma', 'val_range': [ (0.05,0.05) ],            'cat_type': 'all', 'comment': 'sigma (STD) SExtractor ELONGATION (A/B'},
         'S-BKG'   : {'default': None, 'val_type': 'min_max', 'val_range': [ (50,2e3), (10,1e4), (0,5e4) ], 'cat_type': 'all', 'comment': '[e-] median background full image'},
         'S-BKGSTD': {'default': None, 'val_type': 'min_max', 'val_range': [  (0., 200.)],           'cat_type': 'all', 'comment': '[e-] sigma (STD) background full image'},
-        #
+
         # Astrometry.net        
         'A-PSCALE': {'default': None, 'val_type': 'sigma', 'val_range': [ (0.563, 0.0005) ],        'cat_type': 'all', 'comment': '[arcsec/pix] pixel scale WCS solution'},
         'A-ROT'   : {'default': None, 'val_type': 'sigma', 'val_range': [ (-90, 0.5) ],             'cat_type': 'all', 'comment': '[deg] rotation WCS solution'},
+
+        'A-CAT-F' : {'default': None, 'val_type': 'skip',  'val_range': None,                       'cat_type': 'all', 'comment': 'astrometric catalog'},
         'A-NAST'  : {'default': None, 'val_type': 'min_max', 'val_range': [ (1e3,1e4), (100, 3e4), (50, 1e5) ], 'cat_type': 'all', 'comment': 'number of brightest stars used for WCS'},
         'A-DRA'   : {'default': None, 'val_type': 'sigma', 'val_range': [ (0, 0.01)],               'cat_type': 'all', 'comment': '[arcsec] dRA median offset to astrom. catalog'},
         'A-DDEC'  : {'default': None, 'val_type': 'sigma', 'val_range': [ (0, 0.01)],               'cat_type': 'all', 'comment': '[arcsec] dDEC median offset to astrom. catalog'},
         'A-DRASTD': {'default': None, 'val_type': 'sigma', 'val_range': [ (0.03, 0.02) ],           'cat_type': 'all', 'comment': '[arcsec] dRA sigma (STD) offset'},
         'A-DDESTD': {'default': None, 'val_type': 'sigma', 'val_range': [ (0.03, 0.02) ],           'cat_type': 'all', 'comment': '[arcsec] dDEC sigma (STD) offset'},
-        #
+
         # PSFEx
         'PSF-NOBJ': {'default': None, 'val_type': 'min_max', 'val_range': [ (500,2e4), (100,5e4), (10,1e5) ], 'cat_type': 'all', 'comment': 'number of accepted PSF stars'},
         'PSF-CHI2': {'default': None, 'val_type': 'sigma', 'val_range': [ (1, 0.1) ],               'cat_type': 'all', 'comment': 'final reduced chi-squared PSFEx fit'},
-        'PSF-FWHM': {'default': None, 'val_type': 'sigma', 'val_range': [ (6, 1) ],                 'cat_type': 'all', 'comment': '[pix] image FWHM inferred by PSFEx'},
-        #
-        # photometric calibration
+        'PSF-FWHM': {'default': None, 'val_type': 'sigma', 'val_range': [ (6, 1) ],                 'cat_type': 'all', 'comment': '[arcsec] image FWHM inferred by PSFEx'},
+
+        # photometric calibration (PC)
+        'PC-CAT-F': {'default': None, 'val_type': 'skip',  'val_range': None,                       'cat_type': 'all', 'comment': 'photometric catalog'},
         'PC-NCAL' : {'default': None, 'val_type': 'min_max', 'val_range': [ (10, 1e4) ],            'cat_type': 'all', 'comment': 'number of brightest photcal stars used'},
         'PC-ZP'   : {'default': None, 'val_type': 'sigma', 'val_range': {'u': [ (22.4, 0.1) ],
                                                                          'g': [ (23.4, 0.1) ],
@@ -190,21 +202,22 @@ qc_range = {
                                                                          'r': [ (22.9, 0.1) ],
                                                                          'i': [ (22.4, 0.1) ],
                                                                          'z': [ (21.4, 0.1) ]},     'cat_type': 'all', 'comment': '[mag] zeropoint=m_AB+2.5*log10(flux[e-/s])+A*k'},
-        #
         'PC-ZPSTD': {'default': None, 'val_type': 'sigma', 'val_range': {'u': [ (0.06, 0.02) ],
                                                                          'g': [ (0.03, 0.01) ],
                                                                          'q': [ (0.02, 0.01) ],
                                                                          'r': [ (0.02, 0.01) ],
                                                                          'i': [ (0.02, 0.01) ],
                                                                          'z': [ (0.02, 0.01) ]},    'cat_type': 'all', 'comment': '[mag] sigma (STD) zeropoint sigma'},
-        #
-        'LIMMAG5' : {'default': None, 'val_type': 'sigma', 'val_range': {'u': [ (19.1, 0.4) ],
+        # needed if PC-ZP is already being checked? 
+        # N.B.: these limmags below are assuming 5 sigma, as set by source_nsigma in ZOGY settings file
+        # if that 5 sigma changes, these number need updating with correction: -2.5*log10(nsigma/5)!
+        'LIMMAG'  : {'default': None, 'val_type': 'sigma', 'val_range': {'u': [ (19.1, 0.4) ],
                                                                          'g': [ (20.3, 0.4) ],
                                                                          'q': [ (20.6, 0.5) ],
                                                                          'r': [ (20.0, 0.2) ],
                                                                          'i': [ (19.4, 0.4) ],
-                                                                         'z': [ (18.3, 0.3) ]},     'cat_type': 'all', 'comment': '[mag] full-frame 3-sigma limiting magnitude'},
-        #
+                                                                         'z': [ (18.3, 0.3) ]},     'cat_type': 'all', 'comment': '[mag] full-frame 5-sigma limiting magnitude'},
+        
         # Transients
         'Z-DX'    : {'default': None, 'val_type': 'sigma', 'val_range': [ (0, 0.02) ],              'cat_type': 'trans', 'comment': '[pix] dx median offset full image'},
         'Z-DY'    : {'default': None, 'val_type': 'sigma', 'val_range': [ (0, 0.02) ],              'cat_type': 'trans', 'comment': '[pix] dy median offset full image'},
@@ -223,20 +236,65 @@ qc_range = {
                                                                          'z': [ (17.9, 0.3) ]},     'cat_type': 'trans', 'comment': '[mag] full-frame transient [T-NSIGMA]-sigma limiting mag'},
         #
         # some additional ones to make sure these are listed in the dummy output catalogs
-        'BB-V':     {'default': None, 'val_type': 'skip',  'val_range': None,                       'cat_type': 'all',   'comment': 'BlackBOX version used'},
-        'REDFILE':  {'default': None, 'val_type': 'skip',  'val_range': None,                       'cat_type': 'all',   'comment': 'BlackBOX reduced file name'},
-        'PSF-SIZE': {'default': None, 'val_type': 'skip',  'val_range': None,                       'cat_type': 'all',   'comment': '[pix] size PSF image'},
-        'PSF-CFGS': {'default': None, 'val_type': 'skip',  'val_range': None,                       'cat_type': 'all',   'comment': 'size PSF config. image (= PSF-SIZE / PSF-SAMP)'},
-        'PC-EXTCO': {'default': None, 'val_type': 'skip',  'val_range': None,                       'cat_type': 'all',   'comment': '[mag] filter extinction coefficient (k) used'},
-        'AIRMASSC': {'default': None, 'val_type': 'skip',  'val_range': None,                       'cat_type': 'all', 'comment': 'Airmass (based on RA, DEC, DATE-OBS)'},
-        'RA-CNTR':  {'default': None, 'val_type': 'skip',  'val_range': None,                       'cat_type': 'all', 'comment': 'RA (ICRS) at image center (astrometry.net)'},
-        'DEC-CNTR': {'default': None, 'val_type': 'skip',  'val_range': None,                       'cat_type': 'all', 'comment': 'DEC (ICRS) at image center (astrometry.net)'},
-        'LIMFLUX5': {'default': None, 'val_type': 'skip',  'val_range': None,                       'cat_type': 'all', 'comment': '[e-] full-frame 5-sigma limiting flux'},
-        'DUMMYCAT': {'default': False, 'val_type': 'skip', 'val_range': None,                       'cat_type': 'all', 'comment': 'is this a dummy catalog without actual sources?'},
-        'QC-FLAG':  {'default': None, 'val_type': 'skip',  'val_range': None,                       'cat_type': 'all', 'comment': 'QC flag color (green|yellow|orange|red)'},
-        'Z-FPEMED': {'default': None, 'val_type': 'skip',  'val_range': None,                       'cat_type': 'trans', 'comment': '[e-] median Fpsferr full image'},
-        'Z-FPESTD': {'default': None, 'val_type': 'skip',  'val_range': None,                       'cat_type': 'trans', 'comment': '[e-] sigma (STD) Fpsferr full image'},
-        'T-LFLUX':  {'default': None, 'val_type': 'skip',  'val_range': None,                       'cat_type': 'trans', 'comment': '[e-] full-frame transient [T-NSIGMA]-sigma limiting flux'},
+        'CCD-TEMP': {'default': None, 'val_type': 'skip',  'val_range': None, 'cat_type': 'all',   'comment': '[C] Current CCD temperature'},
+        'RA-REF':   {'default': None, 'val_type': 'skip',  'val_range': None, 'cat_type': 'all',   'comment': 'Requested right ascension'},
+        'DEC-REF':  {'default': None, 'val_type': 'skip',  'val_range': None, 'cat_type': 'all',   'comment': 'Requested declination'},
+        'FLIPSTAT': {'default': None, 'val_type': 'skip',  'val_range': None, 'cat_type': 'all',   'comment': 'Telescope side of the pier'},
+        'CL-BASE':  {'default': None, 'val_type': 'skip',  'val_range': None, 'cat_type': 'all',   'comment': '[m] Reinhardt cloud base altitude'},
+        'RH-MAST':  {'default': None, 'val_type': 'skip',  'val_range': None, 'cat_type': 'all',   'comment': 'Vaisala RH mast'},
+        'PRESSURE': {'default': None, 'val_type': 'skip',  'val_range': None, 'cat_type': 'all',   'comment': '[hPa] Vaisala pressure mast'},
+        'T-ROOF':   {'default': None, 'val_type': 'skip',  'val_range': None, 'cat_type': 'all',   'comment': '[C] Reinhardt temperature roof'},
+        'T-MAST':   {'default': None, 'val_type': 'skip',  'val_range': None, 'cat_type': 'all',   'comment': '[C] Vaisala temperature mast'},
+        'T-STRUT':  {'default': None, 'val_type': 'skip',  'val_range': None, 'cat_type': 'all',   'comment': '[C] Temperature carbon strut between M1 and M2'},
+        'T-CRING':  {'default': None, 'val_type': 'skip',  'val_range': None, 'cat_type': 'all',   'comment': '[C] Temperature main carbon ring around M1'},
+        'T-SPIDER': {'default': None, 'val_type': 'skip',  'val_range': None, 'cat_type': 'all',   'comment': '[C] Temperature carbon spider above M2'},
+        'T-FWN':    {'default': None, 'val_type': 'skip',  'val_range': None, 'cat_type': 'all',   'comment': '[C] Temperature filter wheel housing North'},
+        'T-FWS':    {'default': None, 'val_type': 'skip',  'val_range': None, 'cat_type': 'all',   'comment': '[C] Temperature filter wheel housing South'},
+        'T-M2HOLD': {'default': None, 'val_type': 'skip',  'val_range': None, 'cat_type': 'all',   'comment': '[C] Temperature aluminium M2 holder'},
+        'T-GUICAM': {'default': None, 'val_type': 'skip',  'val_range': None, 'cat_type': 'all',   'comment': '[C] Temperature guide camera'},
+        'T-M1':     {'default': None, 'val_type': 'skip',  'val_range': None, 'cat_type': 'all',   'comment': '[C] Temperature backside M1'},
+        'WINDAVE':  {'default': None, 'val_type': 'skip',  'val_range': None, 'cat_type': 'all',   'comment': '[km/h] Vaisala wind speed mast'},
+        'WINDGUST': {'default': None, 'val_type': 'skip',  'val_range': None, 'cat_type': 'all',   'comment': '[km/h] Vaisala wind gust mast'},
+        'WINDDIR':  {'default': None, 'val_type': 'skip',  'val_range': None, 'cat_type': 'all',   'comment': '[deg] Vaisala wind direction mast'},
+
+        'SITELAT':  {'default': None, 'val_type': 'skip',  'val_range': None, 'cat_type': 'all',   'comment': '[deg] Site latitude'},
+        'SITELONG': {'default': None, 'val_type': 'skip',  'val_range': None, 'cat_type': 'all',   'comment': '[deg] Site longitude'},
+        'ELEVATIO': {'default': None, 'val_type': 'skip',  'val_range': None, 'cat_type': 'all',   'comment': '[m] Site elevation'},
+        'CCD-ID':   {'default': None, 'val_type': 'skip',  'val_range': None, 'cat_type': 'all',   'comment': 'CCD camera ID'},
+        'CONTROLL': {'default': None, 'val_type': 'skip',  'val_range': None, 'cat_type': 'all',   'comment': 'CCD controller'},
+        'DETSPEED': {'default': None, 'val_type': 'skip',  'val_range': None, 'cat_type': 'all',   'comment': '[kHz] Detector read speed'},
+        'INSTRUME': {'default': None, 'val_type': 'skip',  'val_range': None, 'cat_type': 'all',   'comment': 'Instrument name'},
+        'FOCUSPOS': {'default': None, 'val_type': 'skip',  'val_range': None, 'cat_type': 'all',   'comment': '[micron] Focuser position'},
+        
+        'OBSERVER': {'default': None, 'val_type': 'skip',  'val_range': None, 'cat_type': 'all',   'comment': 'Robotic observations software and PC ID'},
+        'ABOTVER':  {'default': None, 'val_type': 'skip',  'val_range': None, 'cat_type': 'all',   'comment': 'ABOT version'},
+        'PROGNAME': {'default': None, 'val_type': 'skip',  'val_range': None, 'cat_type': 'all',   'comment': 'Program name'},
+        'PROGID':   {'default': None, 'val_type': 'skip',  'val_range': None, 'cat_type': 'all',   'comment': 'Program ID'},
+        'GUIDERST': {'default': None, 'val_type': 'skip',  'val_range': None, 'cat_type': 'all',   'comment': 'Guider status'},
+        'GUIDERFQ': {'default': None, 'val_type': 'skip',  'val_range': None, 'cat_type': 'all',   'comment': '[Hz] Guide loop frequency'},
+        'TRAKTIME': {'default': None, 'val_type': 'skip',  'val_range': None, 'cat_type': 'all',   'comment': '[s] Autoguider exposure time during imaging'},
+        'ADCX':     {'default': None, 'val_type': 'skip',  'val_range': None, 'cat_type': 'all',   'comment': '[mm] Position offset ADC lens in x'},
+        'ADCY':     {'default': None, 'val_type': 'skip',  'val_range': None, 'cat_type': 'all',   'comment': '[mm] Position offset ADC lens in y'}, 
+        
+        'REDFILE':  {'default': None, 'val_type': 'skip',  'val_range': None, 'cat_type': 'all',   'comment': 'BlackBOX reduced image name'},
+        'MASKFILE': {'default': None, 'val_type': 'skip',  'val_range': None, 'cat_type': 'all',   'comment': 'BlackBOX mask image name'},
+                
+        'PSF-SIZE': {'default': None, 'val_type': 'skip',  'val_range': None, 'cat_type': 'all',   'comment': '[pix] size PSF image'},
+        'PSF-CFGS': {'default': None, 'val_type': 'skip',  'val_range': None, 'cat_type': 'all',   'comment': 'size PSF config. image (= PSF-SIZE / PSF-SAMP)'},
+        
+        'PC-EXTCO': {'default': None, 'val_type': 'skip',  'val_range': None, 'cat_type': 'all',   'comment': '[mag] filter extinction coefficient (k) used'},
+        'AIRMASSC': {'default': None, 'val_type': 'skip',  'val_range': None, 'cat_type': 'all',   'comment': 'Airmass at image center'},
+        'RA-CNTR':  {'default': None, 'val_type': 'skip',  'val_range': None, 'cat_type': 'all',   'comment': 'RA (ICRS) at image center (astrometry.net)'},
+        'DEC-CNTR': {'default': None, 'val_type': 'skip',  'val_range': None, 'cat_type': 'all',   'comment': 'DEC (ICRS) at image center (astrometry.net)'},
+        'LIMFLUX':  {'default': None, 'val_type': 'skip',  'val_range': None, 'cat_type': 'all',   'comment': '[e-/s] full-frame n-sigma limiting flux'},
+
+        'DUMMYCAT': {'default': False, 'val_type': 'skip', 'val_range': None, 'cat_type': 'all',   'comment': 'is this a dummy catalog without actual sources?'},
+        'QC-FLAG':  {'default': None, 'val_type': 'skip',  'val_range': None, 'cat_type': 'all',   'comment': 'QC flag color (green|yellow|orange|red)'},
+
+        'Z-FPEMED': {'default': None, 'val_type': 'skip',  'val_range': None, 'cat_type': 'trans', 'comment': '[e-/s] median Fpsferr full image'},
+        'Z-FPESTD': {'default': None, 'val_type': 'skip',  'val_range': None, 'cat_type': 'trans', 'comment': '[e-/s] sigma (STD) Fpsferr full image'},
+        'T-LFLUX':  {'default': None, 'val_type': 'skip',  'val_range': None, 'cat_type': 'trans', 'comment': '[e-/s] full-frame transient [T-NSIGMA]-sigma limit. flux'},
+        #
         
     }
 }
