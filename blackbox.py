@@ -115,7 +115,9 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     # for both day and night mode, create list of all
     # files present in [read_path], in image type order:
     # bias, dark, flat, object and other
-    filenames = sort_files(read_path, '*fits*', recursive=recursive)
+    biases, darks, flats, objects, others = sort_files(read_path, '*fits*', recursive=recursive)
+    lists = [biases, darks, flats, objects, others]
+    filenames = [f for sublist in lists for f in sublist]
 
     # split into 'day' or 'night' mode
     if mode == 'day':
@@ -136,7 +138,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
         else:
             # use [pool_func] to process list of files
-            for files in filenames:
+            for files in lists:
                 result = pool_func (try_blackbox_reduce, files, telescope, mode, read_path)
 
 
@@ -391,7 +393,7 @@ def try_blackbox_reduce (filename, telescope, mode, read_path):
     .get() method in [pool_func].
 
     """
-    
+
     try:
         blackbox_reduce (filename, telescope, mode, read_path)
     except Exception:
@@ -2744,7 +2746,7 @@ def sort_files(read_path, search_str, recursive=False):
     others = [] # list of other images 
     
     for i, filename in enumerate(all_files): #loop through raw files
-        
+
         header = read_hdulist(filename, get_data=False, get_header=True)
         
         if 'IMAGETYP' not in header:
@@ -2768,11 +2770,8 @@ def sort_files(read_path, search_str, recursive=False):
             else:
                 # none of the above, add to others list
                 others.append(filename)
-
-    lists = [biases, darks, flats, objects, others]
-    files = [f for sublist in lists for f in sublist] 
-            
-    return files
+    
+    return biases, darks, flats, objects, others
 
 
 ################################################################################
