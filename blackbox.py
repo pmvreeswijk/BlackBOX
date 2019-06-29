@@ -197,8 +197,8 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
     def masters_left (imtype, filt=None):
         # prepare list of all red/yyyy/mm/dd/bias and flat directories
-        list_dirs = glob.glob('{}/*/*/*/{}'
-                              .format(get_par(set_bb.red_dir,tel), imtype))
+        red_dir = get_par(set_bb.red_dir,tel)
+        list_dirs = glob.glob('{}/*/*/*/{}'.format(red_dir, imtype))
         # data shape is needed as input for [master_prep]
         data_shape = (get_par(set_bb.ny,tel) * get_par(set_bb.ysize_chan,tel), 
                       get_par(set_bb.nx,tel) * get_par(set_bb.xsize_chan,tel))
@@ -226,7 +226,8 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
                 __ = master_prep (data_shape, path, date_eve, imtype, filt=filt)
                 
         return
-    
+
+
     # run above function [masters_left] for both bias and flat; this
     # is not done with pool of processes, because it is not
     # time-critical and takes 10GB of memory for each set of 10 biases
@@ -318,23 +319,21 @@ def prep_packlist (date):
         list_2pack.append(glob.glob('{}/flat/*.fits'.format(write_path)))
     else:
         # just add all fits files in [set_bb.raw_dir]/*/*/*/*.fits
-        list_2pack.append(glob.glob('{}/*/*/*/*.fits'
-                                        .format(get_par(set_bb.raw_dir,tel))))
+        raw_dir = get_par(set_bb.raw_dir,tel)
+        list_2pack.append(glob.glob('{}/*/*/*/*.fits'.format(raw_dir)))
         # just add all fits files in [telescope]/red/*/*/*/*.fits
         # (could do it more specifically by going through raw fits
         # files and finding out where their reduced images are)
-        list_2pack.append(glob.glob('{}/*/*/*/*.fits'
-                                       .format(get_par(set_bb.red_dir,tel))))
+        red_dir = get_par(set_bb.red_dir,tel)
+        list_2pack.append(glob.glob('{}/*/*/*/*.fits'.format(red_dir)))
         # add fits files in bias and flat directories
-        list_2pack.append(glob.glob('{}/*/*/*/bias/*.fits'
-                                       .format(get_par(set_bb.red_dir,tel))))
-        list_2pack.append(glob.glob('{}/*/*/*/flat/*.fits'
-                                       .format(get_par(set_bb.red_dir,tel))))
+        list_2pack.append(glob.glob('{}/*/*/*/bias/*.fits'.format(red_dir)))
+        list_2pack.append(glob.glob('{}/*/*/*/flat/*.fits'.format(red_dir)))
 
     # add ref files
-    list_2pack.append(glob.glob('{}/*/*.fits'
-                                .format(get_par(set_bb.ref_dir,tel))))
-
+    ref_dir = get_par(set_bb.ref_dir,tel)
+    list_2pack.append(glob.glob('{}/*/*.fits'.format(ref_dir)))
+    
     # flatten this list of files
     list_2pack = [item for sublist in list_2pack for item in sublist]
     # and get the unique items
@@ -1607,14 +1606,15 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
             nwindow = int(get_par(set_bb.bias_window,tel))
                 
         file_list = []
+        red_dir = get_par(set_bb.red_dir,tel)
         for n_day in range(-nwindow, nwindow+1):
-            # determine mjd at noon of date_eve +- n_day
+            # determine mjd at noon (local or UTC, does not matter) of date_eve +- n_day
             mjd_noon = date2mjd ('{} 12:00'.format(date_eve)) + n_day
             # corresponding path
             date_temp = Time(mjd_noon, format='mjd').isot.split('T')[0].replace('-','/')
-            path_temp = '/'.join(path.split('/')[0:-4])+'/'+date_temp+'/flat'
-            file_list.append(sorted(glob.glob('{}/{}*_{}.fits*'.format(path_temp, tel, filt))))
-            
+            path_temp = '{}/{}/{}'.format(red_dir, date_temp, imtype)
+            file_list.append(sorted(glob.glob('{}/{}_*.fits*'.format(path_temp, tel))))
+
 
         # clean up [file_list]
         file_list = [f for sublist in file_list for f in sublist]
@@ -1671,7 +1671,7 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
                 q.put(logger.info ('making master {} for night {}'.format(imtype, date_eve)))
                 if not get_par(set_bb.subtract_mbias,tel):
                     q.put(logger.info ('(but will not be used as [subtract_mbias] '
-                                      'is set to False)'))
+                                       'is set to False)'))
             if imtype=='flat':
                 q.put(logger.info ('making master {} in filter {} for night {}'
                                    .format(imtype, filt, date_eve)))
@@ -1926,8 +1926,8 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
 
 def get_closest_biasflat (date_eve, file_type, filt=None):
 
-    search_str = '{}/*/*/*/{}/{}'.format(get_par(set_bb.red_dir,tel), file_type,
-                                         file_type+'_????????')
+    red_dir = get_par(set_bb.red_dir,tel)
+    search_str = '{}/*/*/*/{}/{}'.format(red_dir, file_type, file_type+'_????????')
     if filt is None:
         search_str += '.fits*'
     else:
@@ -2667,6 +2667,8 @@ def get_path (date, dir_type):
         # yyyy-mm-dd or yyyy-mm-ddThh:mm:ss.s; if the latter is
         # provided, make sure to set [date_dir] to the date of the
         # evening before UT midnight
+        #
+        # rewrite this block using astropy.time; very confusing now
         if 'T' in date:
             if '.' in date:
                 # rounds date to microseconds as more digits can't be defined in the format (next line)
