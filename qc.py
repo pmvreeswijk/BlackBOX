@@ -354,7 +354,7 @@ def run_qc_check (header, telescope, cat_type=None, cat_dummy=None, log=None):
                     log.error('keyword {} not present in header'.format(key))
                     
                     
-    # check if OBJECT keyword value corresponds to an integer
+    # check if OBJECT keyword value contains digits only
     if 'IMAGETYP' in header and header['IMAGETYP'].lower()=='object':
         #print ('value: {}, type(header[key]): {}'.
         #       format(header[key], type(header[key])))
@@ -363,7 +363,7 @@ def run_qc_check (header, telescope, cat_type=None, cat_dummy=None, log=None):
         except Exception as e:
             if log is not None:
                 log.error(e)
-                log.error('keyword OBJECT is not an integer')
+                log.error('keyword OBJECT does not contain digits only')
             # if not an integer, raise a red flag
             qc_flag = 'red'
             # set object keyword to zero 
