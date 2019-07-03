@@ -243,11 +243,9 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     q.put(logger.info('fpacking fits images'))
     # now that all files have been processed, fpack!
     # create list of files to fpack
-    print('DP: date={}'.format(date))
     list_2pack = prep_packlist (date)
     #print ('list_2pack', list_2pack)
     # use [pool_func] to process the list
-    print('DP: list_2pack = {}'.format(list_2pack))
     result = pool_func (fpack, list_2pack)
 
 
@@ -288,7 +286,6 @@ def pool_func (func, filelist, *args):
         results = []
         pool = Pool(get_par(set_bb.nproc,tel))
         for filename in filelist:
-            print('DP: pool_func, filename={}'.format(filename))
             args_temp = [filename]
             for arg in args:
                 args_temp.append(arg)
