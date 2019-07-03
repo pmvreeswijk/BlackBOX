@@ -243,9 +243,11 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     q.put(logger.info('fpacking fits images'))
     # now that all files have been processed, fpack!
     # create list of files to fpack
+    print('DP: date={}'.format(date))
     list_2pack = prep_packlist (date)
     #print ('list_2pack', list_2pack)
     # use [pool_func] to process the list
+    print('DP: list_2pack = {}'.format(list_2pack))
     result = pool_func (fpack, list_2pack)
 
 
@@ -286,6 +288,7 @@ def pool_func (func, filelist, *args):
         results = []
         pool = Pool(get_par(set_bb.nproc,tel))
         for filename in filelist:
+            print('DP: pool_func, filename={}'.format(filename))
             args_temp = [filename]
             for arg in args:
                 args_temp.append(arg)
@@ -1626,8 +1629,10 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
             # corresponding path
             date_temp = Time(mjd_noon, format='mjd').isot.split('T')[0].replace('-','/')
             path_temp = '{}/{}/{}'.format(red_dir, date_temp, imtype)
-            file_list.append(sorted(glob.glob('{}/{}_*.fits*'.format(path_temp, tel))))
-
+            if imtype=='flat':
+                file_list.append(sorted(glob.glob('{}/{}_*_{}.fits*'.format(path_temp, tel, filt))))
+            else:
+                file_list.append(sorted(glob.glob('{}/{}_*.fits*'.format(path_temp, tel))))
 
         # clean up [file_list]
         file_list = [f for sublist in file_list for f in sublist]
