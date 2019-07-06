@@ -1626,8 +1626,10 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
             # corresponding path
             date_temp = Time(mjd_noon, format='mjd').isot.split('T')[0].replace('-','/')
             path_temp = '{}/{}/{}'.format(red_dir, date_temp, imtype)
-            file_list.append(sorted(glob.glob('{}/{}_*.fits*'.format(path_temp, tel))))
-
+            if imtype=='flat':
+                file_list.append(sorted(glob.glob('{}/{}_*_{}.fits*'.format(path_temp, tel, filt))))
+            else:
+                file_list.append(sorted(glob.glob('{}/{}_*.fits*'.format(path_temp, tel))))
 
         # clean up [file_list]
         file_list = [f for sublist in file_list for f in sublist]
