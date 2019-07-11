@@ -2064,7 +2064,6 @@ def set_header(header, filename):
         else:
             # convert RA decimal hours to degrees
             ra_deg = header['RA'] * 15.
-            q.put(logger.info('ra_deg={}'.format(ra_deg)))
         edit_head(header, 'RA', value=ra_deg, comments='[deg] Telescope right ascension')
 
     # DEC
