@@ -22,11 +22,11 @@ nthread = 1
 # subtract master bias
 subtract_mbias = False
 # perform satellite detection
-detect_sats = False
+detect_sats = True
 
 # time window [days] within which to include biases in master bias 
 # (0=only same night, 1=including previous and next night, etc.)
-bias_window = 0
+bias_window = 1
 # time window [days] within which to include flats in master flat 
 # (0=only same night, 1=including previous and next night, etc.)
 flat_window = 1
