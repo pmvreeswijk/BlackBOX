@@ -2125,7 +2125,7 @@ def set_header(header, filename):
         edit_head(header, 'GPSSTART', value='None', comments='GPS timing start of opening shutter')
     if 'GPSEND' not in header:
         edit_head(header, 'GPSEND', value='None', comments='GPS timing end of opening shutter')
-    if 'GPS-SHUT' not in header:
+    if 'GPS-SHUT' not in header and imgtype == 'object':
         edit_head(header, 'GPS-SHUT', value='None', comments='[s] Shutter time:(GPSEND-GPSSTART)-EXPTIME')
 
     edit_head(header, 'MJD-OBS', value=mjd_obs, comments='[d] MJD (based on DATE-OBS)')
