@@ -175,14 +175,13 @@ def qc_check (header, telescope='ML1', keywords=None, cat_dummy=None,
 
         nranges = np.shape(val_range)[0]
         for i in range(nranges):
-            print('DP: val_type={}'.format(val_type))
-            print('DP: key={}'.format(key))
-            if (val_type == 'exp_abs' or val_type=='sigma'):
-                if header_val=='None':
-                    print ('Warning: {}=None. Skipping quality check.'.format(key))
-                else:
-                    bool_temp = np.abs(header_val-val_range[i][0]) <= val_range[i][1]
-                    range_ok = (val_range[i][0]-val_range[i][1], 
+
+            if header_val == 'None':
+                print('Warning: {}=None. Skipping quality check.'.format(key))
+
+            elif val_type == 'exp_abs' or val_type=='sigma':
+                bool_temp = np.abs(header_val-val_range[i][0]) <= val_range[i][1]
+                range_ok = (val_range[i][0]-val_range[i][1], 
                             val_range[i][0]+val_range[i][1])
                 
                 
