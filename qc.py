@@ -334,6 +334,7 @@ def run_qc_check (header, telescope, cat_type=None, cat_dummy=None, log=None):
     # keyword so this need not really be checked here
     keys_crucial = ['DATE-OBS', 'IMAGETYP', 'FILTER', 'EXPTIME',
                     'OBJECT', 'RA', 'DEC']
+
     qc_flag = 'green'
     nred = 0
     for key in keys_crucial:
@@ -345,6 +346,7 @@ def run_qc_check (header, telescope, cat_type=None, cat_dummy=None, log=None):
             if ('IMAGETYP' in header and 
                 header['IMAGETYP'].lower()!='object' and
                 (key=='OBJECT' or key=='RA' or key=='DEC' or key=='EXPTIME')):
+
                 pass
             else:
                 qc_flag = 'red'
@@ -358,6 +360,7 @@ def run_qc_check (header, telescope, cat_type=None, cat_dummy=None, log=None):
     if 'IMAGETYP' in header and header['IMAGETYP'].lower()=='object':
         #print ('value: {}, type(header[key]): {}'.
         #       format(header[key], type(header[key])))
+
         try:
             int(header['OBJECT'])
         except Exception as e:

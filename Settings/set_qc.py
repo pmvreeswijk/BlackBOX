@@ -167,7 +167,7 @@ qc_range = {
         
         # cosmics/satellites
         'NCOSMICS': {'default':'None', 'val_type': 'min_max', 'val_range': [ (3,50), (2.5,100), (2,200) ], 'cat_type': 'all', 'comment': '[/s] number of cosmic rays identified'},
-        'NSATS'   : {'default':'None', 'val_type': 'min_max', 'val_range': [ (0,1), (2,3), (4,5) ],  'cat_type': 'all', 'comment': 'number of satellite trails identified'},
+        'NSATS'   : {'default':0, 'val_type': 'min_max', 'val_range': [ (0,1), (2,3), (4,5) ],  'cat_type': 'all', 'comment': 'number of satellite trails identified'},
 
         # SExtractor
         'S-NOBJ'  : {'default':'None', 'val_type': 'min_max', 'val_range': [ (5e3,5e4), (3e3,2e5), (1e3,1e6) ], 'cat_type': 'all', 'comment': 'number of objects detected by SExtractor'},
