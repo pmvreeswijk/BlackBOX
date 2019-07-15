@@ -175,11 +175,14 @@ def qc_check (header, telescope='ML1', keywords=None, cat_dummy=None,
 
         nranges = np.shape(val_range)[0]
         for i in range(nranges):
-
-            if val_type == 'exp_abs' or val_type=='sigma':
-
-                bool_temp = np.abs(header_val-val_range[i][0]) <= val_range[i][1]
-                range_ok = (val_range[i][0]-val_range[i][1], 
+            print('DP: val_type={}'.format(val_type))
+            print('DP: key={}'.format(key))
+            if (val_type == 'exp_abs' or val_type=='sigma'):
+                if header_val=='None':
+                    print ('Warning: {}=None. Skipping quality check.'.format(key))
+                else:
+                    bool_temp = np.abs(header_val-val_range[i][0]) <= val_range[i][1]
+                    range_ok = (val_range[i][0]-val_range[i][1], 
                             val_range[i][0]+val_range[i][1])
                 
                 
@@ -332,8 +335,12 @@ def run_qc_check (header, telescope, cat_type=None, cat_dummy=None, log=None):
     # check that all crucial keywords are present in the header; N.B.:
     # [sort_files] function in BlackBOX already requires the IMAGETYP
     # keyword so this need not really be checked here
-    keys_crucial = ['DATE-OBS', 'IMAGETYP', 'FILTER', 'EXPTIME',
-                    'OBJECT', 'RA', 'DEC']
+    if 'FIELD_ID' in header:
+        keys_crucial = ['DATE-OBS', 'IMAGETYP', 'FILTER', 'EXPTIME',
+                        'FIELD_ID', 'RA', 'DEC']
+    else:
+        keys_crucial = ['DATE-OBS', 'IMAGETYP', 'FILTER', 'EXPTIME',
+                        'OBJECT', 'RA', 'DEC']
 
     qc_flag = 'green'
     nred = 0
@@ -345,7 +352,8 @@ def run_qc_check (header, telescope, cat_type=None, cat_dummy=None, log=None):
             # present, any potential dithering will not be detected)
             if ('IMAGETYP' in header and 
                 header['IMAGETYP'].lower()!='object' and
-                (key=='OBJECT' or key=='RA' or key=='DEC' or key=='EXPTIME')):
+                (key=='OBJECT' or key=='FIELD_ID' or key=='RA' or key=='DEC' 
+                or key=='EXPTIME')):
 
                 pass
             else:
@@ -360,13 +368,17 @@ def run_qc_check (header, telescope, cat_type=None, cat_dummy=None, log=None):
     if 'IMAGETYP' in header and header['IMAGETYP'].lower()=='object':
         #print ('value: {}, type(header[key]): {}'.
         #       format(header[key], type(header[key])))
+        if 'FIELD_ID' in header:
+            obj = header['FIELD_ID']
+        else:
+            obj = header['OBJECT']
 
         try:
-            int(header['OBJECT'])
+            int(obj)
         except Exception as e:
             if log is not None:
                 log.error(e)
-                log.error('keyword OBJECT does not contain digits only')
+                log.error('keyword OBJECT (or FIELD_ID if present) does not contain digits only')
             # if not an integer, raise a red flag
             qc_flag = 'red'
             # set object keyword to zero 
