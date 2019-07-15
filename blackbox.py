@@ -348,23 +348,30 @@ def fpack (filename):
 
     """Fpack fits images; skip fits tables"""
 
-    # fits check if extension is .fits
-    if filename.split('.')[-1] == 'fits':
-        header = read_hdulist(filename, get_data=False, get_header=True,
-                              ext_name_indices=0)
-        # check if it is an image
-        if header['NAXIS']==2:
-            # determine if integer or float image
-            if header['BITPIX'] > 0:
-                cmd = ['fpack', '-D', '-Y', '-v', filename]
-            else:
-                if 'Scorr' in filename or 'limmag' in filename:
-                    q = 1
+    try:
+    
+        # fits check if extension is .fits
+        if filename.split('.')[-1] == 'fits':
+            header = read_hdulist(filename, get_data=False, get_header=True,
+                                  ext_name_indices=0)
+            # check if it is an image
+            if header['NAXIS']==2:
+                # determine if integer or float image
+                if header['BITPIX'] > 0:
+                    cmd = ['fpack', '-D', '-Y', '-v', filename]
                 else:
-                    q = 16
-                cmd = ['fpack', '-q', str(q), '-D', '-Y', '-v', filename]
-            subprocess.call(cmd)
+                    if 'Scorr' in filename or 'limmag' in filename:
+                        q = 1
+                    else:
+                        q = 16
+                    cmd = ['fpack', '-q', str(q), '-D', '-Y', '-v', filename]
+                subprocess.call(cmd)
 
+    except Exception as e:
+        q.put(logger.info(traceback.format_exc()))
+        q.put(logger.error('exception was raised in fpacking of image {} {}'
+                           .format(filename,e)))
+                
 
 ################################################################################
 
@@ -2114,7 +2121,8 @@ def set_header(header, filename):
         # DATE-OBS already present; just edit the comments
         edit_head(header, 'DATE-OBS', comments='Date at start (=ACQSTART)')
         mjd_obs = Time(date_obs, format='isot').mjd
-
+        
+        
     if 'GPSSTART' not in header:
         edit_head(header, 'GPSSTART', value='None', comments='GPS timing start of opening shutter')
     if 'GPSEND' not in header:
