@@ -332,26 +332,20 @@ def run_qc_check (header, telescope, cat_type=None, cat_dummy=None, log=None):
     # check that all crucial keywords are present in the header; N.B.:
     # [sort_files] function in BlackBOX already requires the IMAGETYP
     # keyword so this need not really be checked here
-    # If FIELD_ID is present in the header, this keyword contains the
-    # fieldID. For other images, the fieldID is given in OBJECT
-    if 'FIELD_ID' in header:
-        keys_crucial = ['DATE-OBS', 'IMAGETYP', 'FILTER', 'EXPTIME',
-                    'FIELD_ID', 'RA', 'DEC']
-    else:
-        keys_crucial = ['DATE-OBS', 'IMAGETYP', 'FILTER', 'EXPTIME',
+    keys_crucial = ['DATE-OBS', 'IMAGETYP', 'FILTER', 'EXPTIME',
                     'OBJECT', 'RA', 'DEC']
 
     qc_flag = 'green'
     nred = 0
     for key in keys_crucial:
         if key not in header:
-            # for biases, darks and flats, OBJECT or FIELD_ID, RA, DEC and
+            # for biases, darks and flats, OBJECT, RA, DEC and
             # EXPTIME not strictly necessary (although for flats they are
             # used to check if they were dithered; if RA and DEC not
             # present, any potential dithering will not be detected)
             if ('IMAGETYP' in header and 
                 header['IMAGETYP'].lower()!='object' and
-                (key=='OBJECT' or key=='FIELD_ID' or key=='RA' or key=='DEC'
+                (key=='OBJECT' or key=='RA' or key=='DEC'
                         or key=='EXPTIME')):
                 pass
             else:
@@ -366,17 +360,14 @@ def run_qc_check (header, telescope, cat_type=None, cat_dummy=None, log=None):
     if 'IMAGETYP' in header and header['IMAGETYP'].lower()=='object':
         #print ('value: {}, type(header[key]): {}'.
         #       format(header[key], type(header[key])))
-        if 'FIELD_ID' in header:
-            object = header['FIELD_ID']
-        else:
-            object = header['OBJECT']
+        object = header['OBJECT']
 
         try:
             int(object)
         except Exception as e:
             if log is not None:
                 log.error(e)
-                log.error('keyword OBJECT (or FIELD_ID if present) does not contain digits only')
+                log.error('keyword OBJECT does not contain digits only')
             # if not an integer, raise a red flag
             qc_flag = 'red'
             # set object keyword to zero 

@@ -2249,12 +2249,11 @@ def set_header(header, filename):
 
     edit_head(header, 'IMAGETYP', dtype=str, comments='Image type')
     edit_head(header, 'OBJECT',   dtype=str, comments='Name of object observed (field ID)')
-    edit_head(header, 'FIELD_ID', comments='MeerLICHT/BlackGEM field ID')
 
     if header['IMAGETYP'].lower()=='object':
         if 'FIELD_ID' in header:
             obj = header['FIELD_ID']
-            edit_head(header, 'FIELD_ID', value='{:0>5}'.format(obj), comments='MeerLICHT/BlackGEM field ID')
+            edit_head(header, 'OBJECT', value='{:0>5}'.format(obj), comments='Name of object observed (field ID)')
         else:
             obj = header['OBJECT']
             edit_head(header, 'OBJECT', value='{:0>5}'.format(obj), comments='Name of object observed (field ID)')
@@ -2296,49 +2295,26 @@ def set_header(header, filename):
     
             
     # put some order in the header
-    if 'FIELD_ID' in header:
-        keys_sort = ['SIMPLE', 'BITPIX', 'NAXIS', 'NAXIS1', 'NAXIS2',
-                     'BUNIT', 'BSCALE', 'BZERO',
-                     'XBINNING', 'YBINNING',
-                     'ALTITUDE', 'AZIMUTH', 'RADESYS',
-                     'RA', 'RA-REF', 'RA-TEL', 'DEC', 'DEC-REF', 'DEC-TEL',
-                     'HA', 'FLIPSTAT', 'ISTRACKI',
-                     'OBJECT', 'FIELD_ID', 'IMAGETYP', 'FILTER', 'EXPTIME',
-                     'ACQSTART', 'ACQEND', 'GPSSTART', 'GPSEND', 'GPS-SHUT',
-                     'DATE-OBS', 'MJD-OBS', 'LST', 'UTC', 'TIMESYS',
-                     'SITELAT', 'SITELONG', 'ELEVATIO', 'AIRMASS',
-                     'SET-TEMP', 'CCD-TEMP', 'CCD-ID', 'CONTROLL', 'DETSPEED', 
-                     'CCD-NW', 'CCD-NH', 'FOCUSPOS',
-                     'ORIGIN', 'TELESCOP', 'INSTRUME', 
-                     'OBSERVER', 'ABOTVER', 'PROGNAME', 'PROGID', 'ORIGFILE',
-                     'GUIDERST', 'GUIDERFQ', 'TRAKTIME', 'ADCX', 'ADCY',
-                     'CL-BASE', 'RH-MAST', 'RH-DOME', 'RH-AIRCO', 'RH-PIER',
-                     'PRESSURE', 'T-PIER', 'T-DOME', 'T-ROOF', 'T-AIRCO', 'T-MAST',
-                     'T-STRUT', 'T-CRING', 'T-SPIDER', 'T-FWN', 'T-FWS', 'T-M2HOLD',
-                     'T-GUICAM', 'T-M1', 'T-CRYWIN', 'T-CRYGET', 'T-CRYCP',
-                     'PRES-CRY', 'WINDAVE', 'WINDGUST', 'WINDDIR']
-
-    else:
-        keys_sort = ['SIMPLE', 'BITPIX', 'NAXIS', 'NAXIS1', 'NAXIS2',
-                     'BUNIT', 'BSCALE', 'BZERO',
-                     'XBINNING', 'YBINNING',
-                     'ALTITUDE', 'AZIMUTH', 'RADESYS',
-                     'RA', 'RA-REF', 'RA-TEL', 'DEC', 'DEC-REF', 'DEC-TEL',
-                     'HA', 'FLIPSTAT', 'ISTRACKI',
-                     'OBJECT', 'IMAGETYP', 'FILTER', 'EXPTIME',
-                     'ACQSTART', 'ACQEND', 'GPSSTART', 'GPSEND', 'GPS-SHUT',
-                     'DATE-OBS', 'MJD-OBS', 'LST', 'UTC', 'TIMESYS',
-                     'SITELAT', 'SITELONG', 'ELEVATIO', 'AIRMASS',
-                     'SET-TEMP', 'CCD-TEMP', 'CCD-ID', 'CONTROLL', 'DETSPEED', 
-                     'CCD-NW', 'CCD-NH', 'FOCUSPOS',
-                     'ORIGIN', 'TELESCOP', 'INSTRUME', 
-                     'OBSERVER', 'ABOTVER', 'PROGNAME', 'PROGID', 'ORIGFILE',
-                     'GUIDERST', 'GUIDERFQ', 'TRAKTIME', 'ADCX', 'ADCY',
-                     'CL-BASE', 'RH-MAST', 'RH-DOME', 'RH-AIRCO', 'RH-PIER',
-                     'PRESSURE', 'T-PIER', 'T-DOME', 'T-ROOF', 'T-AIRCO', 'T-MAST',
-                     'T-STRUT', 'T-CRING', 'T-SPIDER', 'T-FWN', 'T-FWS', 'T-M2HOLD',
-                     'T-GUICAM', 'T-M1', 'T-CRYWIN', 'T-CRYGET', 'T-CRYCP',
-                     'PRES-CRY', 'WINDAVE', 'WINDGUST', 'WINDDIR']
+    keys_sort = ['SIMPLE', 'BITPIX', 'NAXIS', 'NAXIS1', 'NAXIS2',
+                 'BUNIT', 'BSCALE', 'BZERO',
+                 'XBINNING', 'YBINNING',
+                 'ALTITUDE', 'AZIMUTH', 'RADESYS',
+                 'RA', 'RA-REF', 'RA-TEL', 'DEC', 'DEC-REF', 'DEC-TEL',
+                 'HA', 'FLIPSTAT', 'ISTRACKI',
+                 'OBJECT', 'IMAGETYP', 'FILTER', 'EXPTIME',
+                 'ACQSTART', 'ACQEND', 'GPSSTART', 'GPSEND', 'GPS-SHUT',
+                 'DATE-OBS', 'MJD-OBS', 'LST', 'UTC', 'TIMESYS',
+                 'SITELAT', 'SITELONG', 'ELEVATIO', 'AIRMASS',
+                 'SET-TEMP', 'CCD-TEMP', 'CCD-ID', 'CONTROLL', 'DETSPEED', 
+                 'CCD-NW', 'CCD-NH', 'FOCUSPOS',
+                 'ORIGIN', 'TELESCOP', 'INSTRUME', 
+                 'OBSERVER', 'ABOTVER', 'PROGNAME', 'PROGID', 'ORIGFILE',
+                 'GUIDERST', 'GUIDERFQ', 'TRAKTIME', 'ADCX', 'ADCY',
+                 'CL-BASE', 'RH-MAST', 'RH-DOME', 'RH-AIRCO', 'RH-PIER',
+                 'PRESSURE', 'T-PIER', 'T-DOME', 'T-ROOF', 'T-AIRCO', 'T-MAST',
+                 'T-STRUT', 'T-CRING', 'T-SPIDER', 'T-FWN', 'T-FWS', 'T-M2HOLD',
+                 'T-GUICAM', 'T-M1', 'T-CRYWIN', 'T-CRYGET', 'T-CRYCP',
+                 'PRES-CRY', 'WINDAVE', 'WINDGUST', 'WINDDIR']
     
     # create empty header
     header_sort = fits.Header()
