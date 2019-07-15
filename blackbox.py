@@ -2253,10 +2253,9 @@ def set_header(header, filename):
     if header['IMAGETYP'].lower()=='object':
         if 'FIELD_ID' in header:
             obj = header['FIELD_ID']
-            edit_head(header, 'OBJECT', value='{:0>5}'.format(obj), comments='Name of object observed (field ID)')
         else:
             obj = header['OBJECT']
-            edit_head(header, 'OBJECT', value='{:0>5}'.format(obj), comments='Name of object observed (field ID)')
+        edit_head(header, 'OBJECT', value='{:0>5}'.format(obj), comments='Name of object observed (field ID)')
 
     if tel=='ML1':
         origin = 'SAAO-Sutherland (K94)'

@@ -339,14 +339,14 @@ def run_qc_check (header, telescope, cat_type=None, cat_dummy=None, log=None):
     nred = 0
     for key in keys_crucial:
         if key not in header:
-            # for biases, darks and flats, OBJECT, RA, DEC and
-            # EXPTIME not strictly necessary (although for flats they are
-            # used to check if they were dithered; if RA and DEC not
+            # for biases, darks and flats, OBJECT, RA, DEC and EXPTIME
+            # not strictly necessary (although for flats they are used
+            # to check if they were dithered; if RA and DEC not
             # present, any potential dithering will not be detected)
             if ('IMAGETYP' in header and 
                 header['IMAGETYP'].lower()!='object' and
-                (key=='OBJECT' or key=='RA' or key=='DEC'
-                        or key=='EXPTIME')):
+                (key=='OBJECT' or key=='RA' or key=='DEC' or key=='EXPTIME')):
+
                 pass
             else:
                 qc_flag = 'red'
@@ -360,10 +360,9 @@ def run_qc_check (header, telescope, cat_type=None, cat_dummy=None, log=None):
     if 'IMAGETYP' in header and header['IMAGETYP'].lower()=='object':
         #print ('value: {}, type(header[key]): {}'.
         #       format(header[key], type(header[key])))
-        object = header['OBJECT']
 
         try:
-            int(object)
+            int(header['OBJECT'])
         except Exception as e:
             if log is not None:
                 log.error(e)
