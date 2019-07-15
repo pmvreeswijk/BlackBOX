@@ -361,11 +361,16 @@ def fpack (filename):
                     cmd = ['fpack', '-D', '-Y', '-v', filename]
                 else:
                     if 'Scorr' in filename or 'limmag' in filename:
-                        q = 1
+                        quant = 1
                     else:
-                        q = 16
-                    cmd = ['fpack', '-q', str(q), '-D', '-Y', '-v', filename]
+                        quant = 16
+                    cmd = ['fpack', '-q', str(quant), '-D', '-Y', '-v', filename]
                 subprocess.call(cmd)
+
+    except Exception as e:
+        q.put(logger.info(traceback.format_exc()))
+        q.put(logger.error('exception was raised in fpacking of image {} {}'
+                           .format(filename,e)))
 
     except Exception as e:
         q.put(logger.info(traceback.format_exc()))
@@ -515,7 +520,7 @@ def blackbox_reduce (filename, telescope, mode, read_path):
             q.put(logger.error('BINNING not 1x1; not processing {}'
                                .format(filename)))
             return
-        
+    
     
     # add additional header keywords
     header['PYTHON-V'] = (platform.python_version(), 'Python version used')
@@ -571,12 +576,13 @@ def blackbox_reduce (filename, telescope, mode, read_path):
         fits_out = fits_out.replace('.fits', '_{}.fits'.format(filt))
 
     elif imgtype == 'object':
-        # if 'FIELD_ID' keyword is present in the header, which
-        # is the case for the test
+        # if 'FIELD_ID' keyword is present in the header, use it instead of OBJECT
+        # as is the case for the test data
         if 'FIELD_ID' in header:
             obj = header['FIELD_ID']
         else:
             obj = header['OBJECT']
+
         # remove all non-alphanumeric characters from [obj] except for
         # '-' and '_'
         #obj = ''.join(e for e in obj if e.isalnum() or e=='-' or e=='_')
@@ -917,6 +923,7 @@ def blackbox_reduce (filename, telescope, mode, read_path):
             data_mask = sat_detect(data, header, data_mask, header_mask,
                                    tmp_path)
     except Exception as e:
+        header['NSATS'] = (0, 'number of satellite trails identified')
         q.put(logger.info(traceback.format_exc()))
         q.put(logger.error('exception was raised during [sat_detect]: {}'.format(e)))
         log.info(traceback.format_exc())
@@ -2037,7 +2044,7 @@ def set_header(header, filename):
         xsize = header['NAXIS1']
         nx = get_par(set_bb.nx,tel)
         dx = get_par(set_bb.xsize_chan,tel)
-        xbinning = int(np.ceil((nx*dx)/xsize))
+        xbinning = int(np.ceil(float(nx*dx)/xsize))
         edit_head(header, 'XBINNING', value=xbinning, comments='[pix] Binning factor X axis')
         
     if 'YBINNING' in header:
@@ -2046,7 +2053,7 @@ def set_header(header, filename):
         ysize = header['NAXIS2']
         ny = get_par(set_bb.ny,tel)
         dy = get_par(set_bb.ysize_chan,tel)
-        ybinning = int(np.ceil((ny*dy)/ysize))
+        ybinning = int(np.ceil(float(ny*dy)/ysize))
         edit_head(header, 'YBINNING', value=ybinning, comments='[pix] Binning factor Y axis')
 
 
@@ -2054,7 +2061,6 @@ def set_header(header, filename):
     edit_head(header, 'AZIMUTH', comments='[deg] Azimuth in horizontal coordinates')
     edit_head(header, 'RADESYS', value='ICRS', comments='Coordinate reference frame')
 
-    
     # RA
     if 'RA' in header:
         if ':' in str(header['RA']):
@@ -2065,7 +2071,6 @@ def set_header(header, filename):
             ra_deg = header['RA'] * 15.
         edit_head(header, 'RA', value=ra_deg, comments='[deg] Telescope right ascension')
 
-        
     # DEC
     if 'DEC' in header:
         if ':' in str(header['DEC']):
@@ -2075,8 +2080,7 @@ def set_header(header, filename):
             # for airmass determination below
             dec_deg = header['DEC']
         edit_head(header, 'DEC', value=dec_deg, comments='[deg] Telescope declination')
-            
-            
+
     edit_head(header, 'FLIPSTAT', value='None', comments='Telescope side of the pier')
     edit_head(header, 'EXPTIME', comments='[s] Requested exposure time')
 
@@ -2127,7 +2131,9 @@ def set_header(header, filename):
         edit_head(header, 'GPSSTART', value='None', comments='GPS timing start of opening shutter')
     if 'GPSEND' not in header:
         edit_head(header, 'GPSEND', value='None', comments='GPS timing end of opening shutter')
-        
+    if 'GPS-SHUT' not in header and imgtype == 'object':
+        edit_head(header, 'GPS-SHUT', value='None', comments='[s] Shutter time:(GPSEND-GPSSTART)-EXPTIME')
+
     edit_head(header, 'MJD-OBS', value=mjd_obs, comments='[d] MJD (based on DATE-OBS)')
     
     # in degrees:
@@ -2185,8 +2191,9 @@ def set_header(header, filename):
     # now that RA/DEC are (potentially) corrected, determine local
     # hour angle this keyword was in the raw image header for a while,
     # but seems to have disappeared during the 2nd half of March 2019
-    lha_deg = lst_deg - ra_deg
-    edit_head(header, 'HA', value=lha_deg, comments='[deg] Local hour angle (=LST-RA)')
+    if 'RA' in header:
+        lha_deg = lst_deg - ra_deg
+        edit_head(header, 'HA', value=lha_deg, comments='[deg] Local hour angle (=LST-RA)')
 
     
     # Weather headers required for Database
@@ -2247,16 +2254,15 @@ def set_header(header, filename):
     edit_head(header, 'FOCUSPOS', value='None', dtype=int, comments='[micron] Focuser position')
 
     edit_head(header, 'IMAGETYP', dtype=str, comments='Image type')
-    
     edit_head(header, 'OBJECT',   dtype=str, comments='Name of object observed (field ID)')
+
     if header['IMAGETYP'].lower()=='object':
-        obj = header['OBJECT']
+        if 'FIELD_ID' in header:
+            obj = header['FIELD_ID']
+        else:
+            obj = header['OBJECT']
         edit_head(header, 'OBJECT', value='{:0>5}'.format(obj), comments='Name of object observed (field ID)')
-    else:
-        edit_head(header, 'OBJECT', dtype=str, comments='Name of object observed (field ID)')
-    
-    edit_head(header, 'FIELD_ID', comments='MeerLICHT/BlackGEM field ID')
-        
+
     if tel=='ML1':
         origin = 'SAAO-Sutherland (K94)'
         telescop = 'MeerLICHT-'+tel[2:]
