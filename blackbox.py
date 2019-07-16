@@ -899,6 +899,7 @@ def blackbox_reduce (filename, telescope, mode, read_path):
         cosmics_processed = False
         data, data_mask = cosmics_corr(data, header, data_mask, header_mask)
     except Exception as e:
+        header['NCOSMICS'] = ('None', '[/s] number of cosmic rays identified')
         q.put(logger.info(traceback.format_exc()))
         q.put(logger.error('exception was raised during [cosmics_corr]: {}'.format(e)))
         log.info(traceback.format_exc())
@@ -923,7 +924,7 @@ def blackbox_reduce (filename, telescope, mode, read_path):
             data_mask = sat_detect(data, header, data_mask, header_mask,
                                    tmp_path)
     except Exception as e:
-        header['NSATS'] = (0, 'number of satellite trails identified')
+        header['NSATS'] = ('None', 'number of satellite trails identified')
         q.put(logger.info(traceback.format_exc()))
         q.put(logger.error('exception was raised during [sat_detect]: {}'.format(e)))
         log.info(traceback.format_exc())
