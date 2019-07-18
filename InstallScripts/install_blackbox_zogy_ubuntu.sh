@@ -18,8 +18,8 @@
 # python version
 v_python="3.7"
 # zogy and blackbox; for latest version, leave these empty ("") or comment out
-v_blackbox="0.8"
-v_zogy="0.8"
+v_blackbox="0.9.1"
+v_zogy="0.9.1"
 
 # define home of zogy, data and blackbox
 zogyhome=${PWD}/ZOGY
@@ -97,7 +97,11 @@ sudo -H ${pip} install git+git://github.com/pmvreeswijk/BlackBOX${v_blackbox_git
 # download calibration catalog
 # ================================================================================
 
-# From where? To be put in ${ZOGYHOME}/CalFiles/
+# with Kurucz templates
+sudo wget -nc https://storage.googleapis.com/meerlicht-cal/photometry/ML_calcat_kur_allsky_ext1deg_20181115.fits.gz ${ZOGYHOME}/CalFiles/
+# with Pickles templates
+sudo wget -nc https://storage.googleapis.com/meerlicht-cal/photometry/ML_calcat_pick_allsky_ext1deg_20181201.fits.gz ${ZOGYHOME}/CalFiles/
+sudo gunzip ${ZOGYHOME}/CalFiles/ML_calcat*.gz
 
 
 # packages used by ZOGY
@@ -170,8 +174,8 @@ echo "======================================================================"
 echo
 
 
-# use Astrometry.net link to DR2 files
-url="http://data.astrometry.net/5000"
+# download Astrometry.net index files from Google 
+url="https://storage.googleapis.com/meerlicht-cal/astrometry"
 
 # make sure index files are saved in the right directory; on mlcontrol
 # these are in /usr/local/astrometry/data/ (config file:
@@ -193,6 +197,5 @@ else
 fi
 echo "downloading Astrometry.net index files to directory ${dir_save}"
 echo 
-sudo wget -nc $url/index-500{5..6}-0{0..9}.fits -P ${dir_save}
-sudo wget -nc $url/index-500{5..6}-1{0..1}.fits -P ${dir_save}
-
+sudo wget -nc $url/index-500{4..6}-0{0..9}.fits -P ${dir_save}
+sudo wget -nc $url/index-500{4..6}-1{0..1}.fits -P ${dir_save}
