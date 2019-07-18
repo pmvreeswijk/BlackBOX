@@ -98,9 +98,9 @@ sudo -H ${pip} install git+git://github.com/pmvreeswijk/BlackBOX${v_blackbox_git
 # ================================================================================
 
 # with Kurucz templates
-sudo wget -nc https://storage.googleapis.com/meerlicht-cal/photometry/ML_calcat_kur_allsky_ext1deg_20181115.fits.gz ${ZOGYHOME}/CalFiles/
+sudo wget -nc https://storage.googleapis.com/meerlicht-cal/photometry/ML_calcat_kur_allsky_ext1deg_20181115.fits.gz -P ${ZOGYHOME}/CalFiles/
 # with Pickles templates
-sudo wget -nc https://storage.googleapis.com/meerlicht-cal/photometry/ML_calcat_pick_allsky_ext1deg_20181201.fits.gz ${ZOGYHOME}/CalFiles/
+sudo wget -nc https://storage.googleapis.com/meerlicht-cal/photometry/ML_calcat_pick_allsky_ext1deg_20181201.fits.gz -P ${ZOGYHOME}/CalFiles/
 sudo gunzip ${ZOGYHOME}/CalFiles/ML_calcat*.gz
 
 
