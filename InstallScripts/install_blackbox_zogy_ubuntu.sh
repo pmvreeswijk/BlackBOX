@@ -202,29 +202,3 @@ echo
 echo "======================================================================"
 echo
 
-
-# download Astrometry.net index files from Google 
-url="https://storage.googleapis.com/meerlicht-cal/astrometry"
-
-# make sure index files are saved in the right directory; on mlcontrol
-# these are in /usr/local/astrometry/data/ (config file:
-# /usr/local/astrometry/etc/astrometry.cfg) while on GCloud VM
-# installation they are supposed to be in /usr/share/astrometry
-# (config file: /etc/astrometry.cfg)
-dir1="/usr/share/astrometry"
-dir2="/usr/local/astrometry/data"
-dir3="${HOME}/IndexFiles"
-if [ -d "${dir1}" ]
-then
-    dir_save=${dir1}
-elif [ -d "${dir2}" ]
-then
-    dir_save=${dir2}
-else
-    dir_save=${dir3}
-    mkdir ${dir3}
-fi
-echo "downloading Astrometry.net index files to directory ${dir_save}"
-echo 
-sudo wget -nc $url/index-500{4..6}-0{0..9}.fits -P ${dir_save}
-sudo wget -nc $url/index-500{4..6}-1{0..1}.fits -P ${dir_save}
