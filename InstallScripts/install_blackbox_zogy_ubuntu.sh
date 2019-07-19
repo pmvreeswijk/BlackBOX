@@ -8,7 +8,6 @@
 #
 # Still to do:
 #
-# - add the calibration binary fits catalog used by zogy
 # - try to make apt-get install PSFEx (and SExtractor) with multi-threading
 #
 #
@@ -173,6 +172,7 @@ echo "# BlackBOX and ZOGY system variables"
 if [[ ${SHELL} == *"bash"* ]] || [[ ${SHELL} == *"zsh"* ]]
 then
     echo "export ZOGYHOME=${zogyhome}"
+    echo "# update DATAHOME to folder where the data are sitting"
     echo "export DATAHOME=${datahome}"
     echo "if [ -z \"\${PYTHONPATH}\" ]"
     echo "then"
@@ -180,25 +180,26 @@ then
     echo "else"
     echo "    export PYTHONPATH=\${PYTHONPATH}:${zogyhome}:${zogyhome}/Settings"
     echo "fi"
+    echo
+    echo "# python alias"
+    echo "alias python=python${v_python}"
 fi
 
 if [[ ${SHELL} == *"csh"* ]]
 then
     echo "setenv ZOGYHOME ${zogyhome}"
+    echo "# update DATAHOME to folder where the data are sitting"
     echo "setenv DATAHOME ${datahome}"
     echo "if ( \$?PYTHONPATH ) then"
     echo "    setenv PYTHONPATH \${PYTHONPATH}:${zogyhome}:${zogyhome}/Settings"
     echo "else"
     echo "    setenv PYTHONPATH ${zogyhome}:${zogyhome}/Settings"
     echo "endif"
+    echo 
+    echo "# python alias"
+    echo "alias python python${v_python}"
 fi
 
-echo "To make this the default Python or Python 3 (i.e., the version run by"
-echo "the python or python3 commands), run one or both of:"
-echo
-echo "    sudo port select --set python python${v_python/./}"
-echo "    sudo port select --set python3 python${v_python/./}"
 echo
 echo "======================================================================"
 echo
-

@@ -6,7 +6,6 @@
 #
 # Still to do:
 #
-# - add the calibration binary fits catalog used by zogy
 # - try to make apt-get install PSFEx (and SExtractor) with multi-threading
 #
 #
@@ -16,8 +15,8 @@
 # python version
 #v_python="3.7"
 # zogy and blackbox; for latest version, leave these empty ("") or comment out
-v_blackbox="0.8.1"
-v_zogy="0.8.1"
+v_blackbox="0.9.1"
+v_zogy="0.9.1"
 
 # define home of zogy, data and blackbox
 zogyhome=${PWD}/ZOGY
