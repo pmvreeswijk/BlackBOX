@@ -52,7 +52,8 @@ keywords_version = '0.9.1'
 ################################################################################
 
 def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
-                  recursive=None, only_imgtypes=None, only_filters=None, slack=None):
+                  recursive=None, only_imgtypes=None, only_filters=None, 
+                  image=None, slack=None):
 
     global tel, only_filt, only_type
     tel = telescope
@@ -3160,5 +3161,6 @@ if __name__ == "__main__":
     args = params.parse_args()
 
     run_blackbox (telescope=args.telescope, mode=args.mode, date=args.date, read_path=args.read_path, 
-                  recursive=args.recursive, only_filters=args.only_filters, slack=args.slack)
+                  recursive=args.recursive, only_imgtypes=args.only_imgtypes, 
+                  only_filters=args.only_filters, slack=args.slack)
 
