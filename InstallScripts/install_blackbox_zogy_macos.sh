@@ -95,6 +95,53 @@ sudo -H ${pip} install git+git://github.com/pmvreeswijk/ZOGY${v_zogy_git}
 sudo -H ${pip} install git+git://github.com/pmvreeswijk/BlackBOX${v_blackbox_git}
 
 
+# packages used by ZOGY
+# ================================================================================
+
+# SExtractor
+sudo ${packman} install sextractor
+
+# PSFEx
+# gcc8 is needed for atlas
+sudo ${packman} install gcc8
+sudo ${packman} install psfex
+
+# SWarp
+sudo ${packman} install swarp
+
+# ds9
+sudo ${packman} install ds9
+
+
+# Astrometry.net
+# --------------
+# following instructions at http://astrometry.net/doc/build.html
+
+# check if not already present
+eval which solve-field
+if (( $? == 0 ))
+then
+    echo "solve-field executable exists; skipping Astrometry.net installation"
+else
+    # first the dependencies:
+    sudo -H ${pip} install git+git://github.com/esheldon/fitsio
+    sudo ${packman} install wget cairo netpbm swig cfitsio pkgconfig
+    # following line needed to provide (unusual) path to cfitsio
+    export PKG_CONFIG_PATH=/opt/local/lib/pkgconfig/cfitsio.pc
+
+    # download, make and make install
+    Anet="astrometry.net-0.77"
+    wget http://astrometry.net/downloads/${Anet}.tar.gz
+    tar -zxvf ${Anet}.tar.gz
+    currentdir=${PWD}
+    cd ${Anet}
+    make
+    sudo make install
+    cd ${currentdir}
+    rm -rf ${Anet}*
+fi
+
+
 # download calibration catalog
 # ================================================================================
 
@@ -133,51 +180,6 @@ echo
 sudo wget -nc $url/astrometry/index-500{4..6}-0{0..9}.fits -P ${dir_save}
 sudo wget -nc $url/astrometry/index-500{4..6}-1{0..1}.fits -P ${dir_save}
 
-
-# packages used by ZOGY
-# ================================================================================
-
-# SExtractor
-sudo ${packman} install sextractor
-
-# PSFEx
-# gcc8 is needed for atlas
-sudo ${packman} install gcc8
-sudo ${packman} install psfex
-
-# SWarp
-sudo ${packman} install swarp
-
-# ds9
-sudo ${packman} install ds9
-
-# Astrometry.net
-# --------------
-# following instructions at http://astrometry.net/doc/build.html
-
-# check if not already present
-eval which solve-field
-if (( $? == 0 ))
-then
-    echo "solve-field executable exists; skipping Astrometry.net installation"
-else
-    # first the dependencies:
-    sudo -H ${pip} install git+git://github.com/esheldon/fitsio
-    sudo ${packman} install wget cairo netpbm swig cfitsio pkgconfig
-    # following line needed to provide (unusual) path to cfitsio
-    export PKG_CONFIG_PATH=/opt/local/lib/pkgconfig/cfitsio.pc
-
-    # download, make and make install
-    Anet="astrometry.net-0.77"
-    wget http://astrometry.net/downloads/${Anet}.tar.gz
-    tar -zxvf ${Anet}.tar.gz
-    currentdir=${PWD}
-    cd ${Anet}
-    make
-    sudo make install
-    cd ${currentdir}
-    rm -rf ${Anet}*
-fi
 
 # set environent variables:
 # ================================================================================
