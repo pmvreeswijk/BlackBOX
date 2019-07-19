@@ -34,7 +34,15 @@ from watchdog.events import FileSystemEventHandler
 from qc import qc_check, run_qc_check
 import platform
 
-__version__ = '0.9.1'
+# due to regular problems with downloading default IERS file (needed
+# to compute UTC-UT1 corrections for e.g. sidereal time computation),
+# Steven created a mirror of this file in a google storage bucket
+from astropy.utils import iers
+iers.conf.iers_auto_url = 'https://storage.googleapis.com/blackbox-auxdata/timing/finals2000A.all'
+iers.conf.iers_auto_url_mirror = 'http://maia.usno.navy.mil/ser7/finals2000A.all'
+
+
+__version__ = '0.9.2'
 keywords_version = '0.9.1'
 
 #def init(l):
@@ -44,11 +52,12 @@ keywords_version = '0.9.1'
 ################################################################################
 
 def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
-                  recursive=None, only_filters=None, slack=None):
+                  recursive=None, only_imgtypes=None, only_filters=None, slack=None):
 
-    global tel, only_filt
+    global tel, only_filt, only_type
     tel = telescope
     only_filt = only_filters
+    only_type = only_imgtypes.lower()
     
     if get_par(set_zogy.timing,tel):
         t_run_blackbox = time.time()
@@ -494,15 +503,21 @@ def blackbox_reduce (filename, telescope, mode, read_path):
                            ' dummy catalogs'.format(filename)))
         return
     
-    
-    # if 'IMAGETYP' keyword not one of ['bias', 'dark', 'flat', 'object'], also return
-    imgtypes2process = ['bias', 'dark', 'flat', 'object']
+
+    # if 'IMAGETYP' keyword not one of those specified in input parameter
+    # [only_imgtypes] or complete set: ['bias', 'dark', 'flat', 'object']
+    if only_type is not None:
+        imgtypes2process = only_type
+    else:
+        imgtypes2process = ['bias', 'dark', 'flat', 'object']
+    # then also return
     imgtype = header['IMAGETYP'].lower()
     if imgtype not in imgtypes2process:
-        q.put(logger.error('IMAGETYP keyword not one of bias, dark, flat, object; '
-                           'not processing {}'.format(filename)))
+        q.put(logger.warning('image type ({}) not in [only_imgtypes] ({}); '
+                             'not processing {}'
+                             .format(imgtype, imgtypes2process, filename)))
         return
-
+    
     
     # extend the header with some useful/required keywords
     try: 
@@ -553,8 +568,9 @@ def blackbox_reduce (filename, telescope, mode, read_path):
     # if [only_filt] is specified, skip image if not relevant
     if only_filt is not None:
         if filt not in only_filt and imgtype != 'bias' and imgtype != 'dark':
-            q.put(logger.warning ('filter of image ({}) not in [only_filters] ({}); skipping'
-                                  .format(filt, only_filt)))
+            q.put(logger.warning('image filter ({}) not in [only_filters] ({}); '
+                                 'not processing {}'
+                                 .format(filt, only_filt, filename)))
             return
             
     fits_out = '{}/{}_{}_{}.fits'.format(path[imgtype], telescope, utdate, uttime)
@@ -3134,10 +3150,11 @@ if __name__ == "__main__":
     
     params = argparse.ArgumentParser(description='User parameters')
     params.add_argument('--telescope', type=str, default='ML1', help='Telescope name (ML1, BG2, BG3 or BG4)')
-    params.add_argument('--mode', type=str, default='day', help='Day or night mode of pipeline')
+    params.add_argument('--mode', type=str, default='day', help='Day or night mode of pipeline; default: "day"')
     params.add_argument('--date', type=str, default=None, help='Date to process (yyyymmdd, yyyy-mm-dd, yyyy/mm/dd or yyyy.mm.dd)')
     params.add_argument('--read_path', type=str, default=None, help='Full path to the input raw data directory; if not defined it is determined from [set_blackbox.raw_dir], [telescope] and [date]') 
     params.add_argument('--recursive', type=str2bool, default=False, help='Recursively include subdirectories for input files')
+    params.add_argument('--only_imgtypes', type=str, default=None, help='Only consider this(these) image type(s)')
     params.add_argument('--only_filters', type=str, default=None, help='Only consider flatfields and object images in this(these) filter(s)')
     params.add_argument('--slack', default=True, help='Upload messages for night mode to slack.')
     args = params.parse_args()
