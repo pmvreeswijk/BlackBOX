@@ -49,6 +49,7 @@ keywords_version = '0.9.1'
 #    global lock
 #    lock = l
     
+
 ################################################################################
 
 def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
@@ -59,9 +60,9 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     global tel, filts, types
     tel = telescope
     filts = filters
-    types = imgtypes.lower()
+    types = imgtypes
     
-    
+        
     if get_par(set_zogy.timing,tel):
         t_run_blackbox = time.time()
     
@@ -526,7 +527,7 @@ def blackbox_reduce (filename, telescope, mode, read_path):
     # if 'IMAGETYP' keyword not one of those specified in input parameter
     # [imgtypes] or complete set: ['bias', 'dark', 'flat', 'object']
     if types is not None:
-        imgtypes2process = types
+        imgtypes2process = [t.lower() for t in types]
     else:
         imgtypes2process = ['bias', 'dark', 'flat', 'object']
     # then also return
