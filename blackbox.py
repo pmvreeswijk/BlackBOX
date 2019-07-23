@@ -69,7 +69,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
         
     if get_par(set_zogy.timing,tel):
         t_run_blackbox = time.time()
-    
+            
         
     # initialize logging
     ####################
@@ -149,6 +149,8 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
         biases, darks, flats, objects, others = sort_files(read_path, '*fits*', recursive=recursive)
         lists = [biases, darks, flats, objects, others]
     else:
+        # if input parameter [image] is defined, the list to process
+        # will only contain a list with the image specified
         lists = [[image]]
     filenames = [f for sublist in lists for f in sublist]
 
@@ -531,7 +533,7 @@ def blackbox_reduce (filename, telescope, mode, read_path):
     # if 'IMAGETYP' keyword not one of those specified in input parameter
     # [imgtypes] or complete set: ['bias', 'dark', 'flat', 'object']
     if types is not None:
-        imgtypes2process = [t.lower() for t in types]
+        imgtypes2process = types.lower()
     else:
         imgtypes2process = ['bias', 'dark', 'flat', 'object']
     # then also return
