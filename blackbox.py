@@ -40,6 +40,10 @@ import platform
 from astropy.utils import iers
 iers.conf.iers_auto_url = 'https://storage.googleapis.com/blackbox-auxdata/timing/finals2000A.all'
 iers.conf.iers_auto_url_mirror = 'http://maia.usno.navy.mil/ser7/finals2000A.all'
+# commands to force the downloading of above IERS bulletin file in
+# case a recent one (younger than 30 days) is not present in the cache
+tnow = Time.now()
+tnow.ut1  
 
 
 __version__ = '0.9.2'
