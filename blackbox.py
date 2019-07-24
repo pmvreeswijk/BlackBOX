@@ -84,7 +84,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     genlog.setLevel(logging.INFO) #set level of logger
     formatter = logging.Formatter("%(asctime)s %(process)d %(levelname)s %(message)s") #set format of logger
     logging.Formatter.converter = time.gmtime #convert time in logger to UCT
-    genlogfile = '{}/{}_{}.log'.format(get_par(set_bb.log_dir,tel), telescope,
+    genlogfile = '{}/{}_{}.log'.format(get_par(set_bb.log_dir,tel), tel,
                                        dt.datetime.now().strftime('%Y%m%d_%H%m%S'))
     filehandler = logging.FileHandler(genlogfile, 'w+') #create log file
     filehandler.setFormatter(formatter) #add format to log file
@@ -146,7 +146,8 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     # files present in [read_path], in image type order:
     # bias, dark, flat, object and other
     if image is None:
-        biases, darks, flats, objects, others = sort_files(read_path, '*fits*', recursive=recursive)
+        biases, darks, flats, objects, others = sort_files(read_path, '*fits*', 
+                                                           recursive=recursive)
         lists = [biases, darks, flats, objects, others]
     else:
         # if input parameter [image] is defined, the list to process
@@ -169,12 +170,12 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
             # mode this is not allowed (at least not on a macbook).
             print ('running with single processor')
             for filename in filenames:
-                result = try_blackbox_reduce(filename, telescope, mode, read_path)
+                result = try_blackbox_reduce(filename)
 
         else:
             # use [pool_func] to process list of files
             for files in lists:
-                result = pool_func (try_blackbox_reduce, files, telescope, mode, read_path)
+                result = pool_func (try_blackbox_reduce, files)
 
 
     elif mode == 'night':
@@ -190,13 +191,14 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
         # create and setup observer, but do not start just yet
         observer = Observer()
-        observer.schedule(FileWatcher(queue, telescope, mode, read_path),
-                          read_path, recursive=recursive)
+        observer.schedule(FileWatcher(queue), read_path, recursive=recursive)
 
-        # loop through waiting files and add to pool
+        # add files that are already present in the read_path
+        # directory to the night queue, to reduce these first
         for filename in filenames: 
-            queue.put([filename, telescope, mode, read_path])
-
+            queue.put([filename])
+            
+            
         # determine time of next sunrise
         obs = ephem.Observer()
         obs.lat = str(get_par(set_zogy.obs_lat,tel))
@@ -428,7 +430,7 @@ class WrapException(Exception):
 
 ################################################################################
 
-def try_blackbox_reduce (filename, telescope, mode, read_path):
+def try_blackbox_reduce (filename):
 
     """This is a wrapper function to call [blackbox_reduce] below in a
     try-except statement in order to enable to show the complete
@@ -441,14 +443,14 @@ def try_blackbox_reduce (filename, telescope, mode, read_path):
     """
 
     try:
-        blackbox_reduce (filename, telescope, mode, read_path)
+        blackbox_reduce (filename)
     except Exception:
         raise WrapException()
         
     
 ################################################################################
     
-def blackbox_reduce (filename, telescope, mode, read_path):
+def blackbox_reduce (filename):
 
     """Function that takes as input a single raw fits image and works to
        work through entire chain of reduction steps, from correcting
@@ -480,46 +482,23 @@ def blackbox_reduce (filename, telescope, mode, read_path):
                            .format(filename)))    
         return
         
-    # determine the raw data path (which is not necessarily the same
-    # as the input [read_path])
+    # determine the raw data path
     raw_path, __ = get_path(header['DATE-OBS'], 'read')
 
-    if raw_path == read_path:
-
-        # probably this block and the explanation below is not valid
-        # anymore, i.e. also in night mode, raw_path can be equal to
-        # read_path, as the images are not funpacked anymore; skipping
-        # this block for now
-        if False:
-        
-            if mode == 'night':
-                # in night mode, [read_path] should probably not be the
-                # same as [raw_path] because the images will be
-                # transferred to [raw_path], which is
-                # problematic if that is the same as the directory that is
-                # being monitored for new images
-                q.put(logger.critical('in night mode, the directory [read_path] that '+
-                                      'is being monitored should not be identical to '+
-                                      'the standard [raw_path] directory: {}'
-                                      .format(raw_path)))
-                return
-        
+    # move or copy the image over to [raw_path] if it does not already exist
+    src = filename
+    dest = '{}/{}'.format(raw_path, filename.split('/')[-1])
+    if already_exists (dest):
+        q.put(logger.warning('{} already exists; not copying/moving file'.format(dest)))
     else:
+        make_dir (raw_path)
+        # moving:
+        #shutil.move(src, dest)
+        # copying:
+        shutil.copy2(src, dest)
 
-        # move or copy the image over to [raw_path] if it does not already exist
-        src = filename
-        dest = '{}/{}'.format(raw_path, filename.split('/')[-1])
-        if already_exists (dest):
-            q.put(logger.warning('{} already exists; not copying/moving file'.format(dest)))
-        else:
-            make_dir (raw_path)
-            # moving:
-            #shutil.move(src, dest)
-            # copying:
-            shutil.copy2(src, dest)
-
-        # and let [filename] refer to the image in [raw_path]
-        filename = dest
+    # and let [filename] refer to the image in [raw_path]
+    filename = dest
 
 
     # check if all crucial keywwords are present in the header
@@ -599,7 +578,7 @@ def blackbox_reduce (filename, telescope, mode, read_path):
                                  .format(filt, filts, filename)))
             return
             
-    fits_out = '{}/{}_{}_{}.fits'.format(path[imgtype], telescope, utdate, uttime)
+    fits_out = '{}/{}_{}_{}.fits'.format(path[imgtype], tel, utdate, uttime)
 
     # initialize names of output binary fits catalogs to None so that
     # these will not be created for the bias and flat frames if
@@ -642,7 +621,7 @@ def blackbox_reduce (filename, telescope, mode, read_path):
         # and reference image
         ref_path = '{}/{}'.format(get_par(set_bb.ref_dir,tel), obj)
         make_dir (ref_path)
-        ref_fits_out = '{}/{}_{}_red.fits'.format(ref_path, telescope, filt)
+        ref_fits_out = '{}/{}_{}_red.fits'.format(ref_path, tel, filt)
         
         exists, ref_fits_temp = already_exists (ref_fits_out, get_filename=True)
         if exists:
@@ -1137,7 +1116,7 @@ def blackbox_reduce (filename, telescope, mode, read_path):
 
         # make symbolic links to all files in the reference
         # directory with the same filter
-        ref_files = glob.glob('{}/{}_{}_*'.format(ref_path, telescope, filt))
+        ref_files = glob.glob('{}/{}_{}_*'.format(ref_path, tel, filt))
         for ref_file in ref_files:
             # and funpack/unzip if necessary (before symbolic link
             # to avoid unpacking multiple times during the same night)
@@ -2823,39 +2802,36 @@ def gain_corr(data, header):
 def get_path (date, dir_type):
 
     # define path
-    if date is None:
-        q.put(logger.critical('no [date] or [read_path] provided; exiting'))
-        raise SystemExit
-    else:
-        # date can be any of yyyy/mm/dd, yyyy.mm.dd, yyyymmdd,
-        # yyyy-mm-dd or yyyy-mm-ddThh:mm:ss.s; if the latter is
-        # provided, make sure to set [date_dir] to the date of the
-        # evening before UT midnight
-        #
-        # rewrite this block using astropy.time; very confusing now
-        if 'T' in date:
-            if '.' in date:
-                # rounds date to microseconds as more digits can't be defined in the format (next line)
-                date = str(Time(date, format='isot')) 
-                date_format = '%Y-%m-%dT%H:%M:%S.%f'
-                high_noon = 'T12:00:00.0'
-            else:
-                date_format = '%Y-%m-%dT%H:%M:%S'
-                high_noon = 'T12:00:00'
 
-            date_ut = dt.datetime.strptime(date, date_format).replace(tzinfo=gettz('UTC'))
-            date_noon = date.split('T')[0]+high_noon
-            date_local_noon = dt.datetime.strptime(date_noon, date_format).replace(
-                tzinfo=gettz(get_par(set_zogy.obs_timezone,tel)))
-            if date_ut < date_local_noon: 
-                # subtract day from date_only
-                date = (date_ut - dt.timedelta(1)).strftime('%Y-%m-%d')
-            else:
-                date = date_ut.strftime('%Y-%m-%d')
+    # date can be any of yyyy/mm/dd, yyyy.mm.dd, yyyymmdd,
+    # yyyy-mm-dd or yyyy-mm-ddThh:mm:ss.s; if the latter is
+    # provided, make sure to set [date_dir] to the date of the
+    # evening before UT midnight
+    #
+    # rewrite this block using astropy.time; very confusing now
+    if 'T' in date:
+        if '.' in date:
+            # rounds date to microseconds as more digits can't be defined in the format (next line)
+            date = str(Time(date, format='isot')) 
+            date_format = '%Y-%m-%dT%H:%M:%S.%f'
+            high_noon = 'T12:00:00.0'
+        else:
+            date_format = '%Y-%m-%dT%H:%M:%S'
+            high_noon = 'T12:00:00'
 
-        # this [date_eve] in format yyyymmdd is also returned
-        date_eve = ''.join(e for e in date if e.isdigit())
-        date_dir = '{}/{}/{}'.format(date_eve[0:4], date_eve[4:6], date_eve[6:8])
+        date_ut = dt.datetime.strptime(date, date_format).replace(tzinfo=gettz('UTC'))
+        date_noon = date.split('T')[0]+high_noon
+        date_local_noon = dt.datetime.strptime(date_noon, date_format).replace(
+            tzinfo=gettz(get_par(set_zogy.obs_timezone,tel)))
+        if date_ut < date_local_noon: 
+            # subtract day from date_only
+            date = (date_ut - dt.timedelta(1)).strftime('%Y-%m-%d')
+        else:
+            date = date_ut.strftime('%Y-%m-%d')
+
+    # this [date_eve] in format yyyymmdd is also returned
+    date_eve = ''.join(e for e in date if e.isdigit())
+    date_dir = '{}/{}/{}'.format(date_eve[0:4], date_eve[4:6], date_eve[6:8])
         
 
     if dir_type == 'read':
@@ -3094,13 +3070,15 @@ def action(item_list):
 
     For new events, continues if it is a file. '''
 
-    #get parameters for list
-    event, telescope, mode, read_path = item_list.get(True)
-    
     while True:
+
+        #get parameters for list
+        [event] = item_list.get(True)
+        
         try:
             # get name of new file
             filename = str(event.src_path) 
+            print ('event_type:', event.event_type)
             #only continue if event is a fits
             if 'fits' in filename: 
                 # file N.B.: when copying files to [read_path]
@@ -3131,8 +3109,9 @@ def action(item_list):
             filename = event
             q.put(logger.info('Found old file '+filename))
 
-        try_blackbox_reduce (filename, telescope, mode, read_path)
-
+        # old or new, reduce it
+        try_blackbox_reduce (filename)
+        
 
 ################################################################################
 
@@ -3142,18 +3121,15 @@ class FileWatcher(FileSystemEventHandler, object):
     :param queue: multiprocessing queue for new files
     :type queue: multiprocessing.Queue'''
     
-    def __init__(self, queue, telescope, mode, read_path):
+    def __init__(self, queue):
         self._queue = queue
-        self._telescope = telescope
-        self._mode = mode
-        self._read_path = read_path
         
     def on_created(self, event):
         '''Action to take for new files.
 
         :param event: new event found
         :type event: event'''
-        self._queue.put([event, self._telescope, self._mode, self._read_path])
+        self._queue.put([event])
 
 
 ################################################################################
