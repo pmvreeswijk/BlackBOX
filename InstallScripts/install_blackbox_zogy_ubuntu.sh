@@ -8,7 +8,6 @@
 #
 # Still to do:
 #
-# - add the calibration binary fits catalog used by zogy
 # - try to make apt-get install PSFEx (and SExtractor) with multi-threading
 #
 #
@@ -18,8 +17,8 @@
 # python version
 v_python="3.7"
 # zogy and blackbox; for latest version, leave these empty ("") or comment out
-v_blackbox="0.8"
-v_zogy="0.8"
+v_blackbox="0.9.1"
+v_zogy="0.9.1"
 
 # define home of zogy, data and blackbox
 zogyhome=${PWD}/ZOGY
@@ -94,12 +93,6 @@ sudo -H ${pip} install git+git://github.com/pmvreeswijk/ZOGY${v_zogy_git}
 sudo -H ${pip} install git+git://github.com/pmvreeswijk/BlackBOX${v_blackbox_git}
 
 
-# download calibration catalog
-# ================================================================================
-
-# From where? To be put in ${ZOGYHOME}/CalFiles/
-
-
 # packages used by ZOGY
 # ================================================================================
 
@@ -125,53 +118,20 @@ sudo ${packman} -y install psfex
 sudo ${packman} -y install saods9
 
 
-# set environent variables:
+# download calibration catalog
 # ================================================================================
 
-echo
-echo "======================================================================"
-echo
-echo "copy and paste the commands below to your shell startup script"
-echo "(~/.bashrc, ~/.cshrc or ~/.zshrc) for these system variables"
-echo "and python alias to be set when starting a new terminal, e.g.:"
-echo
-echo "# BlackBOX and ZOGY system variables"
+url="https://storage.googleapis.com/blackbox-auxdata"
 
-if [[ ${SHELL} == *"bash"* ]] || [[ ${SHELL} == *"zsh"* ]]
-then
-    echo "export ZOGYHOME=${zogyhome}"
-    echo "export DATAHOME=${datahome}"
-    echo "if [ -z \"\${PYTHONPATH}\" ]"
-    echo "then"
-    echo "    export PYTHONPATH=${zogyhome}:${zogyhome}/Settings"
-    echo "else"
-    echo "    export PYTHONPATH=\${PYTHONPATH}:${zogyhome}:${zogyhome}/Settings"
-    echo "fi"
-fi
-
-if [[ ${SHELL} == *"csh"* ]]
-then
-    echo "setenv ZOGYHOME ${zogyhome}"
-    echo "setenv DATAHOME ${datahome}"
-    echo "if ( \$?PYTHONPATH ) then"
-    echo "    setenv PYTHONPATH \${PYTHONPATH}:${zogyhome}:${zogyhome}/Settings"
-    echo "else"
-    echo "    setenv PYTHONPATH ${zogyhome}:${zogyhome}/Settings"
-    echo "endif"
-fi
-
-echo "To make this the default Python or Python 3 (i.e., the version run by"
-echo "the python or python3 commands), run one or both of:"
-echo
-echo "    sudo port select --set python python${v_python/./}"
-echo "    sudo port select --set python3 python${v_python/./}"
-echo
-echo "======================================================================"
-echo
+# with Kurucz templates
+sudo wget -nc $url/photometry/ML_calcat_kur_allsky_ext1deg_20181115.fits.gz -P ${ZOGYHOME}/CalFiles/
+# with Pickles templates
+sudo wget -nc $url/photometry/ML_calcat_pick_allsky_ext1deg_20181201.fits.gz -P ${ZOGYHOME}/CalFiles/
+sudo gunzip ${ZOGYHOME}/CalFiles/ML_calcat*.gz
 
 
-# use Astrometry.net link to DR2 files
-url="http://data.astrometry.net/5000"
+# download astrometry.net index files
+# ================================================================================
 
 # make sure index files are saved in the right directory; on mlcontrol
 # these are in /usr/local/astrometry/data/ (config file:
@@ -193,6 +153,53 @@ else
 fi
 echo "downloading Astrometry.net index files to directory ${dir_save}"
 echo 
-sudo wget -nc $url/index-500{5..6}-0{0..9}.fits -P ${dir_save}
-sudo wget -nc $url/index-500{5..6}-1{0..1}.fits -P ${dir_save}
+sudo wget -nc $url/astrometry/index-500{4..6}-0{0..9}.fits -P ${dir_save}
+sudo wget -nc $url/astrometry/index-500{4..6}-1{0..1}.fits -P ${dir_save}
 
+
+# set environent variables:
+# ================================================================================
+
+echo
+echo "======================================================================"
+echo
+echo "copy and paste the commands below to your shell startup script"
+echo "(~/.bashrc, ~/.cshrc or ~/.zshrc) for these system variables"
+echo "and python alias to be set when starting a new terminal, e.g.:"
+echo
+echo "# BlackBOX and ZOGY system variables"
+
+if [[ ${SHELL} == *"bash"* ]] || [[ ${SHELL} == *"zsh"* ]]
+then
+    echo "export ZOGYHOME=${zogyhome}"
+    echo "# update DATAHOME to folder where the data are sitting"
+    echo "export DATAHOME=${datahome}"
+    echo "if [ -z \"\${PYTHONPATH}\" ]"
+    echo "then"
+    echo "    export PYTHONPATH=${zogyhome}:${zogyhome}/Settings"
+    echo "else"
+    echo "    export PYTHONPATH=\${PYTHONPATH}:${zogyhome}:${zogyhome}/Settings"
+    echo "fi"
+    echo
+    echo "# python alias"
+    echo "alias python=python${v_python}"
+fi
+
+if [[ ${SHELL} == *"csh"* ]]
+then
+    echo "setenv ZOGYHOME ${zogyhome}"
+    echo "# update DATAHOME to folder where the data are sitting"
+    echo "setenv DATAHOME ${datahome}"
+    echo "if ( \$?PYTHONPATH ) then"
+    echo "    setenv PYTHONPATH \${PYTHONPATH}:${zogyhome}:${zogyhome}/Settings"
+    echo "else"
+    echo "    setenv PYTHONPATH ${zogyhome}:${zogyhome}/Settings"
+    echo "endif"
+    echo 
+    echo "# python alias"
+    echo "alias python python${v_python}"
+fi
+
+echo
+echo "======================================================================"
+echo

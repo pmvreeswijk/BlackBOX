@@ -34,25 +34,39 @@ from watchdog.events import FileSystemEventHandler
 from qc import qc_check, run_qc_check
 import platform
 
-__version__ = '0.9.1'
+# due to regular problems with downloading default IERS file (needed
+# to compute UTC-UT1 corrections for e.g. sidereal time computation),
+# Steven created a mirror of this file in a google storage bucket
+from astropy.utils import iers
+iers.conf.iers_auto_url = 'https://storage.googleapis.com/blackbox-auxdata/timing/finals2000A.all'
+iers.conf.iers_auto_url_mirror = 'http://maia.usno.navy.mil/ser7/finals2000A.all'
+
+
+__version__ = '0.9.2'
 keywords_version = '0.9.1'
 
 #def init(l):
 #    global lock
 #    lock = l
     
+
 ################################################################################
 
 def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
-                  recursive=None, only_filters=None, slack=None):
+                  recursive=None, imgtypes=None, filters=None, image=None, 
+                  slack=None):
 
-    global tel, only_filt
-    tel = telescope
-    only_filt = only_filters
     
+    global tel, filts, types
+    tel = telescope
+    filts = filters
+    types = imgtypes
+    
+        
     if get_par(set_zogy.timing,tel):
         t_run_blackbox = time.time()
     
+        
     # initialize logging
     ####################
 
@@ -83,13 +97,21 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     q.put(logger.info('number of processes: {}'.format(get_par(set_bb.nproc,tel))))
     q.put(logger.info('number of threads: {}'.format(get_par(set_bb.nthread,tel))))
 
+
     # [read_path] is assumed to be the full path to the directory with
     # raw images to be processed; if not provided as input parameter,
     # it is defined using the input [date] with the function
     # [get_path]
     if read_path is None:
-        read_path, __ = get_path(date, 'read')
-        q.put(logger.info('processing files from directory: {}'.format(read_path)))
+        if date is not None:
+            read_path, __ = get_path(date, 'read')
+            q.put(logger.info('processing files from directory: {}'.format(read_path)))
+        elif image is not None:
+            read_path = '/'.join(image.split('/')[0:-1])
+        else:
+            # if [read_path], [date] and [image] are all None, exit
+            q.put(logger.critical('[read_path], [date] and [image] all None'))
+            raise (SystemExit)        
     else:
         # if it is provided but does not exist, exit
         if not os.path.isdir(read_path):
@@ -97,11 +119,13 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
                                   .format(read_path)))
             raise (SystemExit)
         
+    
     # create global lock instance that can be used in [blackbox_reduce] for
     # certain blocks/functions to be accessed by one process at a time
     global lock
     lock = Lock()
 
+    
     # start queue that will contain entries containing the reference
     # image header OBJECT and FILTER values, so that duplicate
     # reference building for the same object and filter by different
@@ -109,14 +133,19 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     global ref_ID_filt
     ref_ID_filt = Queue()
 
+    
     # following line shows how shared Array can be initialized
     #count = Array('i', [0, 0, 0], lock=True)
 
+    
     # for both day and night mode, create list of all
     # files present in [read_path], in image type order:
     # bias, dark, flat, object and other
-    biases, darks, flats, objects, others = sort_files(read_path, '*fits*', recursive=recursive)
-    lists = [biases, darks, flats, objects, others]
+    if image is None:
+        biases, darks, flats, objects, others = sort_files(read_path, '*fits*', recursive=recursive)
+        lists = [biases, darks, flats, objects, others]
+    else:
+        lists = [[image]]
     filenames = [f for sublist in lists for f in sublist]
 
     # split into 'day' or 'night' mode
@@ -125,13 +154,13 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
         if len(filenames)==0:
             q.put(logger.warning('no files to reduce'))
         
-        if get_par(set_bb.nproc,tel)==1 :
-
-            # if only 1 process is requested, run it witout
-            # multiprocessing; this will allow images to be shown on
-            # the fly if [set_zogy.display] is set to True. In
-            # multiprocessing mode this is not allowed (at least not
-            # on a macbook).
+        if get_par(set_bb.nproc,tel)==1 or image is not None:
+            
+            # if only 1 process is requested, or [image] input
+            # parameter is not None, run it witout multiprocessing;
+            # this will allow images to be shown on the fly if
+            # [set_zogy.display] is set to True. In multiprocessing
+            # mode this is not allowed (at least not on a macbook).
             print ('running with single processor')
             for filename in filenames:
                 result = try_blackbox_reduce(filename, telescope, mode, read_path)
@@ -497,15 +526,21 @@ def blackbox_reduce (filename, telescope, mode, read_path):
                            ' dummy catalogs'.format(filename)))
         return
     
-    
-    # if 'IMAGETYP' keyword not one of ['bias', 'dark', 'flat', 'object'], also return
-    imgtypes2process = ['bias', 'dark', 'flat', 'object']
+
+    # if 'IMAGETYP' keyword not one of those specified in input parameter
+    # [imgtypes] or complete set: ['bias', 'dark', 'flat', 'object']
+    if types is not None:
+        imgtypes2process = [t.lower() for t in types]
+    else:
+        imgtypes2process = ['bias', 'dark', 'flat', 'object']
+    # then also return
     imgtype = header['IMAGETYP'].lower()
     if imgtype not in imgtypes2process:
-        q.put(logger.error('IMAGETYP keyword not one of bias, dark, flat, object; '
-                           'not processing {}'.format(filename)))
+        q.put(logger.warning('image type ({}) not in [imgtypes] ({}); '
+                             'not processing {}'
+                             .format(imgtype, imgtypes2process, filename)))
         return
-
+    
     
     # extend the header with some useful/required keywords
     try: 
@@ -557,10 +592,11 @@ def blackbox_reduce (filename, telescope, mode, read_path):
         return
 
     # if [only_filt] is specified, skip image if not relevant
-    if only_filt is not None:
-        if filt not in only_filt and imgtype != 'bias' and imgtype != 'dark':
-            q.put(logger.warning ('filter of image ({}) not in [only_filters] ({}); skipping'
-                                  .format(filt, only_filt)))
+    if filts is not None:
+        if filt not in filts and imgtype != 'bias' and imgtype != 'dark':
+            q.put(logger.warning('image filter ({}) not in [only_filters] ({}); '
+                                 'not processing {}'
+                                 .format(filt, filts, filename)))
             return
             
     fits_out = '{}/{}_{}_{}.fits'.format(path[imgtype], telescope, utdate, uttime)
@@ -3144,15 +3180,21 @@ def str2bool(v):
 if __name__ == "__main__":
     
     params = argparse.ArgumentParser(description='User parameters')
-    params.add_argument('--telescope', type=str, default='ML1', help='Telescope name (ML1, BG2, BG3 or BG4)')
-    params.add_argument('--mode', type=str, default='day', help='Day or night mode of pipeline')
-    params.add_argument('--date', type=str, default=None, help='Date to process (yyyymmdd, yyyy-mm-dd, yyyy/mm/dd or yyyy.mm.dd)')
-    params.add_argument('--read_path', type=str, default=None, help='Full path to the input raw data directory; if not defined it is determined from [set_blackbox.raw_dir], [telescope] and [date]') 
-    params.add_argument('--recursive', type=str2bool, default=False, help='Recursively include subdirectories for input files')
-    params.add_argument('--only_filters', type=str, default=None, help='Only consider flatfields and object images in this(these) filter(s)')
-    params.add_argument('--slack', default=True, help='Upload messages for night mode to slack.')
+    params.add_argument('--telescope', type=str, default='ML1', 
+                        help='Telescope name (ML1, BG2, BG3 or BG4); default=\'ML1\'')
+    params.add_argument('--mode', type=str, default='day', 
+                        help='Day or night mode of pipeline; default=\'day\'')
+    params.add_argument('--date', type=str, default=None, help='Date to process (yyyymmdd, yyyy-mm-dd, yyyy/mm/dd or yyyy.mm.dd); default=None')
+    params.add_argument('--read_path', type=str, default=None, help='Full path to the input raw data directory; if not defined it is determined from [set_blackbox.raw_dir], [telescope] and [date]; default=None') 
+    params.add_argument('--recursive', type=str2bool, default=False, help='Recursively include subdirectories for input files; default=False')
+    params.add_argument('--imgtypes', type=str, default=None, help='Only consider this/these image type/s; default=None')
+    params.add_argument('--filters', type=str, default=None, help='Only consider flatfields and object images in this(these) filter(s); default=None')
+    params.add_argument('--image', type=str, default=None, help='Only process this particular image (requires full path); default=None')
+    params.add_argument('--slack', default=True, help='Upload messages for night mode to slack; default=True')
     args = params.parse_args()
 
-    run_blackbox (telescope=args.telescope, mode=args.mode, date=args.date, read_path=args.read_path, 
-                  recursive=args.recursive, only_filters=args.only_filters, slack=args.slack)
+    run_blackbox (telescope=args.telescope, mode=args.mode, date=args.date, 
+                  read_path=args.read_path, recursive=args.recursive, 
+                  imgtypes=args.imgtypes, filters=args.filters, image=args.image,
+                  slack=args.slack)
 
