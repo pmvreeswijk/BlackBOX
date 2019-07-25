@@ -10,7 +10,7 @@ import numpy as np
 #===============================================================================
 
 # number of processes to run in parallel
-nproc = 11
+nproc = 1
 # maximum number of threads for each process (this parameter
 # cannot be made telescope dependent through a dictionary!)
 nthread = 1

@@ -912,7 +912,6 @@ def blackbox_reduce (filename, telescope, mode, read_path):
                 '[days] time between image and master flat used')
             
     except Exception as e:
-        lock.release()
         q.put(logger.info(traceback.format_exc()))
         q.put(logger.error('exception was raised during [mflat_corr]: {}'.format(e)))
         log.info(traceback.format_exc())
