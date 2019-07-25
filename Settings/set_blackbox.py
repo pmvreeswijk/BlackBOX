@@ -10,7 +10,7 @@ import numpy as np
 #===============================================================================
 
 # number of processes to run in parallel
-nproc = 1
+nproc = 11
 # maximum number of threads for each process (this parameter
 # cannot be made telescope dependent through a dictionary!)
 nthread = 1
@@ -29,7 +29,7 @@ detect_sats = True
 bias_window = 1
 # time window [days] within which to include flats in master flat 
 # (0=only same night, 1=including previous and next night, etc.)
-flat_window = 1
+flat_window = 3
 
 # degree polynomial fit to vertical overscan clipped means
 voscan_poldeg = 3
