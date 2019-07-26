@@ -803,18 +803,28 @@ def blackbox_reduce (filename, telescope, mode, read_path):
 
     # master bias creation and subtraction
     ######################################
-    try: 
+    lock.acquire()
+    try:
         mbias_processed = False
         header['MBIAS-F'] = ('None', 'name of master bias applied')
-        
+
         # check if mbias needs to be subtracted
         if get_par(set_bb.subtract_mbias,tel):
 
-            lock.acquire()
             # prepare or point to the master bias
             fits_mbias = master_prep (np.shape(data), bias_path, date_eve, 'bias', 
                                       log=log)
-            lock.release()
+    lock.release()
+
+    except Exception as e:
+        q.put(logger.info(traceback.format_exc()))
+        q.put(logger.error('exception was raised in [mbias_prep]: {}'.format(e)))
+        log.info(traceback.format_exc())
+        log.error('exception was raised during [mbias_prep]: {}'.format(e))
+
+    try:
+        # check if mbias needs to be subtracted
+        if get_par(set_bb.subtract_mbias,tel):
 
             # and subtract it from the flat or object image
             log.info('subtracting the master bias')
@@ -822,7 +832,7 @@ def blackbox_reduce (filename, telescope, mode, read_path):
             data -= data_mbias
             header['MBIAS-F'] = (fits_mbias.split('/')[-1].split('.fits')[0], 
                                  'name of master bias applied')
-            
+
             # for object image, add number of days separating image and master bias
             if imgtype == 'object':
                 mjd_obs = header['MJD-OBS']
@@ -830,8 +840,7 @@ def blackbox_reduce (filename, telescope, mode, read_path):
                 header['MB-NDAYS'] = (
                     np.abs(mjd_obs-mjd_obs_mb), 
                     '[days] time between image and master bias used')
-                
-                
+
     except Exception as e:
         q.put(logger.info(traceback.format_exc()))
         q.put(logger.error('exception was raised during [mbias_corr]: {}'.format(e)))
@@ -843,16 +852,16 @@ def blackbox_reduce (filename, telescope, mode, read_path):
     finally:
         header['MBIAS-P'] = (mbias_processed, 'corrected for master bias?')
 
-        
+
     # display
     if get_par(set_zogy.display,tel):
         ds9_arrays(bias_sub=data)
 
-        
+
     # create initial mask array
     ###########################
     if imgtype == 'object':
-        try: 
+        try:
             log.info('preparing the initial mask')
             mask_processed = False
             data_mask, header_mask = mask_init (data, header)
@@ -865,15 +874,15 @@ def blackbox_reduce (filename, telescope, mode, read_path):
             mask_processed = True
         finally:
             header['MASK-P'] = (mask_processed, 'mask image created?')
-            
-            
+
+
         if get_par(set_zogy.display,tel):
             ds9_arrays(mask=data_mask)
 
 
         # set edge pixel values to zero
         data[data_mask==get_par(set_zogy.mask_value['edge'],tel)] = 0
-    
+
 
     # if IMAGETYP=flat, write [data] to fits and return
     if imgtype == 'flat':
@@ -889,19 +898,27 @@ def blackbox_reduce (filename, telescope, mode, read_path):
 
     # master flat creation and correction
     #####################################
-    try: 
+    lock.acquire()
+    try:
         mflat_processed = False
-        lock.acquire()
+
         # prepare or point to the master bias
         fits_mflat = master_prep(np.shape(data), flat_path, date_eve, 'flat',
                                  filt=filt, log=log)
-        lock.release()
-        
+    lock.release()
+
+    except Exception as e:
+        q.put(logger.info(traceback.format_exc()))
+        q.put(logger.error('exception was raised during [mflat_prep]: {}'.format(e)))
+        log.info(traceback.format_exc())
+        log.error('exception was raised during [mflat_prep]: {}'.format(e))
+
+    try:
         # and divide the object image by the master flat
         log.info('dividing by the master flat')
         data_mflat, header_mflat = read_hdulist(fits_mflat, get_header=True)
         data /= data_mflat
-        header['MFLAT-F'] = (fits_mflat.split('/')[-1].split('.fits')[0], 
+        header['MFLAT-F'] = (fits_mflat.split('/')[-1].split('.fits')[0],
                              'name of master flat applied')
         # for object image, add number of days separating image and master bias
         if imgtype == 'object':
@@ -910,7 +927,7 @@ def blackbox_reduce (filename, telescope, mode, read_path):
             header['MF-NDAYS'] = (
                 np.abs(mjd_obs-mjd_obs_mf), 
                 '[days] time between image and master flat used')
-            
+
     except Exception as e:
         q.put(logger.info(traceback.format_exc()))
         q.put(logger.error('exception was raised during [mflat_corr]: {}'.format(e)))
@@ -921,8 +938,8 @@ def blackbox_reduce (filename, telescope, mode, read_path):
             mflat_processed = True
     finally:
         header['MFLAT-P'] = (mflat_processed, 'corrected for master flat?')
-        
-    
+
+
     # PMV 2018/12/20: fringe correction is not yet done, but
     # still add these keywords to the header
     header['MFRING-P'] = (False, 'corrected for master fringe map?')
@@ -933,10 +950,10 @@ def blackbox_reduce (filename, telescope, mode, read_path):
         ds9_arrays(flat_cor=data)
         data_precosmics = np.copy(data)
 
-    
+
     # cosmic ray detection and correction
     #####################################
-    try: 
+    try:
         log.info('detecting cosmic rays')
         cosmics_processed = False
         data, data_mask = cosmics_corr(data, header, data_mask, header_mask)
