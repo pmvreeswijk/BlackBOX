@@ -568,7 +568,7 @@ def blackbox_reduce (filename):
             'flat': flat_path, 
             'object': write_path}
     filt = header['FILTER']
-    exptime = int(header['EXPTIME'])
+    exptime = header['EXPTIME']
 
     # if [only_filt] is specified, skip image if not relevant
     if filts is not None:
@@ -666,7 +666,7 @@ def blackbox_reduce (filename):
 
     # immediately write some info to the log
     log.info('processing {}'.format(filename))
-    log.info('image type: {}, filter: {}, exptime: {}s'
+    log.info('image type: {}, filter: {}, exptime: {:.1f}s'
              .format(imgtype, filt, exptime))
 
     log.info('write_path: {}'.format(write_path))
@@ -793,7 +793,6 @@ def blackbox_reduce (filename):
             # prepare or point to the master bias
             fits_mbias = master_prep (np.shape(data), bias_path, date_eve, 'bias', 
                                       log=log)
-            lock.release()
 
             # and subtract it from the flat or object image
             log.info('subtracting the master bias')
@@ -809,8 +808,7 @@ def blackbox_reduce (filename):
                 header['MB-NDAYS'] = (
                     np.abs(mjd_obs-mjd_obs_mb), 
                     '[days] time between image and master bias used')
-                
-                
+            
     except Exception as e:
         q.put(logger.info(traceback.format_exc()))
         q.put(logger.error('exception was raised during [mbias_corr]: {}'.format(e)))
@@ -821,6 +819,9 @@ def blackbox_reduce (filename):
             mbias_processed = True
     finally:
         header['MBIAS-P'] = (mbias_processed, 'corrected for master bias?')
+        if get_par(set_bb.subtract_mbias,tel):
+            lock.release()
+            
 
         
     # display
