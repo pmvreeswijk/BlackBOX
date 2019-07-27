@@ -308,7 +308,7 @@ def already_exists (filename, get_filename=False):
             exists = True
             existing_file = file_temp
             break
-            
+
     if get_filename:
         return exists, existing_file
     else:
@@ -500,9 +500,12 @@ def blackbox_reduce (filename):
     # and let [filename] refer to the image in [raw_path]
     filename = dest
 
-
     # check if all crucial keywwords are present in the header
     qc_flag = run_qc_check (header, tel, log=logger)
+    if qc_flag=='no_object':
+        q.put(logger.error('keyword OBJECT not in header; skipping image'))
+        return
+
     if qc_flag=='red':
         q.put(logger.error('red QC flag in image {}; returning without making '
                            ' dummy catalogs'.format(filename)))
@@ -533,7 +536,6 @@ def blackbox_reduce (filename):
         q.put(logger.error('returning without making dummy catalogs'))
         return
     
-
     # if binning is not 1x1, also return
     if 'XBINNING' in header and 'YBINNING' in header: 
         if header['XBINNING'] != 1 or header['YBINNING'] != 1:
@@ -541,14 +543,12 @@ def blackbox_reduce (filename):
                                .format(filename)))
             return
     
-    
     # add additional header keywords
     header['PYTHON-V'] = (platform.python_version(), 'Python version used')
     header['BB-V'] = (__version__, 'BlackBOX version used')
     header['KW-V'] = (keywords_version, 'header keywords version used')
     header['BB-START'] = (Time.now().isot, 'start UTC date of BlackBOX image run')
-    
-    
+
     # defining various paths and output file names
     ##############################################
     
@@ -568,8 +568,15 @@ def blackbox_reduce (filename):
             'flat': flat_path, 
             'object': write_path}
     filt = header['FILTER']
-    exptime = header['EXPTIME']
+    
+    # if exptime is not in the header, skip image
+    if 'EXPTIME' in header:
+        exptime = header['EXPTIME']
+    else:
+        q.put(logger.warning('keyword EXPTIME not in header; skipping image'))
+        return
 
+    
     # if [only_filt] is specified, skip image if not relevant
     if filts is not None:
         if filt not in filts and imgtype != 'bias' and imgtype != 'dark':
@@ -780,20 +787,36 @@ def blackbox_reduce (filename):
         return
     
 
-    # master bias creation and subtraction
-    ######################################
-    try: 
-        mbias_processed = False
-        header['MBIAS-F'] = ('None', 'name of master bias applied')
+    # master bias creation
+    ######################
+    try:
+        # put an multi-processing lock on this block so that only 1
+        # process at a time can create the master bias
+        lock.acquire()
+
+        # prepare or point to the master bias
+        fits_mbias = master_prep (np.shape(data), bias_path, date_eve, 'bias', 
+                                  log=log)
+
+    except Exception as e:
+        q.put(logger.info(traceback.format_exc()))
+        q.put(logger.error('exception was raised in bias [master_prep]: {}'.format(e)))
+        log.info(traceback.format_exc())
+        log.error('exception was raised during bias [master_prep]: {}'.format(e))
+
+    finally:
+        lock.release()
+
+
+    # master bias subtraction
+    #########################
+    mbias_processed = False
+    header['MBIAS-F'] = ('None', 'name of master bias applied')
         
-        # check if mbias needs to be subtracted
-        if get_par(set_bb.subtract_mbias,tel):
-
-            lock.acquire()
-            # prepare or point to the master bias
-            fits_mbias = master_prep (np.shape(data), bias_path, date_eve, 'bias', 
-                                      log=log)
-
+    # check if mbias needs to be subtracted
+    if fits_mbias is not None and get_par(set_bb.subtract_mbias,tel):
+        
+        try:
             # and subtract it from the flat or object image
             log.info('subtracting the master bias')
             data_mbias, header_mbias = read_hdulist(fits_mbias, get_header=True)
@@ -808,31 +831,29 @@ def blackbox_reduce (filename):
                 header['MB-NDAYS'] = (
                     np.abs(mjd_obs-mjd_obs_mb), 
                     '[days] time between image and master bias used')
-            
-    except Exception as e:
-        q.put(logger.info(traceback.format_exc()))
-        q.put(logger.error('exception was raised during [mbias_corr]: {}'.format(e)))
-        log.info(traceback.format_exc())
-        log.error('exception was raised during [mbias_corr]: {}'.format(e))
-    else:
-        if get_par(set_bb.subtract_mbias,tel):
+                
+        except Exception as e:
+            q.put(logger.info(traceback.format_exc()))
+            q.put(logger.error('exception was raised during master bias subtraction: {}'
+                               .format(e)))
+            log.info(traceback.format_exc())
+            log.error('exception was raised during master bias subtraction: {}'.format(e))
+        else:
             mbias_processed = True
-    finally:
-        header['MBIAS-P'] = (mbias_processed, 'corrected for master bias?')
-        if get_par(set_bb.subtract_mbias,tel):
-            lock.release()
+        finally:
+            header['MBIAS-P'] = (mbias_processed, 'corrected for master bias?')
+
             
 
-        
     # display
     if get_par(set_zogy.display,tel):
         ds9_arrays(bias_sub=data)
 
-        
+
     # create initial mask array
     ###########################
     if imgtype == 'object':
-        try: 
+        try:
             log.info('preparing the initial mask')
             mask_processed = False
             data_mask, header_mask = mask_init (data, header)
@@ -845,15 +866,15 @@ def blackbox_reduce (filename):
             mask_processed = True
         finally:
             header['MASK-P'] = (mask_processed, 'mask image created?')
-            
-            
+
+
         if get_par(set_zogy.display,tel):
             ds9_arrays(mask=data_mask)
 
 
         # set edge pixel values to zero
         data[data_mask==get_par(set_zogy.mask_value['edge'],tel)] = 0
-    
+
 
     # if IMAGETYP=flat, write [data] to fits and return
     if imgtype == 'flat':
@@ -867,42 +888,61 @@ def blackbox_reduce (filename):
         return
 
 
-    # master flat creation and correction
-    #####################################
-    try: 
-        mflat_processed = False
+    # master flat creation
+    ######################
+    try:
+        # put an multi-processing lock on this block so that only 1
+        # process at a time can create the master flat
         lock.acquire()
-        # prepare or point to the master bias
+
+        # prepare or point to the master flat
         fits_mflat = master_prep(np.shape(data), flat_path, date_eve, 'flat',
                                  filt=filt, log=log)
-        lock.release()
-        
-        # and divide the object image by the master flat
-        log.info('dividing by the master flat')
-        data_mflat, header_mflat = read_hdulist(fits_mflat, get_header=True)
-        data /= data_mflat
-        header['MFLAT-F'] = (fits_mflat.split('/')[-1].split('.fits')[0], 
-                             'name of master flat applied')
-        # for object image, add number of days separating image and master bias
-        if imgtype == 'object':
-            mjd_obs = header['MJD-OBS']
-            mjd_obs_mf = header_mflat['MJD-OBS']
-            header['MF-NDAYS'] = (
-                np.abs(mjd_obs-mjd_obs_mf), 
-                '[days] time between image and master flat used')
-            
+
     except Exception as e:
         q.put(logger.info(traceback.format_exc()))
-        q.put(logger.error('exception was raised during [mflat_corr]: {}'.format(e)))
+        q.put(logger.error('exception was raised during flat [master_prep]: {}'.format(e)))
         log.info(traceback.format_exc())
-        log.error('exception was raised during [mflat_corr]: {}'.format(e))
-    else:
-        if fits_mflat is not None:
-            mflat_processed = True
+        log.error('exception was raised during flat [master_prep]: {}'.format(e))
+
     finally:
-        header['MFLAT-P'] = (mflat_processed, 'corrected for master flat?')
+        lock.release()
+
         
-    
+    # master flat division
+    ######################
+    mflat_processed = False
+    header['MFLAT-F'] = ('None', 'name of master flat applied')
+
+    if fits_mflat is not None:
+        try:
+            # and divide the object image by the master flat
+            log.info('dividing by the master flat')
+            data_mflat, header_mflat = read_hdulist(fits_mflat, get_header=True)
+            data /= data_mflat
+            header['MFLAT-F'] = (fits_mflat.split('/')[-1].split('.fits')[0],
+                                 'name of master flat applied')
+            # for object image, add number of days separating image and master bias
+            if imgtype == 'object':
+                mjd_obs = header['MJD-OBS']
+                mjd_obs_mf = header_mflat['MJD-OBS']
+                header['MF-NDAYS'] = (
+                    np.abs(mjd_obs-mjd_obs_mf), 
+                    '[days] time between image and master flat used')
+
+        except Exception as e:
+            q.put(logger.info(traceback.format_exc()))
+            q.put(logger.error('exception was raised during master flat division: {}'
+                               .format(e)))
+            log.info(traceback.format_exc())
+            log.error('exception was raised during master flat division: {}'.format(e))
+        else:
+            mflat_processed = True
+        finally:
+            header['MFLAT-P'] = (mflat_processed, 'corrected for master flat?')
+
+
+
     # PMV 2018/12/20: fringe correction is not yet done, but
     # still add these keywords to the header
     header['MFRING-P'] = (False, 'corrected for master fringe map?')
@@ -913,10 +953,10 @@ def blackbox_reduce (filename):
         ds9_arrays(flat_cor=data)
         data_precosmics = np.copy(data)
 
-    
+
     # cosmic ray detection and correction
     #####################################
-    try: 
+    try:
         log.info('detecting cosmic rays')
         cosmics_processed = False
         data, data_mask = cosmics_corr(data, header, data_mask, header_mask)
@@ -1345,18 +1385,30 @@ def create_log (logfile):
 
 def make_dir(path, empty=False):
 
-    """Function to make directory, which is locked to use by 1 process.
-       If [empty] is True and the directory already exists, it will
-       first be removed.
-    """
+    """Wrapper function to lock make_dir_nolock so that it's only used by
+       1 process. """
 
     lock.acquire()
+    make_dir_nolock (path, empty)
+    lock.release()
+
+    return
+
+
+################################################################################
+
+def make_dir_nolock(path, empty=False):
+
+    """Function to make directory. If [empty] is True and the directory 
+       already exists, it will first be removed.
+    """
+
     # if already exists but needs to be empty, remove it first
     if os.path.isdir(path) and empty:
         shutil.rmtree(path)
     if not os.path.isdir(path):
         os.makedirs(path)
-    lock.release()
+
     return
 
 
@@ -1644,17 +1696,15 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
         qc_flag = run_qc_check (header_master, tel, log=log)
         if qc_flag=='red':
             master_ok = False
-             
 
     if not (master_present and master_ok):
-
         # prepare master image from files in [path] +/- the specified
         # time window
         if imtype=='flat':
             nwindow = int(get_par(set_bb.flat_window,tel))
         elif imtype=='bias':
             nwindow = int(get_par(set_bb.bias_window,tel))
-                
+
         file_list = []
         red_dir = get_par(set_bb.red_dir,tel)
         for n_day in range(-nwindow, nwindow+1):
@@ -1670,7 +1720,7 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
 
         # clean up [file_list]
         file_list = [f for sublist in file_list for f in sublist]
-                             
+
         # do not consider image with header QC-FLAG set to red
         mask_keep = np.ones(len(file_list), dtype=bool)
         for i_file, filename in enumerate(file_list):
@@ -1679,15 +1729,13 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
                 if header_temp['QC-FLAG'] == 'red':
                     mask_keep[i_file] = False
         file_list = np.array(file_list)[mask_keep]
-        
-        
+
         # initialize cube of images to be combined
         nfiles = len(file_list)
 
         # if master bias/flat contains a red flag, look for a nearby
         # master flat instead
         if nfiles < 3 or not master_ok:
-            
             fits_master_close = get_closest_biasflat(date_eve, imtype, filt=filt)
 
             if fits_master_close is not None:
@@ -1718,7 +1766,6 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
                 return None
                 
         else:
-            
             if imtype=='bias':
                 q.put(logger.info ('making master {} for night {}'.format(imtype, date_eve)))
                 if not get_par(set_bb.subtract_mbias,tel):
@@ -1756,7 +1803,6 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
                     if 'RA' in header_temp and 'DEC' in header_temp:
                         ra_flats.append(header_temp['RA'])
                         dec_flats.append(header_temp['DEC'])
-                    
 
                 # copy some header keyword values from first file
                 if i_file==0:
@@ -1766,7 +1812,7 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
                         if key in header_temp:
                             header_master[key] = header_temp[key]
 
-                            
+
                 if imtype=='flat':
                     comment = 'name reduced flat'
                 elif imtype=='bias':
@@ -1799,7 +1845,7 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
             header_master['{}-WIN'.format(imtype.upper())] = (
                 nwindow, '[days] input time window to include {} frames'
                 .format(imtype.lower()))
-            
+
             # add some header keywords to the master flat
             if imtype=='flat':
                 sec_temp = get_par(set_bb.flat_norm_sec,tel)
@@ -1919,7 +1965,6 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
                     # update correction factor
                     factor_chan[i] *= ratio
                     factor_chan[i+nx] *= ratio
-                 
 
                 # normalise corrected master to [flat_norm_sec] section
                 sec_temp = get_par(set_bb.flat_norm_sec,tel)
@@ -1958,19 +2003,19 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
                     header_master['MBRDN{}'.format(i_chan+1)] = (
                         std_chan[i_chan], '[e-] channel {} sigma (STD) master bias'.format(i_chan+1))
 
-            
             # call [run_qc_check] to update master header with any QC flags
             run_qc_check (header_master, tel, log=log)
+            # make dir for output file if it doesn't exist yet
+            make_dir_nolock (os.path.split(fits_master)[0])
             # write to output file
             header_master['DATEFILE'] = (Time.now().isot, 'UTC date of writing file')
             fits.writeto(fits_master, master_median.astype('float32'), header_master,
                          overwrite=True)
-            
 
     if get_par(set_zogy.timing,tel):
         if log is not None:
             log_timing_memory (t0=t, label='master_prep', log=log)
-        
+
     return fits_master
 
 
@@ -2343,7 +2388,7 @@ def set_header(header, filename):
                  'T-STRUT', 'T-CRING', 'T-SPIDER', 'T-FWN', 'T-FWS', 'T-M2HOLD',
                  'T-GUICAM', 'T-M1', 'T-CRYWIN', 'T-CRYGET', 'T-CRYCP',
                  'PRES-CRY', 'WINDAVE', 'WINDGUST', 'WINDDIR']
-    
+
     # create empty header
     header_sort = fits.Header()
     for nkey, key in enumerate(keys_sort):
@@ -2353,7 +2398,6 @@ def set_header(header, filename):
         else:
             print ('keyword {} not in header'.format(key))            
 
-            
     return header_sort
 
 

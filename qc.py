@@ -337,9 +337,11 @@ def run_qc_check (header, telescope, cat_type=None, cat_dummy=None, log=None):
     if 'FIELD_ID' in header:
         keys_crucial = ['DATE-OBS', 'IMAGETYP', 'FILTER', 'EXPTIME',
                         'FIELD_ID', 'RA', 'DEC']
-    else:
+    elif 'OBJECT' in header:
         keys_crucial = ['DATE-OBS', 'IMAGETYP', 'FILTER', 'EXPTIME',
                         'OBJECT', 'RA', 'DEC']
+    else:
+        return 'no_object'
 
     qc_flag = 'green'
     nred = 0
