@@ -46,7 +46,7 @@ tnow = Time.now()
 tnow.ut1  
 
 
-__version__ = '0.9.2'
+__version__ = '0.9.1'
 keywords_version = '0.9.1'
 
 #def init(l):
@@ -58,18 +58,20 @@ keywords_version = '0.9.1'
 
 def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
                   recursive=None, imgtypes=None, filters=None, image=None, 
-                  slack=None):
+                  master_date=None, slack=None):
 
     
     global tel, filts, types
     tel = telescope
     filts = filters
     types = imgtypes
-    
+    if imgtypes is not None:
+        types = imgtypes.lower()
+
         
     if get_par(set_zogy.timing,tel):
         t_run_blackbox = time.time()
-            
+        
         
     # initialize logging
     ####################
@@ -102,6 +104,25 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     q.put(logger.info('number of threads: {}'.format(get_par(set_bb.nthread,tel))))
 
 
+    # create master bias and/or flat if [master_date] is specified
+    if master_date is not None:
+        if types is None:
+            mtypes = 'biasflat'
+        else:
+            mtypes = types
+        if 'bias' in mtypes:
+            create_masters ('bias', mdate=master_date)
+        if 'flat' in mtypes:
+            if filters is None:
+                mfilts = get_par(set_zogy.zp_default,tel).keys()
+            else:
+                mfilts = re.sub(',|-|\.|\/', '', filters)
+            for filt in mfilts:
+                create_masters ('flat', filt=filt, mdate=master_date)
+        logging.shutdown()
+        return
+            
+    
     # [read_path] is assumed to be the full path to the directory with
     # raw images to be processed; if not provided as input parameter,
     # it is defined using the input [date] with the function
@@ -115,7 +136,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
         else:
             # if [read_path], [date] and [image] are all None, exit
             q.put(logger.critical('[read_path], [date] and [image] all None'))
-            raise (SystemExit)        
+            raise (SystemExit)
     else:
         # if it is provided but does not exist, exit
         if not os.path.isdir(read_path):
@@ -226,70 +247,90 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
         log_timing_memory (t0=t_run_blackbox, label='run_blackbox before fpacking', log=genlog)
         
 
-    # remaining master files to prepare
-    # ---------------------------------
-                
-    # make master bias and flat for directories where reduced
-    # images are available, but no master was created yet
+    # do not execute rest of [run_blackbox] if single image was
+    # specified to be processed with [image]
+    if image is None:
 
-    def masters_left (imtype, filt=None):
-        # prepare list of all red/yyyy/mm/dd/bias and flat directories
-        red_dir = get_par(set_bb.red_dir,tel)
-        list_dirs = glob.glob('{}/*/*/*/{}'.format(red_dir, imtype))
-        # data shape is needed as input for [master_prep]
-        data_shape = (get_par(set_bb.ny,tel) * get_par(set_bb.ysize_chan,tel), 
-                      get_par(set_bb.nx,tel) * get_par(set_bb.xsize_chan,tel))
-        # loop directories
-        for path in list_dirs:
-            date_eve = ''.join(path.split('/')[-4:-1])
-            if imtype=='bias':
-                # name master bias
-                fits_master = '{}/{}_{}.fits'.format(path, imtype, date_eve)
-            elif imtype=='flat':
-                # name master flat
-                fits_master = '{}/{}_{}_{}.fits'.format(path, imtype, date_eve, filt)
-
-            # master bias/flat already present?
-            master_present = (os.path.isfile(fits_master) or
-                              os.path.isfile(fits_master+'.fz'))
-            # if not, prepare it
-            if not master_present:
-                #if imtype=='bias':
-                #    q.put(logger.info('checking if master {} for evening date {} can be made'
-                #                      .format(imtype, date_eve)))
-                #elif imtype=='flat':
-                #    q.put(logger.info('checking if master {} in filt {} for evening date {} can be made'
-                #                      .format(imtype, filt, date_eve)))
-                __ = master_prep (data_shape, path, date_eve, imtype, filt=filt)
-                
-        return
-
-
-    # run above function [masters_left] for both bias and flat; this
-    # is not done with pool of processes, because it is not
-    # time-critical and takes 10GB of memory for each set of 10 biases
-    # or flats
-    masters_left ('bias')
-    for filt in get_par(set_zogy.zp_default,tel).keys():
-        masters_left ('flat', filt=filt)
+        # remaining master files to prepare
+        # ---------------------------------
+        # using function [create_masters], make master bias and flat for
+        # directories where reduced images are available, but no master
+        # was created yet; this is not done with pool of processes,
+        # because it is not time-critical and takes 10GB of memory for
+        # each set of 10 biases or flats
+        create_masters ('bias')
+        for filt in get_par(set_zogy.zp_default,tel).keys():
+            create_masters ('flat', filt=filt)
         
-    
-    # fpack remaining fits images
-    # ---------------------------
-                
-    q.put(logger.info('fpacking fits images'))
-    # now that all files have been processed, fpack!
-    # create list of files to fpack
-    list_2pack = prep_packlist (date)
-    #print ('list_2pack', list_2pack)
-    # use [pool_func] to process the list
-    result = pool_func (fpack, list_2pack)
+
+        # fpack remaining fits images
+        # ---------------------------       
+        q.put(logger.info('fpacking fits images'))
+        # now that all files have been processed, fpack!
+        # create list of files to fpack
+        list_2pack = prep_packlist (date)
+        #print ('list_2pack', list_2pack)
+        # use [pool_func] to process the list
+        result = pool_func (fpack, list_2pack)
 
 
-    if get_par(set_zogy.timing,tel):
-        log_timing_memory (t0=t_run_blackbox, label='run_blackbox after fpacking', log=genlog)
+        if get_par(set_zogy.timing,tel):
+            log_timing_memory (t0=t_run_blackbox, label='run_blackbox after fpacking', 
+                               log=genlog)
+
 
     logging.shutdown()
+    return
+
+
+################################################################################
+
+def create_masters (imtype, filt=None, mdate=None):
+    # prepare list of all red/yyyy/mm/dd/bias and flat directories
+    red_dir = get_par(set_bb.red_dir,tel)
+    # if mdate is not specified, loop all available [imtype]
+    # folders in the reduced path
+    year, month, day = '*', '*', '*'
+    if mdate is not None:
+        mdate = ''.join(e for e in mdate if e.isdigit())
+        # if [mdate] is specified, only loop [imtype] folders in
+        # the reduced path of specific year, month and/or day
+        if len(mdate) >= 4:
+            year = mdate[0:4]
+            if len(mdate) >= 6:
+                month = mdate[4:6]
+                if len(mdate) >= 8:
+                    day = mdate[6:8]
+                    
+    list_dirs = glob.glob('{}/{}/{}/{}/{}'.format(red_dir, year, month, day, imtype))
+    # data shape is needed as input for [master_prep]
+    data_shape = (get_par(set_bb.ny,tel) * get_par(set_bb.ysize_chan,tel), 
+                  get_par(set_bb.nx,tel) * get_par(set_bb.xsize_chan,tel))
+    # loop directories
+    for path in list_dirs:
+        date_eve = ''.join(path.split('/')[-4:-1])
+        if imtype=='bias':
+            # name master bias
+            fits_master = '{}/{}_{}.fits'.format(path, imtype, date_eve)
+        elif imtype=='flat':
+            # name master flat
+            fits_master = '{}/{}_{}_{}.fits'.format(path, imtype, date_eve, filt)
+
+        # master bias/flat already present?
+        master_present = (os.path.isfile(fits_master) or
+                          os.path.isfile(fits_master+'.fz'))
+        # if not, prepare it
+        if not master_present:
+            __ = master_prep (data_shape, path, date_eve, imtype, filt=filt)
+        else:
+            if imtype=='bias':
+                q.put(logger.info ('master {} for night {} already exists'
+                                   .format(imtype, date_eve)))
+            elif imtype=='flat':
+                q.put(logger.info ('master {} in filter {} for night {} already exists'
+                                   .format(imtype, filt, date_eve)))
+                
+
     return
 
 
@@ -515,7 +556,7 @@ def blackbox_reduce (filename):
     # if 'IMAGETYP' keyword not one of those specified in input parameter
     # [imgtypes] or complete set: ['bias', 'dark', 'flat', 'object']
     if types is not None:
-        imgtypes2process = types.lower()
+        imgtypes2process = types
     else:
         imgtypes2process = ['bias', 'dark', 'flat', 'object']
     # then also return
@@ -3203,14 +3244,15 @@ if __name__ == "__main__":
     params.add_argument('--date', type=str, default=None, help='Date to process (yyyymmdd, yyyy-mm-dd, yyyy/mm/dd or yyyy.mm.dd); default=None')
     params.add_argument('--read_path', type=str, default=None, help='Full path to the input raw data directory; if not defined it is determined from [set_blackbox.raw_dir], [telescope] and [date]; default=None') 
     params.add_argument('--recursive', type=str2bool, default=False, help='Recursively include subdirectories for input files; default=False')
-    params.add_argument('--imgtypes', type=str, default=None, help='Only consider this/these image type/s; default=None')
-    params.add_argument('--filters', type=str, default=None, help='Only consider flatfields and object images in this(these) filter(s); default=None')
+    params.add_argument('--imgtypes', type=str, default=None, help='Only consider this(these) image type(s); default=None')
+    params.add_argument('--filters', type=str, default=None, help='Only consider this(these) filter(s); default=None')
     params.add_argument('--image', type=str, default=None, help='Only process this particular image (requires full path); default=None')
+    params.add_argument('--master_date', type=str, default=None, help='Create master file of type(s) [imgtypes] and filter(s) [filters] for this(these) date(s) (e.g. 2019 or 2019/10 or 2019-10-14); default=None')
     params.add_argument('--slack', default=True, help='Upload messages for night mode to slack; default=True')
     args = params.parse_args()
 
     run_blackbox (telescope=args.telescope, mode=args.mode, date=args.date, 
                   read_path=args.read_path, recursive=args.recursive, 
                   imgtypes=args.imgtypes, filters=args.filters, image=args.image,
-                  slack=args.slack)
+                  master_date=args.master_date, slack=args.slack)
 
