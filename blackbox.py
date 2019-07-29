@@ -544,7 +544,8 @@ def blackbox_reduce (filename):
     # check if all crucial keywwords are present in the header
     qc_flag = run_qc_check (header, tel, log=logger)
     if qc_flag=='no_object':
-        q.put(logger.error('keyword OBJECT not in header; skipping image'))
+        q.put(logger.error('keyword OBJECT not in header of object image; '
+                           ' skipping image'))
         return
 
     if qc_flag=='red':
