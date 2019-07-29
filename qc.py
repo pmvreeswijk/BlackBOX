@@ -354,7 +354,8 @@ def run_qc_check (header, telescope, cat_type=None, cat_dummy=None, log=None):
         if key not in header:
             # object images without OBJECT or FIELD_ID in their headers
             # should be skipped
-            if ('IMAGETYP' in header and header['IMAGETYP'].lower()=='object') and obj_name not in header:
+            if obj_name not in header and ('IMAGETYP' in header and
+                header['IMAGETYP'].lower()=='object'):
 
                 return 'no_object'
 
