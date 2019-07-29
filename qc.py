@@ -144,9 +144,10 @@ def qc_check (header, telescope='ML1', keywords=None, cat_dummy=None,
         # if qc_range[key] val_type is set to 'skip' then skip it
         val_type = qc_range[key]['val_type']
         if val_type == 'skip':
+            colors_out[nkey] = ''
             continue
+        
         val_range = qc_range[key]['val_range']
-
         # check if value range is specified per filter (e.g. for zeropoint)
         try:
             filt in val_range.keys()
@@ -154,9 +155,16 @@ def qc_check (header, telescope='ML1', keywords=None, cat_dummy=None,
             pass
         else:
             val_range = val_range[filt]
-        
-        header_val = header[key]
 
+            
+        # if keyword value equals 'None', then also skip it
+        header_val = header[key]
+        if header_val == 'None':
+            print('Warning: {}=\'None\'. Skipping quality check.'.format(key))
+            colors_out[nkey] = ''
+            continue
+
+        
         # Processed keywords added by BGreduce are
         # strings rather than booleans:
         if val_type == 'bool':
@@ -176,10 +184,8 @@ def qc_check (header, telescope='ML1', keywords=None, cat_dummy=None,
         nranges = np.shape(val_range)[0]
         for i in range(nranges):
 
-            if header_val == 'None':
-                print('Warning: {}=None. Skipping quality check.'.format(key))
 
-            elif val_type == 'exp_abs' or val_type=='sigma':
+            if val_type == 'exp_abs' or val_type=='sigma':
                 bool_temp = np.abs(header_val-val_range[i][0]) <= val_range[i][1]
                 range_ok = (val_range[i][0]-val_range[i][1], 
                             val_range[i][0]+val_range[i][1])
