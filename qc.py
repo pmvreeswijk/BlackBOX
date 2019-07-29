@@ -341,36 +341,43 @@ def run_qc_check (header, telescope, cat_type=None, cat_dummy=None, log=None):
     # [sort_files] function in BlackBOX already requires the IMAGETYP
     # keyword so this need not really be checked here
     if 'FIELD_ID' in header:
-        keys_crucial = ['DATE-OBS', 'IMAGETYP', 'FILTER', 'EXPTIME',
-                        'FIELD_ID', 'RA', 'DEC']
-    elif 'OBJECT' in header:
-        keys_crucial = ['DATE-OBS', 'IMAGETYP', 'FILTER', 'EXPTIME',
-                        'OBJECT', 'RA', 'DEC']
+        obj_name = 'FIELD_ID'
     else:
-        return 'no_object'
+        obj_name = 'OBJECT'
+
+    keys_crucial = ['DATE-OBS', 'IMAGETYP', 'FILTER', 'EXPTIME',
+                        obj_name, 'RA', 'DEC']
 
     qc_flag = 'green'
     nred = 0
     for key in keys_crucial:
         if key not in header:
+            # object images without OBJECT or FIELD_ID in their headers
+            # should be skipped
+            if obj_name not in header and ('IMAGETYP' in header and
+                header['IMAGETYP'].lower()=='object'):
+
+                return 'no_object'
+
             # for biases, darks and flats, OBJECT, RA, DEC and EXPTIME
             # not strictly necessary (although for flats they are used
             # to check if they were dithered; if RA and DEC not
             # present, any potential dithering will not be detected)
-            if ('IMAGETYP' in header and 
+            elif ('IMAGETYP' in header and
                 header['IMAGETYP'].lower()!='object' and
                 (key=='OBJECT' or key=='FIELD_ID' or key=='RA' or key=='DEC' 
                 or key=='EXPTIME')):
 
                 pass
+
             else:
                 qc_flag = 'red'
                 nred += 1
                 header['QC-RED{}'.format(nred)] = (key, 'required keyword missing')
                 if log is not None:
                     log.error('keyword {} not present in header'.format(key))
-                    
-                    
+
+
     # check if OBJECT keyword value contains digits only
     if 'IMAGETYP' in header and header['IMAGETYP'].lower()=='object':
         #print ('value: {}, type(header[key]): {}'.
