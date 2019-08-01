@@ -58,8 +58,8 @@ keywords_version = '0.9.1'
 
 def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
                   recursive=None, imgtypes=None, filters=None, image=None, 
-                  master_date=None, slack=None):
-
+                  image_list=None, master_date=None, slack=None):
+    
     
     global tel, filts, types
     tel = telescope
@@ -132,10 +132,13 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
             read_path, __ = get_path(date, 'read')
             q.put(logger.info('processing files from directory: {}'.format(read_path)))
         elif image is not None:
-            read_path = '/'.join(image.split('/')[0:-1])
+            pass
+        elif image_list is not None:
+            pass
         else:
-            # if [read_path], [date] and [image] are all None, exit
-            q.put(logger.critical('[read_path], [date] and [image] all None'))
+            # if [read_path], [date], [image] and [image_list] are all None, exit
+            q.put(logger.critical('[read_path], [date], [image] and [image_list] '
+                                  'all None'))
             raise (SystemExit)
     else:
         # if it is provided but does not exist, exit
@@ -166,16 +169,29 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     # for both day and night mode, create list of all
     # files present in [read_path], in image type order:
     # bias, dark, flat, object and other
-    if image is None:
+    if image is None and image_list is None:
         biases, darks, flats, objects, others = sort_files(read_path, '*fits*', 
                                                            recursive=recursive)
         lists = [biases, darks, flats, objects, others]
+        filenames = [name for sublist in lists for name in sublist]
     else:
-        # if input parameter [image] is defined, the list to process
-        # will only contain a list with the image specified
-        lists = [[image]]
-    filenames = [f for sublist in lists for f in sublist]
-
+        if mode == 'night':
+            q.put(logger.critical('[image] or [image_list] should not be defined '
+                                  'in night mode'))
+            raise (SystemExit)
+        
+        elif image is not None:
+            # if input parameter [image] is defined, the filenames
+            # to process will contain a single image
+            filenames = [image]
+        elif image_list is not None:
+            # if input parameter [image_list] is defined, 
+            # read the ascii files into filenames list
+            f = open(image_list, 'r')
+            filenames = [name.strip() for name in f]
+            f.close()
+            
+            
     # split into 'day' or 'night' mode
     if mode == 'day':
 
@@ -502,7 +518,9 @@ def blackbox_reduce (filename):
     if get_par(set_zogy.timing,tel):
         t_blackbox_reduce = time.time()
 
+
     q.put(logger.info('processing {}'.format(filename)))
+
 
     # just read the header for the moment
     try:
@@ -515,16 +533,15 @@ def blackbox_reduce (filename):
         return
 
     
-    # if DATE-OBS does not exist in header, need to return without
-    # doing anything; need it to be able to move/copy file to
-    # [raw_path]
-    if 'DATE-OBS' not in header:
-        q.put(logger.error('DATE-OBS keyword not present; not processing {}'
-                           .format(filename)))    
+    # first header check using function [check_header1]
+    header_ok = check_header1 (header, filename)
+    if not header_ok:
         return
-        
+    
+    
     # determine the raw data path
     raw_path, __ = get_path(header['DATE-OBS'], 'read')
+
 
     # move or copy the image over to [raw_path] if it does not already exist
     src = filename
@@ -538,9 +555,11 @@ def blackbox_reduce (filename):
         # copying:
         shutil.copy2(src, dest)
 
+
     # and let [filename] refer to the image in [raw_path]
     filename = dest
 
+    
     # check if all crucial keywwords are present in the header
     qc_flag = run_qc_check (header, tel, log=logger)
     if qc_flag=='no_object':
@@ -548,6 +567,7 @@ def blackbox_reduce (filename):
                            ' skipping image'))
         return
 
+    
     if qc_flag=='red':
         q.put(logger.error('red QC flag in image {}; returning without making '
                            ' dummy catalogs'.format(filename)))
@@ -578,12 +598,12 @@ def blackbox_reduce (filename):
         q.put(logger.error('returning without making dummy catalogs'))
         return
     
-    # if binning is not 1x1, also return
-    if 'XBINNING' in header and 'YBINNING' in header: 
-        if header['XBINNING'] != 1 or header['YBINNING'] != 1:
-            q.put(logger.error('BINNING not 1x1; not processing {}'
-                               .format(filename)))
-            return
+
+    # 2nd header check using function [check_header2]
+    header_ok = check_header2 (header, filename)
+    if not header_ok:
+        return
+    
     
     # add additional header keywords
     header['PYTHON-V'] = (platform.python_version(), 'Python version used')
@@ -591,6 +611,7 @@ def blackbox_reduce (filename):
     header['KW-V'] = (keywords_version, 'header keywords version used')
     header['BB-START'] = (Time.now().isot, 'start UTC date of BlackBOX image run')
 
+    
     # defining various paths and output file names
     ##############################################
     
@@ -2109,6 +2130,116 @@ def date2mjd (date_str, get_jd=False):
 
 ################################################################################
 
+def check_header1 (header, filename):
+    
+    header_ok = True
+
+    # check that all crucial keywords are present in the header; N.B.:
+    # [sort_files] function near top of BlackBOX already requires the
+    # IMAGETYP keyword so this need not really be checked here
+    
+    # crucial keywords for any image type
+    for key in ['IMAGETYP', 'DATE-OBS', 'FILTER']:
+        if key not in header:
+            q.put(logger.error('crucial keyword {} not present in header; '
+                               'not processing {}'.format(filename)))
+            header_ok = False
+            # return immediately in this case so that presence of 
+            # IMAGETYP does not need to be checked below
+            return header_ok
+
+
+    # define imgtype
+    imgtype = header['IMAGETYP'].lower()
+
+    
+    # for early ML data, header keyword FIELD_ID rather than OBJECT
+    # was used for the field identification 
+    if 'FIELD_ID' in header:
+        obj = header['FIELD_ID']
+    elif 'OBJECT' in header:
+        obj = header['OBJECT']
+    else:
+        if imgtype=='object':
+            # if neither FIELD_ID nor OBJECT present in header of an
+            # object image, then also bail out
+            q.put(logger.error('FIELD_ID and OBJECT keywords not present in '
+                               'header; not processing {}'.format(filename)))
+            header_ok = False
+            # return right away as otherwise [obj] not defined, which
+            # is used below
+            return header_ok
+            
+
+    # check if OBJECT keyword value contains digits only
+    if imgtype=='object':
+        try:
+            int(obj)
+        except Exception as e:
+            q.put(logger.error('keyword OBJECT (or FIELD_ID if present) does '
+                               'not contain digits only; not processing {}'
+                               .format(filename)))
+            header_ok = False
+            return header_ok
+                  
+    
+    # remaining important keywords; for biases, darks and flats, these
+    # keywords are not strictly necessary (although for flats they are
+    # used to check if they were dithered; if RA and DEC not present,
+    # any potential dithering will not be detected)
+    for keys in ['EXPTIME', 'RA', 'DEC']:
+        if imgtype=='object':
+            if key not in header:
+                q.put(logger.error('crucial keyword {} not present in header; '
+                                   'not processing {}'.format(filename)))
+                header_ok = False
+                return header_ok
+            
+
+    return header_ok
+
+
+################################################################################
+
+def check_header2 (header, filename):
+
+    # 2nd header check, which needs to be done after RA and DEC have
+    # been properly defined in degrees in [set_header]
+    
+    header_ok = True
+    
+    # check if the field ID and RA,DEC combination is consistent with
+    # definition of ML/BG field IDs; theshold used: 10 arc minutes
+    mlbg_fieldIDs = get_par(set_bb.mlbg_fieldIDs,tel)
+    table_ID = ascii.read(mlbg_fieldIDs, names=['ID', 'RA', 'DEC'], data_start=0)
+    obj = header['OBJECT']
+    i_ID = np.nonzero(table_ID['ID']==int(obj))[0][0]
+    if haversine(table_ID['RA'][i_ID], table_ID['DEC'][i_ID],
+                 header['RA'], header['DEC']) > 10./60:
+        q.put(logger.error('input ASCII field ID, RA and DEC combination is '
+                           'inconsistent with definition of field IDs\n'
+                           'offending entry field ID: {}, RA: {}, DEC: {}\n'
+                           'compared to     field ID: {}, RA: {}, DEC: {} in {}\n'
+                           'not processing {}'
+                           .format(obj, header['RA'], header['DEC'], 
+                                   table_ID['ID'][i_ID], table_ID['RA'][i_ID], 
+                                   table_ID['DEC'][i_ID], mlbg_fieldIDs, filename)))
+        header_ok = False
+
+        
+    # if binning is not 1x1, also return
+    if 'XBINNING' in header and 'YBINNING' in header: 
+        if header['XBINNING'] != 1 or header['YBINNING'] != 1:
+            q.put(logger.error('BINNING not 1x1; not processing {}'
+                               .format(filename)))
+            header_ok = False
+
+            
+    return header_ok
+
+        
+################################################################################
+
 def set_header(header, filename):
 
     def edit_head (header, key, value=None, comments=None, dtype=None):
@@ -3248,6 +3379,7 @@ if __name__ == "__main__":
     params.add_argument('--imgtypes', type=str, default=None, help='Only consider this(these) image type(s); default=None')
     params.add_argument('--filters', type=str, default=None, help='Only consider this(these) filter(s); default=None')
     params.add_argument('--image', type=str, default=None, help='Only process this particular image (requires full path); default=None')
+    params.add_argument('--image_list', type=str, default=None, help='Only process images listed in ASCII file with this name; default=None')
     params.add_argument('--master_date', type=str, default=None, help='Create master file of type(s) [imgtypes] and filter(s) [filters] for this(these) date(s) (e.g. 2019 or 2019/10 or 2019-10-14); default=None')
     params.add_argument('--slack', default=True, help='Upload messages for night mode to slack; default=True')
     args = params.parse_args()
@@ -3255,5 +3387,6 @@ if __name__ == "__main__":
     run_blackbox (telescope=args.telescope, mode=args.mode, date=args.date, 
                   read_path=args.read_path, recursive=args.recursive, 
                   imgtypes=args.imgtypes, filters=args.filters, image=args.image,
-                  master_date=args.master_date, slack=args.slack)
+                  image_list=args.image_list, master_date=args.master_date, 
+                  slack=args.slack)
 
