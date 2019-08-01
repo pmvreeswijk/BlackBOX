@@ -336,75 +336,8 @@ def run_qc_check (header, telescope, cat_type=None, cat_dummy=None, log=None):
        is provided.
 
     """
-
-    # check that all crucial keywords are present in the header; N.B.:
-    # [sort_files] function in BlackBOX already requires the IMAGETYP
-    # keyword so this need not really be checked here
-    if 'FIELD_ID' in header:
-        obj_name = 'FIELD_ID'
-    else:
-        obj_name = 'OBJECT'
-
-    keys_crucial = ['DATE-OBS', 'IMAGETYP', 'FILTER', 'EXPTIME',
-                        obj_name, 'RA', 'DEC']
-
-    qc_flag = 'green'
-    nred = 0
-    for key in keys_crucial:
-        if key not in header:
-            # object images without OBJECT or FIELD_ID in their headers
-            # should be skipped
-            if obj_name not in header and ('IMAGETYP' in header and
-                header['IMAGETYP'].lower()=='object'):
-
-                return 'no_object'
-
-            # for biases, darks and flats, OBJECT, RA, DEC and EXPTIME
-            # not strictly necessary (although for flats they are used
-            # to check if they were dithered; if RA and DEC not
-            # present, any potential dithering will not be detected)
-            elif ('IMAGETYP' in header and
-                header['IMAGETYP'].lower()!='object' and
-                (key=='OBJECT' or key=='FIELD_ID' or key=='RA' or key=='DEC' 
-                or key=='EXPTIME')):
-
-                pass
-
-            else:
-                qc_flag = 'red'
-                nred += 1
-                header['QC-RED{}'.format(nred)] = (key, 'required keyword missing')
-                if log is not None:
-                    log.error('keyword {} not present in header'.format(key))
-
-
-    # check if OBJECT keyword value contains digits only
-    if 'IMAGETYP' in header and header['IMAGETYP'].lower()=='object':
-        #print ('value: {}, type(header[key]): {}'.
-        #       format(header[key], type(header[key])))
-        if 'FIELD_ID' in header:
-            obj = header['FIELD_ID']
-        else:
-            obj = header['OBJECT']
-
-        try:
-            int(obj)
-        except Exception as e:
-            if log is not None:
-                log.error(e)
-                log.error('keyword OBJECT (or FIELD_ID if present) does not contain digits only')
-            # if not an integer, raise a red flag
-            qc_flag = 'red'
-            # set object keyword to zero 
-            #header['OBJECT'] = 0
-
-            
-    if qc_flag == 'red':
-        header['QC-FLAG'] = (qc_flag, 'QC flag color (green|yellow|orange|red)')
-        return qc_flag
-
     
-    # now check if the header keyword values are within specified range
+    # check if the header keyword values are within specified range
     keys, colors, ranges, comments = qc_check(header, telescope=telescope, 
                                               cat_type=cat_type,
                                               cat_dummy=cat_dummy,
