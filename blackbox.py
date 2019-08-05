@@ -211,8 +211,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
         else:
             # use [pool_func] to process list of files
-            for files in lists:
-                result = pool_func (try_blackbox_reduce, files)
+            result = pool_func (try_blackbox_reduce, filenames)
 
 
     elif mode == 'night':
