@@ -531,12 +531,12 @@ def blackbox_reduce (filename):
         q.put(logger.error('not processing {}'.format(filename)))    
         return
 
-    
+     
     # first header check using function [check_header1]
     header_ok = check_header1 (header, filename)
     if not header_ok:
         return
-    
+   
     
     # determine the raw data path
     raw_path, __ = get_path(header['DATE-OBS'], 'read')
@@ -597,7 +597,7 @@ def blackbox_reduce (filename):
         q.put(logger.error('returning without making dummy catalogs'))
         return
     
-
+    
     # 2nd header check using function [check_header2]
     header_ok = check_header2 (header, filename)
     if not header_ok:
@@ -2194,36 +2194,42 @@ def check_header1 (header, filename):
                 header_ok = False
                 return header_ok
             
-
+            
     return header_ok
 
 
 ################################################################################
 
 def check_header2 (header, filename):
-
-    # 2nd header check, which needs to be done after RA and DEC have
-    # been properly defined in degrees in [set_header]
     
     header_ok = True
-    
-    # check if the field ID and RA,DEC combination is consistent with
-    # definition of ML/BG field IDs; theshold used: 10 arc minutes
+
+    # check if the field ID and RA-REF, DEC-REF combination is
+    # consistent with definition of ML/BG field IDs; threshold used:
+    # 10 arc minutes
     mlbg_fieldIDs = get_par(set_bb.mlbg_fieldIDs,tel)
     table_ID = ascii.read(mlbg_fieldIDs, names=['ID', 'RA', 'DEC'], data_start=0)
-    obj = header['OBJECT']
-    i_ID = np.nonzero(table_ID['ID']==int(obj))[0][0]
-    if haversine(table_ID['RA'][i_ID], table_ID['DEC'][i_ID],
-                 header['RA'], header['DEC']) > 10./60:
-        q.put(logger.error('input ASCII field ID, RA and DEC combination is '
-                           'inconsistent with definition of field IDs\n'
-                           'offending entry field ID: {}, RA: {}, DEC: {}\n'
-                           'compared to     field ID: {}, RA: {}, DEC: {} in {}\n'
-                           'not processing {}'
-                           .format(obj, header['RA'], header['DEC'], 
-                                   table_ID['ID'][i_ID], table_ID['RA'][i_ID], 
-                                   table_ID['DEC'][i_ID], mlbg_fieldIDs, filename)))
-        header_ok = False
+    imgtype = header['IMAGETYP'].lower()
+    if imgtype=='object':
+        obj = header['OBJECT']
+        i_ID = np.nonzero(table_ID['ID']==int(obj))[0][0]
+        if 'RA-REF' in header and 'DEC-REF' in header:
+            ra_deg = Angle(header['RA-REF'], unit=u.hour).degree
+            dec_deg = Angle(header['DEC-REF'], unit=u.deg).degree
+            if haversine(table_ID['RA'][i_ID], table_ID['DEC'][i_ID], 
+                         ra_deg, dec_deg) > 10./60:
+                q.put(logger.error('input ASCII field ID, RA and DEC combination '
+                                   'is inconsistent with definition of field IDs\n'
+                                   'header field ID: {}, RA-REF: {}, DEC-REF: {}\n'
+                                   'vs.    field ID: {}, RA:     {}, DEC:     {} '
+                                   'in {}\n'
+                                   'not processing {}'
+                                   .format(obj, ra_deg, dec_deg, 
+                                           table_ID['ID'][i_ID], 
+                                           table_ID['RA'][i_ID],
+                                           table_ID['DEC'][i_ID], 
+                                           mlbg_fieldIDs, filename)))
+                header_ok = False
 
         
     # if binning is not 1x1, also return
@@ -2233,10 +2239,10 @@ def check_header2 (header, filename):
                                .format(filename)))
             header_ok = False
 
-            
+
     return header_ok
 
-        
+
 ################################################################################
 
 def set_header(header, filename):
