@@ -2212,26 +2212,27 @@ def check_header2 (header, filename):
     imgtype = header['IMAGETYP'].lower()
     if imgtype=='object':
         obj = header['OBJECT']
-        i_ID = np.nonzero(table_ID['ID']==int(obj))[0][0]
-        if 'RA-REF' in header and 'DEC-REF' in header:
-            ra_deg = Angle(header['RA-REF'], unit=u.hour).degree
-            dec_deg = Angle(header['DEC-REF'], unit=u.deg).degree
-            if haversine(table_ID['RA'][i_ID], table_ID['DEC'][i_ID], 
-                         ra_deg, dec_deg) > 10./60:
-                q.put(logger.error('input ASCII field ID, RA and DEC combination '
-                                   'is inconsistent with definition of field IDs\n'
-                                   'header field ID: {}, RA-REF: {}, DEC-REF: {}\n'
-                                   'vs.    field ID: {}, RA:     {}, DEC:     {} '
-                                   'in {}\n'
-                                   'not processing {}'
-                                   .format(obj, ra_deg, dec_deg, 
-                                           table_ID['ID'][i_ID], 
-                                           table_ID['RA'][i_ID],
-                                           table_ID['DEC'][i_ID], 
-                                           mlbg_fieldIDs, filename)))
-                header_ok = False
+        if int(obj)!=0 and int(obj)<=20000:
+            i_ID = np.nonzero(table_ID['ID']==int(obj))[0][0]
+            if 'RA-REF' in header and 'DEC-REF' in header:
+                ra_deg = Angle(header['RA-REF'], unit=u.hour).degree
+                dec_deg = Angle(header['DEC-REF'], unit=u.deg).degree
+                if haversine(table_ID['RA'][i_ID], table_ID['DEC'][i_ID], 
+                             ra_deg, dec_deg) > 10./60:
+                    q.put(logger.error('input ASCII field ID, RA and DEC combination '
+                                       'is inconsistent with definition of field IDs\n'
+                                       'header field ID: {}, RA-REF: {}, DEC-REF: {}\n'
+                                       'vs.    field ID: {}, RA:     {}, DEC:     {} '
+                                       'in {}\n'
+                                       'not processing {}'
+                                       .format(obj, ra_deg, dec_deg, 
+                                               table_ID['ID'][i_ID], 
+                                               table_ID['RA'][i_ID],
+                                               table_ID['DEC'][i_ID], 
+                                               mlbg_fieldIDs, filename)))
+                    header_ok = False
 
-        
+
     # if binning is not 1x1, also return
     if 'XBINNING' in header and 'YBINNING' in header: 
         if header['XBINNING'] != 1 or header['YBINNING'] != 1:
