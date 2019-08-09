@@ -2475,10 +2475,15 @@ def set_header(header, filename):
     edit_head(header, 'FILTER', comments='Filter')
     if tel=='ML1':
         # for ML1: filter is incorrectly identified in the header for data
-        # taken from 2017-11-19T00:00:00 until 2019-01-13T15:00:00. This
-        # is the correct mapping, correct filter = filt_corr[old filter],
-        # determined by PaulG, Oliver & Danielle (see also Redmine bug
-        # #281)
+        # taken with Abot from 2017-11-19T00:00:00 until 2019-01-13T15:00:00.
+        # Divided this time in a transition period (from 2017-11-19T00:00:00
+        # to 2018-02-24T23:59:59) where some data was taken with Abot and some
+        # was taken manually, and a period in which all data was taken with
+        # Abot (from 2018-02-25T00:00:00 to 2019-01-13T15:00:00). Data that is
+        # taken manually does not need to be corrected for filter. For the data
+        # taken with Abot, this is the correct mapping,
+        # correct filter=filt_corr[old filter], as determined by PaulG, Oliver
+        # & Danielle (see also Redmine bug #281)
         filt_corr = {'u':'q',
                      'g':'r',
                      'q':'i',
@@ -2486,8 +2491,13 @@ def set_header(header, filename):
                      'i':'z',
                      'z':'u'}
 
-        tcorr_mjd = Time(['2017-11-19T00:00:00', '2019-01-13T15:00:00'], format='isot').mjd
-        if mjd_obs >= tcorr_mjd[0] and mjd_obs <= tcorr_mjd[1]:
+        transition_mjd = Time(['2017-11-19T00:00:00', '2018-02-24T23:59:59'], format='isot').mjd
+        tcorr_mjd = Time(['2018-02-25T00:00:00', '2019-01-13T15:00:00'], format='isot').mjd
+        if mjd_obs >= transition_mjd[0] and mjd_obs <= transition_mjd[1]:
+            if 'OBSERVER' in header and header['OBSERVER'].lower()=='abot':
+                filt_old = header['FILTER']
+                edit_head(header, 'FILTER', value=filt_corr[filt_old], comments='Filter (corrected)')
+        elif mjd_obs >= tcorr_mjd[0] and mjd_obs <= tcorr_mjd[1]:
             filt_old = header['FILTER']
             edit_head(header, 'FILTER', value=filt_corr[filt_old], comments='Filter (corrected)')
 
