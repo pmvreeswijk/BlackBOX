@@ -630,15 +630,20 @@ def blackbox_reduce (filename):
             'flat': flat_path, 
             'object': write_path}
     filt = header['FILTER']
-    
-    # if exptime is not in the header, skip image
+
+    # if exptime is not in the header or if it's 0 for a science
+    # image, skip image
     if 'EXPTIME' in header:
         exptime = header['EXPTIME']
+        if 'IMAGETYP' in header and (header['IMAGETYP'].lower()=='object'
+            and int(exptime)==0):
+            q.put(logger.error('science image with EXPTIME of zero; skipping image'))
+            return
     else:
         q.put(logger.warning('keyword EXPTIME not in header; skipping image'))
         return
 
-    
+
     # if [only_filt] is specified, skip image if not relevant
     if filts is not None:
         if filt not in filts and imgtype != 'bias' and imgtype != 'dark':
