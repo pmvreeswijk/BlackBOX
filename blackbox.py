@@ -879,10 +879,11 @@ def blackbox_reduce (filename):
     #########################
     mbias_processed = False
     header['MBIAS-F'] = ('None', 'name of master bias applied')
-        
+    header['MBIAS-P'] = (mbias_processed, 'corrected for master bias?')
+
     # check if mbias needs to be subtracted
     if fits_mbias is not None and get_par(set_bb.subtract_mbias,tel):
-        
+
         try:
             # and subtract it from the flat or object image
             log.info('subtracting the master bias')
@@ -890,7 +891,7 @@ def blackbox_reduce (filename):
             data -= data_mbias
             header['MBIAS-F'] = (fits_mbias.split('/')[-1].split('.fits')[0], 
                                  'name of master bias applied')
-            
+
             # for object image, add number of days separating image and master bias
             if imgtype == 'object':
                 mjd_obs = header['MJD-OBS']
@@ -898,7 +899,7 @@ def blackbox_reduce (filename):
                 header['MB-NDAYS'] = (
                     np.abs(mjd_obs-mjd_obs_mb), 
                     '[days] time between image and master bias used')
-                
+
         except Exception as e:
             q.put(logger.info(traceback.format_exc()))
             q.put(logger.error('exception was raised during master bias subtraction: {}'
@@ -910,7 +911,6 @@ def blackbox_reduce (filename):
         finally:
             header['MBIAS-P'] = (mbias_processed, 'corrected for master bias?')
 
-            
 
     # display
     if get_par(set_zogy.display,tel):
