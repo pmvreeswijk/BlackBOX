@@ -40,13 +40,18 @@ import platform
 from astropy.utils import iers
 iers.conf.iers_auto_url = 'https://storage.googleapis.com/blackbox-auxdata/timing/finals2000A.all'
 iers.conf.iers_auto_url_mirror = 'http://maia.usno.navy.mil/ser7/finals2000A.all'
+
+from pympler import tracker
+import tracemalloc
+tracemalloc.start()
+
 # commands to force the downloading of above IERS bulletin file in
 # case a recent one (younger than 30 days) is not present in the cache
 tnow = Time.now()
 tnow.ut1  
 
 
-__version__ = '0.9.1'
+__version__ = '0.9.2'
 keywords_version = '0.9.1'
 
 #def init(l):
@@ -197,7 +202,11 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
         if len(filenames)==0:
             q.put(logger.warning('no files to reduce'))
-        
+
+
+        # see https://docs.python.org/3/library/tracemalloc.html
+        #snapshot1 = tracemalloc.take_snapshot()
+            
         if get_par(set_bb.nproc,tel)==1 or image is not None:
             
             # if only 1 process is requested, or [image] input
@@ -207,11 +216,18 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
             # mode this is not allowed (at least not on a macbook).
             print ('running with single processor')
             for filename in filenames:
-                result = try_blackbox_reduce(filename)
+                result = blackbox_reduce(filename)
 
         else:
             # use [pool_func] to process list of files
             result = pool_func (try_blackbox_reduce, filenames)
+
+
+        #snapshot2 = tracemalloc.take_snapshot()
+        #top_stats = snapshot2.compare_to(snapshot1, 'lineno')
+        #print("[ Top 10 differences ]")
+        #for stat in top_stats[:10]:
+        #    print(stat)
 
 
     elif mode == 'night':
@@ -771,6 +787,8 @@ def blackbox_reduce (filename):
         data[mask_infnan] = 0
         
     
+    #snapshot1 = tracemalloc.take_snapshot()
+
     # gain correction
     #################
     try:
@@ -789,6 +807,12 @@ def blackbox_reduce (filename):
         header['GAIN-P'] = (gain_processed, 'corrected for gain?')
 
         
+    #snapshot2 = tracemalloc.take_snapshot()
+    #top_stats = snapshot2.compare_to(snapshot1, 'lineno')
+    #print("[ Top 10 differences ]")
+    #for stat in top_stats[:10]:
+    #    print(stat)
+
     if get_par(set_zogy.display,tel):
         ds9_arrays(gain_cor=data)
 
@@ -1198,16 +1222,19 @@ def blackbox_reduce (filename):
         tmp_base = new_fits.split('_red.fits')[0]
         new_base = fits_out.split('_red.fits')[0]
         result = copy_files2keep(tmp_base, new_base, 
-                                 get_par(set_bb.all_2keep,tel), move=False)
+                                 get_par(set_bb.all_2keep,tel), move=False,
+                                 log=log)
 
         if qc_flag == 'red':
             # also copy dummy transient catalog in case of red flag
-            result = copy_files2keep(tmp_base, new_base, ['_trans.fits'])
+            result = copy_files2keep(tmp_base, new_base, ['_trans.fits'],
+                                     log=log)
         else:
             # now move [ref_2keep] to the reference directory
             ref_base = ref_fits_out.split('_red.fits')[0]
-            result = copy_files2keep(tmp_base, ref_base, get_par(set_bb.ref_2keep,tel),
-                                     move=False)
+            result = copy_files2keep(tmp_base, ref_base,
+                                     get_par(set_bb.ref_2keep,tel),
+                                     move=False, log=log)
             
             
         # now that reference is built, remove this reference ID
@@ -1278,8 +1305,9 @@ def blackbox_reduce (filename):
         # copy selected output files to new directory
         new_base = fits_out.split('_red.fits')[0]
         tmp_base = new_fits.split('_red.fits')[0]
-        result = copy_files2keep(tmp_base, new_base, get_par(set_bb.new_2keep,tel),
-                                 move=False)
+        result = copy_files2keep(tmp_base, new_base,
+                                 get_par(set_bb.new_2keep,tel),
+                                 move=False, log=log)
 
 
     lock.acquire()
@@ -1290,7 +1318,9 @@ def blackbox_reduce (filename):
     if not get_par(set_bb.keep_tmp,tel) and os.path.isdir(tmp_path):
         shutil.rmtree(tmp_path)
     lock.release()
-    
+
+
+    log.info('reached the end of function blackbox_reduce')
     
     return
 
@@ -1481,7 +1511,7 @@ def make_dir_nolock(path, empty=False):
 
 ################################################################################
 
-def copy_files2keep (tmp_base, dest_base, ext2keep, move=True):
+def copy_files2keep (tmp_base, dest_base, ext2keep, move=True, log=None):
 
     """Function to copy/move files with base name [tmp_base] and
     extensions [ext2keep] to files with base name [dest_base] with the
@@ -1502,10 +1532,14 @@ def copy_files2keep (tmp_base, dest_base, ext2keep, move=True):
                 # identical, go ahead and copy
                 if tmpfile != destfile:
                     if not move:
-                        log.info('copying {} to {}'.format(tmpfile, destfile))
+                        if log is not None:
+                            log.info('copying {} to {}'.
+                                     format(tmpfile, destfile))
                         shutil.copyfile(tmpfile, destfile)
                     else:
-                        log.info('moving {} to {}'.format(tmpfile, destfile))
+                        if log is not None:
+                            log.info('moving {} to {}'
+                                     .format(tmpfile, destfile))
                         shutil.move(tmpfile, destfile)
 
                         
@@ -1776,7 +1810,7 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
         red_dir = get_par(set_bb.red_dir,tel)
         for n_day in range(-nwindow, nwindow+1):
             # determine mjd at noon (local or UTC, does not matter) of date_eve +- n_day
-            mjd_noon = date2mjd ('{} 12:00'.format(date_eve)) + n_day
+            mjd_noon = date2mjd('{}'.format(date_eve), time_str='12:00') + n_day
             # corresponding path
             date_temp = Time(mjd_noon, format='mjd').isot.split('T')[0].replace('-','/')
             path_temp = '{}/{}/{}'.format(red_dir, date_temp, imtype)
@@ -2115,16 +2149,19 @@ def get_closest_biasflat (date_eve, file_type, filt=None):
 
 ################################################################################
 
-def date2mjd (date_str, get_jd=False):
+def date2mjd (date_str, time_str=None, get_jd=False):
     
-    """convert [date_str] to MJD or JD with possible formats: 
-         yyyymmdd [hh:mm[:ss.s]]
-         yyyy-mm-dd [hh:mm[:ss.s]] 
-         yyyy-mm-dd[Thh:mm[:ss.s]]
+    """convert [date_str] and [time_str] to MJD or JD with possible
+    formats: yyyymmdd or yyyy-mm-dd for [date_str] and hh:mm[:ss.s]
+    for [time_str]
+
     """
     
     if '-' not in date_str:
         date_str = '{}-{}-{}'.format(date_str[0:4], date_str[4:6], date_str[6:8])
+
+    if time_str is not None:
+        date_str += ' {}'.format(time_str) 
         
     if get_jd:
         return Time(date_str).jd
