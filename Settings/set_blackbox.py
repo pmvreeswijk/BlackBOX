@@ -10,10 +10,10 @@ import numpy as np
 #===============================================================================
 
 # number of processes to run in parallel
-nproc = 8
+nproc = 1
 # maximum number of threads for each process (this parameter
 # cannot be made telescope dependent through a dictionary!)
-nthread = 4
+nthread = 2
 
 #===============================================================================
 # Reduction steps
@@ -63,7 +63,7 @@ for tel in ['ML1', 'BG2', 'BG3', 'BG4']:
 
 # name endings of files to keep for the reference and new images
 all_2keep = ['_red.fits', '_mask.fits', '_cat.fits', '_mini.fits', '_red.log']
-ref_2keep = ['_ldac.fits', '_psf.fits', '_psfex.cat'] + all_2keep
+ref_2keep = ['_ldac.fits', '_psf.fits', '_psfex.cat', '_weights.fits'] + all_2keep
 new_2keep = ['_D.fits', '_Scorr.fits', '_trans_limmag.fits', '_trans.fits'] + all_2keep
 
 #===============================================================================
