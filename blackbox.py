@@ -57,13 +57,49 @@ keywords_version = '0.9.1'
 #def init(l):
 #    global lock
 #    lock = l
-    
+
 
 ################################################################################
 
 def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
                   recursive=None, imgtypes=None, filters=None, image=None, 
                   image_list=None, master_date=None, slack=None):
+    
+    """Function that processes MeerLICHT or BlackGEM images, performs
+    basic image reduction tasks such as overscan subtraction,
+    flat-fielding and cosmic-ray rejection, and the feeds the image to
+    zogy.py along with a reference image of the corresponding ML/BG
+    field ID, to detect transients present in the image. If no
+    reference image is present, the image that is being processed is
+    defined to be the reference image.
+
+    To do (for both blackbox.py and zogy.py):
+
+    - add reference image building module
+      --> probably best to merge imcombine_MLBG and build_ref_MLBG into one
+          single module, that also has a settings file
+
+    - determine reason for stalls that Danielle encounters
+
+    - map out and, if possible, decrease the memory consumption of
+      blackbox and zogy
+
+    - in night mode, only images already present are processed
+
+    - improve processing speed of background subtraction and other
+      parts in the code where for-loops can be avoided
+
+    - change output catalog column names from ALPHA_J2000 and
+      DELTA_J2000 to RA_ICRS and DEC_ICRS
+    
+    - change epoch in header from 2000 to 2015.5?
+
+    - filter out transients that correspond to a negative spot in the
+      new image
+
+    - go to python 3.7 on chopper; update singularity image
+
+    """
     
     
     global tel, filts, types
@@ -2255,14 +2291,31 @@ def check_header2 (header, filename):
     if imgtype=='object':
         obj = header['OBJECT']
         if int(obj)!=0 and int(obj)<=20000:
-            i_ID = np.nonzero(table_ID['ID']==int(obj))[0][0]
+            
             if 'RA-REF' in header and 'DEC-REF' in header:
                 ra_deg = Angle(header['RA-REF'], unit=u.hour).degree
                 dec_deg = Angle(header['DEC-REF'], unit=u.deg).degree
+            else:
+                # use RA and DEC instead
+                ra_deg = Angle(header['RA'], unit=u.hour).degree
+                dec_deg = Angle(header['DEC'], unit=u.deg).degree
+
+            # check if there is a match with the defined field IDs
+            mask_match = (table_ID['ID']==int(obj))
+            if sum(mask_match) == 0:
+                # observed field is not present in definition of field IDs
+                header_ok = False
+                q.put(logger.error('input header field ID not present in '
+                                   'definition of field IDs:\n{}\n'
+                                   'header field ID: {}, RA-REF: {}, DEC-REF: {}\n'
+                                   'not processing {}'
+                                   .format(mlbg_fieldIDs, obj, ra_deg, dec_deg, filename)))
+            else:
+                i_ID = np.nonzero(mask_match)[0][0]
                 if haversine(table_ID['RA'][i_ID], table_ID['DEC'][i_ID], 
                              ra_deg, dec_deg) > 10./60:
-                    q.put(logger.error('input ASCII field ID, RA and DEC combination '
-                                       'is inconsistent with definition of field IDs\n'
+                    q.put(logger.error('input header field ID, RA and DEC combination '
+                                       'is inconsistent (>10\') with definition of field IDs\n'
                                        'header field ID: {}, RA-REF: {}, DEC-REF: {}\n'
                                        'vs.    field ID: {}, RA:     {}, DEC:     {} '
                                        'in {}\n'
@@ -2275,7 +2328,7 @@ def check_header2 (header, filename):
                     header_ok = False
 
 
-    # if binning is not 1x1, also return
+    # if binning is not 1x1, also skip processing
     if 'XBINNING' in header and 'YBINNING' in header: 
         if header['XBINNING'] != 1 or header['YBINNING'] != 1:
             q.put(logger.error('BINNING not 1x1; not processing {}'
