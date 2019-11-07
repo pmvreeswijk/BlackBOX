@@ -76,8 +76,19 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     To do (for both blackbox.py and zogy.py):
 
     - add reference image building module
+
       --> probably best to merge imcombine_MLBG and build_ref_MLBG into one
           single module, that also has a settings file
+
+      --> need to update zogy.py with using the scatter in an image for the
+          description of the noise, rather than the background level plus 
+          the read noise squared; because the new reference images will have 
+          zero background and also the read noise varies from channel to 
+          channel, so scatter is probably more accurate. 
+    
+      --> Scorr image with new reference image has low scatter, but shows
+          ringing features similar to those often seen in the D image; 
+          try fixpix individual images
 
     - determine reason for stalls that Danielle encounters
 
@@ -128,7 +139,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     formatter = logging.Formatter("%(asctime)s %(process)d %(levelname)s %(message)s") #set format of logger
     logging.Formatter.converter = time.gmtime #convert time in logger to UCT
     genlogfile = '{}/{}_{}.log'.format(get_par(set_bb.log_dir,tel), tel,
-                                       dt.datetime.now().strftime('%Y%m%d_%H%m%S'))
+                                       Time.now().strftime('%Y%m%d_%H%M%S'))
     filehandler = logging.FileHandler(genlogfile, 'w+') #create log file
     filehandler.setFormatter(formatter) #add format to log file
     genlog.addHandler(filehandler) #link log file to logger
@@ -1508,7 +1519,7 @@ def create_log (logfile):
 
     streamHandler = logging.StreamHandler()
     streamHandler.setFormatter(logFormatter)
-    streamHandler.setLevel(logging.WARNING)
+    streamHandler.setLevel(logging.WARN)
     log.addHandler(streamHandler)
 
     return log
@@ -1751,8 +1762,11 @@ def mask_init (data, header):
     # unless that pixel was already masked
     data_mask[(mask_infnan) & (data_mask==0)] += get_par(set_zogy.mask_value['bad'],tel)
     
-    # identify saturated pixels
-    satlevel_electrons = get_par(set_bb.satlevel,tel)*np.mean(get_par(set_bb.gain,tel))
+    # identify saturated pixels; saturation level (ADU) is taken from
+    # blackbox settings file, which needs to be mulitplied by the gain
+    # and have the mean biaslevel subtracted
+    satlevel_electrons = (get_par(set_bb.satlevel,tel)*np.mean(get_par(set_bb.gain,tel))
+                          - header['BIASMEAN'])
     mask_sat = (data >= satlevel_electrons)
     # add them to the mask of edge and bad pixels
     data_mask[mask_sat] += get_par(set_zogy.mask_value['saturated'],tel)
