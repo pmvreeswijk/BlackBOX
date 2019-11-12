@@ -88,7 +88,8 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     
       --> Scorr image with new reference image has low scatter, but shows
           ringing features similar to those often seen in the D image; 
-          try fixpix individual images
+          try fixpix individual images; tried fixpix and indeed seems
+          to have improved
 
     - determine reason for stalls that Danielle encounters
 
@@ -2024,10 +2025,10 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
                 ra_flats = np.array(ra_flats)
                 dec_flats = np.array(dec_flats)
                 noffset = 0
-                offset_mean = 0                    
+                offset_mean = 0
                 if len(ra_flats) > 0 and len(dec_flats) > 0:
                     offset = 3600. * haversine (ra_flats, dec_flats, 
-                                               np.roll(ra_flats,1), np.roll(dec_flats,1))
+                                                np.roll(ra_flats,1), np.roll(dec_flats,1))
                     # count how many were offset by at least 5"
                     mask_off = (offset >= 5)
                     noffset = np.sum(mask_off)
@@ -2416,7 +2417,8 @@ def set_header(header, filename):
     edit_head(header, 'ALTITUDE', comments='[deg] Altitude in horizontal coordinates')
     edit_head(header, 'AZIMUTH', comments='[deg] Azimuth in horizontal coordinates')
     edit_head(header, 'RADESYS', value='ICRS', comments='Coordinate reference frame')
-
+    edit_head(header, 'EPOCH', value='J2015.5', comments='Coordinate reference epoch')
+    
     # RA
     if 'RA' in header:
         if ':' in str(header['RA']):
@@ -2657,7 +2659,7 @@ def set_header(header, filename):
     
     # remove the following keywords:
     keys_2remove = ['FILTWHID', 'FOC-ID', 'EXPOSURE', 'END-OBS', 'FOCUSMIT', 
-                    'FOCUSAMT', 'EPOCH', 'OWNERGNM', 'OWNERGID', 'OWNERID',
+                    'FOCUSAMT', 'OWNERGNM', 'OWNERGID', 'OWNERID',
                     'AZ-REF', 'ALT-REF', 'CCDFULLH', 'CCDFULLW', 'RADECSYS']
     for key in keys_2remove:
         if key in header:
@@ -2669,7 +2671,7 @@ def set_header(header, filename):
     keys_sort = ['SIMPLE', 'BITPIX', 'NAXIS', 'NAXIS1', 'NAXIS2',
                  'BUNIT', 'BSCALE', 'BZERO',
                  'XBINNING', 'YBINNING',
-                 'ALTITUDE', 'AZIMUTH', 'RADESYS',
+                 'ALTITUDE', 'AZIMUTH', 'RADESYS', 'EPOCH',
                  'RA', 'RA-REF', 'RA-TEL', 'DEC', 'DEC-REF', 'DEC-TEL',
                  'HA', 'FLIPSTAT', 'ISTRACKI',
                  'OBJECT', 'IMAGETYP', 'FILTER', 'EXPTIME',
