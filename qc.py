@@ -277,7 +277,7 @@ def qc_check (header, telescope='ML1', keywords=None, cat_dummy=None,
         # to fits header
         if type(header)==dict:
             header_fits = fits.Header()
-            for key in header_dummy.keys():
+            for key in header.keys():
                 header_fits[key] = header[key]
             header_dummy = header_fits
         else:
