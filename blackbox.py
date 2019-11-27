@@ -1,5 +1,5 @@
 
-import os, sys
+import os, sys, gc
 from Settings import set_zogy, set_blackbox as set_bb
 
 # setting number of threads through environment variable (used by
@@ -41,9 +41,9 @@ from astropy.utils import iers
 iers.conf.iers_auto_url = 'https://storage.googleapis.com/blackbox-auxdata/timing/finals2000A.all'
 iers.conf.iers_auto_url_mirror = 'http://maia.usno.navy.mil/ser7/finals2000A.all'
 
-from pympler import tracker
-import tracemalloc
-tracemalloc.start()
+#from pympler import tracker
+#import tracemalloc
+#tracemalloc.start()
 
 # commands to force the downloading of above IERS bulletin file in
 # case a recent one (younger than 30 days) is not present in the cache
@@ -74,42 +74,104 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     defined to be the reference image.
 
     To do (for both blackbox.py and zogy.py):
+    -----------------------------------------
 
-    - add reference image building module
+    (1) add reference image building module
 
       --> probably best to merge imcombine_MLBG and build_ref_MLBG into one
           single module, that also has a settings file
+
+      --> add possibility in zogy for input images to have zero background
+          through header keyword BKG-SUB with boolean value. This needs   
+          updating in function run_sextractor, running SExtractor with    
+          BACK_TYPE MANUAL and BACK_VALUE 0.0 if BKG-SUB==T(rue) and      
+          skipping the additional function get_back.                      
+    
+    (3) map out and, if possible, decrease the memory consumption of
+        blackbox and zogy
+
+    (4) in night mode, only images already present are processed
+
+    (5) improve processing speed of background subtraction and other
+        parts in the code where for-loops can be avoided
+
+      --> why is updated function get_back so much slower on mlcontrol
+          machine vs. macbook?
+
+    (8) filter out transients that correspond to a negative spot in the
+        new image
+
+    (10) check if SExtractor background is manual or global and 
+        has any influence on detections
+
+    (11) replace clipped_stats with more robust sigma_clipped_stats
+         in zogy.py and blackbox.py
+
+    (12) go through logs, look for errors and exceptions and fix them:
+      
+      --> moffat fit to objects near the edge
+
+
+    (14) switch PSF fit to D and Moffat fit to D around; Moffat fit
+         appears to be much faster, and will decrease the number of 
+         transients to be fit in PSF fit to D
+
+    (15) if too many transient regions are found, leave function        
+         [get_trans] immediately as it takes very long to do the fits to
+         1000s of transients                                            
+
+    (16) speed up psfex by providing a limited random sample of good
+         PSF stars, e.g. 1000, rather than all; needs to be random
+         and not the brightest
+
+    (17) moffat fit to transients in D provides negative chi2s?
+
+    (18) replace string '+' concatenations with formats
+    
+    (19) make log input in functions optional through log=None, so that
+         they can be easily used by modules outside of blackbox/zogy
+
+    (20) optimal vs. large aperture magnitudes shows discrepant values
+         at the bright end; why?
+
+    
+    Done:
+    -----
+
+    (1) add reference image building module
+
+      --> Scorr image with new reference image has low scatter, but shows
+          ringing features similar to those often seen in the D image; 
+          try fixpix individual images; tried fixpix and indeed seems
+          to have improved. Some saturated stars still present, which was
+          due to bias level not being considered in saturation level, now
+          it is
 
       --> need to update zogy.py with using the scatter in an image for the
           description of the noise, rather than the background level plus 
           the read noise squared; because the new reference images will have 
           zero background and also the read noise varies from channel to 
           channel, so scatter is probably more accurate. 
+
+    (2) determine reason for stalls that Danielle encounters
+
+        - seems to have gone away by going to python 3.7 (see also 9)
+
+    (6) change output catalog column names from ALPHAWIN_J2000 and
+        DELTAWIN_J2000 to RA_ICRS and DEC_ICRS
     
-      --> Scorr image with new reference image has low scatter, but shows
-          ringing features similar to those often seen in the D image; 
-          try fixpix individual images; tried fixpix and indeed seems
-          to have improved
+    (7) change epoch in header from 2000 to 2015.5
 
-    - determine reason for stalls that Danielle encounters
+    (9) go to python 3.7 on chopper; update singularity image
 
-    - map out and, if possible, decrease the memory consumption of
-      blackbox and zogy
-
-    - in night mode, only images already present are processed
-
-    - improve processing speed of background subtraction and other
-      parts in the code where for-loops can be avoided
-
-    - change output catalog column names from ALPHA_J2000 and
-      DELTA_J2000 to RA_ICRS and DEC_ICRS
-    
-    - change epoch in header from 2000 to 2015.5?
-
-    - filter out transients that correspond to a negative spot in the
-      new image
-
-    - go to python 3.7 on chopper; update singularity image
+    (13) why is PSF to D so much slower when use_bkg_var=True?
+         
+         - often a fit with use_bkg_var=True reaches the maximum number of    
+           iterations (10,000, taking 3s), probably due to the higher error   
+           when the actual variance is used, rather than sky +                
+           RON**2. Whenever the number of iterations is higher than about     
+           100, the reduced chi2 is very large anyway, so reduced this number 
+           to 1000, which leads to average execution time to be 0.1s/transient.  
 
     """
     
@@ -132,24 +194,19 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     if not os.path.isdir(get_par(set_bb.log_dir,tel)):
         os.makedirs(get_par(set_bb.log_dir,tel))
     
-    global q, logger, genlogfile
+    global q, genlogfile, logger
     q = Manager().Queue() #create queue for logging
-
-    genlog = logging.getLogger() #create logger
-    genlog.setLevel(logging.INFO) #set level of logger
-    formatter = logging.Formatter("%(asctime)s %(process)d %(levelname)s %(message)s") #set format of logger
-    logging.Formatter.converter = time.gmtime #convert time in logger to UCT
     genlogfile = '{}/{}_{}.log'.format(get_par(set_bb.log_dir,tel), tel,
                                        Time.now().strftime('%Y%m%d_%H%M%S'))
-    filehandler = logging.FileHandler(genlogfile, 'w+') #create log file
-    filehandler.setFormatter(formatter) #add format to log file
-    genlog.addHandler(filehandler) #link log file to logger
+    logger = create_log (genlogfile)
 
-    log_stream = StringIO() #create log stream for upload to slack
-    streamhandler_slack = logging.StreamHandler(log_stream) #add log stream to logger
-    streamhandler_slack.setFormatter(formatter) #add format to log stream
-    genlog.addHandler(streamhandler_slack) #link logger to log stream
-    logger = MyLogger(genlog,mode,log_stream,slack) #load logger handler
+    # leave slack logging for now
+    #log_stream = StringIO() #create log stream for upload to slack
+    #streamhandler_slack = logging.StreamHandler(log_stream) #add log stream to logger
+    #streamhandler_slack.setFormatter(formatter) #add format to log stream
+    #genlog.addHandler(streamhandler_slack) #link logger to log stream
+    #logger = MyLogger(genlog,mode,log_stream,slack) #load logger handler
+
 
     q.put(logger.info('processing in {} mode'.format(mode)))
     q.put(logger.info('log file: {}'.format(genlogfile)))
@@ -337,6 +394,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
         # was created yet; this is not done with pool of processes,
         # because it is not time-critical and takes 10GB of memory for
         # each set of 10 biases or flats
+        q.put(logger.info('preparing missing master frames'))
         create_masters ('bias')
         for filt in get_par(set_zogy.zp_default,tel).keys():
             create_masters ('flat', filt=filt)
@@ -401,13 +459,6 @@ def create_masters (imtype, filt=None, mdate=None):
         # if not, prepare it
         if not master_present:
             __ = master_prep (data_shape, path, date_eve, imtype, filt=filt)
-        else:
-            if imtype=='bias':
-                q.put(logger.info ('master {} for night {} already exists'
-                                   .format(imtype, date_eve)))
-            elif imtype=='flat':
-                q.put(logger.info ('master {} in filter {} for night {} already exists'
-                                   .format(imtype, filt, date_eve)))
                 
 
     return
@@ -447,11 +498,11 @@ def pool_func (func, filelist, *args):
             for arg in args:
                 args_temp.append(arg)
             results.append(pool.apply_async(func, args_temp))
-            #q.put(logger.info
+
         pool.close()
         pool.join()
         results = [r.get() for r in results]
-        q.put(logger.info('result from pool.apply_async: {}'.format(results)))
+        #q.put(logger.info('result from pool.apply_async: {}'.format(results)))
     except Exception as e:
         q.put(logger.info(traceback.format_exc()))
         q.put(logger.error('exception was raised during [pool.apply_async({})]: {}'
@@ -507,10 +558,11 @@ def fpack (filename):
 
     try:
     
-        # fits check if extension is .fits
-        if filename.split('.')[-1] == 'fits':
+        # fits check if extension is .fits and not an LDAC fits file
+        if filename.split('.')[-1] == 'fits' and '_ldac.fits' not in filename:
             header = read_hdulist(filename, get_data=False, get_header=True,
                                   ext_name_indices=0)
+
             # check if it is an image
             if header['NAXIS']==2:
                 # determine if integer or float image
@@ -529,11 +581,6 @@ def fpack (filename):
         q.put(logger.error('exception was raised in fpacking of image {} {}'
                            .format(filename,e)))
 
-    except Exception as e:
-        q.put(logger.info(traceback.format_exc()))
-        q.put(logger.error('exception was raised in fpacking of image {} {}'
-                           .format(filename,e)))
-                
 
 ################################################################################
 
@@ -564,7 +611,7 @@ def try_blackbox_reduce (filename):
 
     try:
         blackbox_reduce (filename)
-    except Exception:
+    except:
         raise WrapException()
         
     
@@ -1507,20 +1554,21 @@ def create_log (logfile):
     #filehandler.setFormatter(formatter) #add format to log file
     #log.addHandler(filehandler) #link log file to logger
 
+    log = logging.getLogger()
+    log.setLevel(logging.INFO)
     logFormatter = logging.Formatter('%(asctime)s.%(msecs)03d [%(levelname)s, %(process)s] '+
                                      '%(message)s [%(funcName)s, line %(lineno)d]',
                                      '%Y-%m-%dT%H:%M:%S')
     logging.Formatter.converter = time.gmtime #convert time in logger to UTC
-    log = logging.getLogger()
 
-    fileHandler = logging.FileHandler(logfile)
+    fileHandler = logging.FileHandler(logfile, 'w+')
     fileHandler.setFormatter(logFormatter)
     fileHandler.setLevel(logging.INFO)
     log.addHandler(fileHandler)
 
     streamHandler = logging.StreamHandler()
     streamHandler.setFormatter(logFormatter)
-    streamHandler.setLevel(logging.WARN)
+    streamHandler.setLevel(logging.WARNING)
     log.addHandler(streamHandler)
 
     return log
@@ -2117,6 +2165,7 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
                     # update correction factor
                     factor_chan[i] *= ratio
                     factor_chan[i+nx] *= ratio
+
 
                 # normalise corrected master to [flat_norm_sec] section
                 sec_temp = get_par(set_bb.flat_norm_sec,tel)
