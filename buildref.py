@@ -59,7 +59,7 @@ def buildref (telescope=None, date_start=None, date_end=None, field_ID=None,
         of reference images in blackbox, to avoid simultaneous
         fpacking of the same files)
 
-    (11) add buildref and set_buildref to singularity container
+    (12) check if flux scaling is ok; need to include airmass?
 
 
     Done:
@@ -123,6 +123,8 @@ def buildref (telescope=None, date_start=None, date_end=None, field_ID=None,
     (9) combine build_ref_MLBG and imcombine_MLBG into single module
         (buildref?) to be placed in ZOGY directory, and add its settings
         file (set_buildref?)
+
+    (11) add buildref and set_buildref to singularity container
 
     """
     
@@ -751,10 +753,16 @@ def imcombine (field_ID, imagelist, outputfile, combine_type, overwrite=True,
         keywords = ['naxis1', 'naxis2', 'ra', 'dec', 'pc-zp', 'pc-zpstd',
                     'airmass', 'pc-extco', 'gain', 'rdnoise', 'saturate',
                     'exptime', 'mjd-obs']
-        xsize, ysize, ra_temp, dec_temp, zp, zp_std, airmass, extco, gain, \
-            rdnoise, saturate, exptime, mjd_obs = read_header_alt (header,
-                                                                   keywords)
-
+        try:
+            xsize, ysize, ra_temp, dec_temp, zp, zp_std, airmass, extco, gain, \
+                rdnoise, saturate, exptime, mjd_obs = read_header_alt (header,
+                                                                       keywords)
+        except Exception as e:
+            log.warning('exception was raised when reading image header: {}'
+                        .format(e)) 
+            continue
+            
+            
         # determine weights image (1/variance) 
         # for Poisson noise component, use background image instead of
         # image itself:
@@ -942,7 +950,7 @@ def imcombine (field_ID, imagelist, outputfile, combine_type, overwrite=True,
            # GAIN_KEYWORD cannot be GAIN, as the value of GAIN1 is then adopted
            '-GAIN_KEYWORD', 'whatever',
            '-GAIN_DEFAULT', '1.0',
-           '-SATLEV_KEYWORD', key_satlevel,
+           '-SATLEV_KEYWORD', get_par(set_zogy.key_satlevel,tel),
            '-SUBTRACT_BACK', subtract_back_SWarp,
            '-BACK_TYPE', back_type_SWarp.upper(),
            '-BACK_DEFAULT', str(back_default),
