@@ -4,10 +4,10 @@
 #===============================================================================
 
 # number of processes to run in parallel
-nproc = 1
+nproc = 4
 # maximum number of threads for each process (this parameter
 # cannot be made telescope dependent through a dictionary!)
-nthread = 2
+nthread = 1
 
 #===============================================================================
 # Gain correction
@@ -43,7 +43,7 @@ keep_tmp = False
 # not in latest manual v2.21 (code is at v2.38):
 # CLIPPED, CHI-OLD, CHI-MODE, CHI-MEAN, WEIGHTED_WEIGHT, MEDIAN_WEIGHT,
 # AND, NAND, OR or NOR
-combine_type = 'weighted'
+combine_type = 'clipped'
 
 # sum of mask type integers (bad=1,..) to discard'
 masktype_discard = 49 # i.e. discard bad (1) + satellite (16) + edge (32)
@@ -51,7 +51,8 @@ masktype_discard = 49 # i.e. discard bad (1) + satellite (16) + edge (32)
 # centering method; options: 'grid', 'first', 'last', 'mean', 'median'
 center_type = 'grid'
 
-# background subtraction method; options: 'blackbox', 'auto'
+# background subtraction method; options: 'blackbox', 'auto',
+# 'manual', 'constant', 'none'
 back_type = 'blackbox'
 
 # background mesh size (pixels) used in case back_type is set to 'auto'
