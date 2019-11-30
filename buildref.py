@@ -12,8 +12,9 @@ from astropy.coordinates import Angle
 from astropy.stats import sigma_clipped_stats
 from astropy.wcs import WCS
 from astropy.io import ascii
-from astropy.table import Table
+from astropy.table import Table, vstack
 from scipy import ndimage, stats
+import fitsio
 
 import matplotlib.pyplot as plt
 
@@ -60,7 +61,7 @@ def buildref (telescope=None, date_start=None, date_end=None, field_ID=None,
         fpacking of the same files)
 
     (12) check if flux scaling is ok; need to include airmass?
-
+    
 
     Done:
     -----
@@ -126,6 +127,8 @@ def buildref (telescope=None, date_start=None, date_end=None, field_ID=None,
 
     (11) add buildref and set_buildref to singularity container
 
+    (13) switch from dfits to reading header using astropy
+
     """
     
 
@@ -149,22 +152,40 @@ def buildref (telescope=None, date_start=None, date_end=None, field_ID=None,
     q.put(genlog.info('number of processes: {}'.format(get_par(set_br.nproc,tel))))
     q.put(genlog.info('number of threads: {}'.format(get_par(set_br.nthread,tel))))
 
-    
-    # prepare a table with filenames and relevant header keywords
-    # convert dfits output to Table through temporary file
-    f = tempfile.NamedTemporaryFile()
-    #f = open('test.dat', 'w')
-    red_path = get_par(set_bb.red_dir,tel)
-    # use dfits for now, much faster than reading headers with python
-    cmd = 'dfits -x 1 {}/*/*/*/*_red.fits.fz | fitsort mjd-obs object filter qc-flag'.format(red_path)
-    if seeing_max is not None:
-        cmd += ' s-seeing'
 
-    call(cmd, shell=True, stdout=f)
-    table = Table.read(f.name, format='ascii')
-    f.close()
+    t0 = time.time()
     
-    q.put(genlog.info('total number of files: {}'.format(len(table))))
+
+    # prepare a table with filenames and relevant header keywords
+    red_path = get_par(set_bb.red_dir,tel)
+    filenames = glob.glob('{}/*/*/*/*_red.fits.fz'.format(red_path))
+    
+    # split into [nproc] lists
+    nfiles = len(filenames)
+    nproc = get_par(set_br.nproc,tel)
+    list_of_filelists = []
+    index = np.linspace(0,nfiles,num=nproc+1).astype(int)
+    for i in range(nproc):
+        list_of_filelists.append(filenames[index[i]:index[i+1]])
+        
+
+    # feed the lists that were created above to the multiprocessing
+    # helper function [pool_func_alt] that will arrange each
+    # process to call [header2table]
+    try:
+        results = pool_func_alt (header2table, list_of_filelists)
+        # stack separate tables in results
+        table = vstack(results)
+    except Exception as e:
+        q.put(genlog.error (traceback.format_exc()))
+        q.put(genlog.error ('exception was raised during [pool_func_alt]: {}'
+                            .format(e)))
+        raise RuntimeError
+
+
+    q.put(genlog.info('total number of files before cuts: {}'
+                      .format(len(table))))
+    q.put(genlog.info('file headers read in {:.2}s'.format(time.time()-t0)))
 
 
     # set start and end dates
@@ -193,12 +214,12 @@ def buildref (telescope=None, date_start=None, date_end=None, field_ID=None,
     mjd_now = int(Time.now().mjd) + 0.5
     mjd_start = set_date (date_start)
     mjd_end = set_date (date_end, start=False)
-
-
     # select relevant table entries
     mask = ((table['MJD-OBS'] >= mjd_start) & (table['MJD-OBS'] <= mjd_end))
     table = table[mask]
-
+    q.put(genlog.info('number of files left (date_start/end cut): {}'
+                      .format(len(table))))
+    
 
     # if object (field ID) is specified, which can include the unix
     # wildcards * and ?, select only images with a matching object
@@ -206,6 +227,8 @@ def buildref (telescope=None, date_start=None, date_end=None, field_ID=None,
     if field_ID is not None:
         mask = [fnmatch.fnmatch(str(obj), field_ID) for obj in table['OBJECT']]
         table = table[mask]
+        q.put(genlog.info('number of files left (FIELD_ID cut): {}'
+                          .format(len(table))))
 
 
     # if filter(s) is specified, select only images with filter(s)
@@ -214,26 +237,31 @@ def buildref (telescope=None, date_start=None, date_end=None, field_ID=None,
         #mask = [table['FILTER'][i] in filters for i in range(len(table))]
         mask = [filt in filters for filt in table['FILTER']]
         table = table[mask]
-
+        q.put(genlog.info('number of files left (FILTER cut): {}'
+                          .format(len(table))))
+        
         
     # if qc_flag_max is specified, select only images with QC-FLAG of
     # qc_flag_max and better
     if len(table)>0 and qc_flag_max is not None:
-        table['QC-FLAG-INT'] = 0
         qc_col = ['green', 'yellow', 'orange', 'red']
-        for i_col, col in enumerate(qc_col):
-            mask = (table['QC-FLAG'] == col)
-            table['QC-FLAG-INT'][mask] = i_col
-        mask = (table['QC-FLAG-INT'] <= qc_col.index(qc_flag_max.lower()))
+        # redefine qc_col up to and including qc_flag_max
+        qc_col = qc_col[0:qc_col.index(qc_flag_max)+1]
+        # strip table color from spaces
+        mask = [table['QC-FLAG'][i].strip() in qc_col for i in range(len(table))]
         table = table[mask]
-
+        q.put(genlog.info('number of files left (QC-FLAG cut): {}'
+                          .format(len(table))))
+        
 
     # if seeing_max is specified, select only images with the same or
     # better seeing
     if seeing_max is not None:
         mask = (table['S-SEEING'] <= seeing_max)
         table = table[mask]
-        
+        q.put(genlog.info('number of files left (SEEING cut): {}'
+                          .format(len(table))))
+
 
     # for table entries that have survived the cuts, prepare the list
     # of imagelists with the accompanying lists of field_IDs and
@@ -269,7 +297,7 @@ def buildref (telescope=None, date_start=None, date_end=None, field_ID=None,
         # the [imcombine] function 
         try:
             result = pool_func_alt (prep_ref, list_of_imagelists, obj_list,
-                                    filt_list)
+                                         filt_list)
         except Exception as e:
             q.put(genlog.error (traceback.format_exc()))
             q.put(genlog.error ('exception was raised during [pool_func_alt]: {}'
@@ -297,7 +325,9 @@ def pool_func_alt (func, list_of_imagelists, *args):
         pool.close()
         pool.join()
         results = [r.get() for r in results]
-        q.put(genlog.info('result from pool.apply_async: {}'.format(results)))
+        #q.put(genlog.info('result from pool.apply_async: {}'.format(results)))
+        return results
+        
     except Exception as e:
         q.put(genlog.info(traceback.format_exc()))
         q.put(genlog.error('exception was raised during [pool.apply_async({})]: {}'
@@ -307,9 +337,54 @@ def pool_func_alt (func, list_of_imagelists, *args):
 
 ################################################################################
 
+def header2table (filenames):
+
+    # initialize rows
+    rows = []
+
+    # keywords to add to table
+    keys = ['MJD-OBS', 'OBJECT', 'FILTER', 'QC-FLAG', 'S-SEEING']
+
+    # loop input list of filenames
+    for filename in filenames:
+
+        # read header; use fitsio as appears faster than astropy on
+        # linux
+        with fitsio.FITS(filename) as hdulist:
+            h = hdulist[-1].read_header()
+            
+        # check if all keywords present before appending to table
+        append = True
+        for key in keys:
+            if key not in h:
+                q.put(genlog.warning('keyword {} not in header; skipping image {}'
+                                     .format(key, filename)))
+                append = False
+                
+        if append:
+            # prepare row of filename and header values
+            row = [filename]
+            for key in keys:
+                row.append(h[key])
+            # append to rows
+            rows.append(row)
+
+
+    # create table from rows
+    names = ['FILE']
+    for key in keys:
+        names.append(key)
+        
+    table = Table(rows=rows, names=names,
+                  dtype=['S', float, int, 'S1', 'S6', float])
+
+    return table
+
+
+################################################################################
+
 def prep_ref (imagelist, field_ID, filt):
     
-
     # determine reference directory and file
     #ref_dir = '{}/{}/ref'.format(os.environ['DATAHOME'], tel)
     ref_path = '{}/{:05}'.format(get_par(set_bb.ref_dir,tel), field_ID)
@@ -440,12 +515,17 @@ def prep_ref (imagelist, field_ID, filt):
         center_type = get_par(set_br.center_type,tel)
         masktype_discard = get_par(set_br.masktype_discard,tel)
         
-        def help_imcombine (combine_type, back_type,
+        def help_imcombine (combine_type, back_type, back_default=0,
                             back_size=30, back_filtersize=5):
 
             if back_type == 'auto':
                 ext = '_{}_{}_{}_{}.fits'.format(combine_type, back_type,
-                                                     back_size, back_filtersize)
+                                                 back_size, back_filtersize)
+            elif back_type == 'manual':
+                ext = '_{}_{}_{}.fits'.format(combine_type, back_type,
+                                              back_default)
+            elif back_type == 'constant':
+                ext = '_{}_{}_clipmed.fits'.format(combine_type, back_type)
             else:
                 ext = '_{}_{}.fits'.format(combine_type, back_type)
 
@@ -456,9 +536,10 @@ def prep_ref (imagelist, field_ID, filt):
                        ref_fits_temp,
                        combine_type,
                        back_type=back_type,
+                       back_default=back_default,
                        back_size=back_size,
                        back_filtersize=back_filtersize,
-                       center_type=center_type, 
+                       center_type=center_type,
                        masktype_discard=masktype_discard,
                        tempdir=tmp_path,
                        remap_each=False,
@@ -469,15 +550,16 @@ def prep_ref (imagelist, field_ID, filt):
             # copy combined image to reference folder
             shutil.move (ref_fits_temp, ref_path)
 
-            
-        help_imcombine ('clipped', 'blackbox')
-        help_imcombine ('weighted', 'auto', back_size=60, back_filtersize=3)
-        help_imcombine ('weighted', 'auto', back_size=60, back_filtersize=5)
-        help_imcombine ('weighted', 'auto', back_size=120, back_filtersize=3)
-        help_imcombine ('weighted', 'auto', back_size=120, back_filtersize=5)
-        help_imcombine ('weighted', 'auto', back_size=240, back_filtersize=3)
 
-        
+        help_imcombine ('weighted', 'blackbox')
+        help_imcombine ('clipped', 'auto', back_size=60, back_filtersize=5)
+        help_imcombine ('clipped', 'auto', back_size=120, back_filtersize=5)
+        help_imcombine ('clipped', 'auto', back_size=240, back_filtersize=5)
+        help_imcombine ('clipped', 'auto', back_size=960, back_filtersize=5)
+        help_imcombine ('average', 'none')
+        help_imcombine ('clipped', 'constant')
+
+
 
     # delete [tmp_path] if [set_br.keep_tmp] not True
     if not get_par(set_br.keep_tmp,tel) and os.path.isdir(tmp_path):
@@ -758,11 +840,11 @@ def imcombine (field_ID, imagelist, outputfile, combine_type, overwrite=True,
                 rdnoise, saturate, exptime, mjd_obs = read_header_alt (header,
                                                                        keywords)
         except Exception as e:
-            log.warning('exception was raised when reading image header: {}'
-                        .format(e)) 
+            log.warning('exception was raised when reading header of image {}\n'
+                        'not using it in image combination'.format(image, e))
             continue
-            
-            
+
+        
         # determine weights image (1/variance) 
         # for Poisson noise component, use background image instead of
         # image itself:
@@ -852,6 +934,14 @@ def imcombine (field_ID, imagelist, outputfile, combine_type, overwrite=True,
             # of the combined image
             data[data_mask==mask_value['edge']] = 0
 
+        elif back_type == 'constant':
+            # subtract one single value from the image: clipped median
+            data_mean, data_median, data_std = sigma_clipped_stats (data)
+            data -= data_median
+            # make sure edge pixels are zero
+            data[data_mask==mask_value['edge']] = 0
+
+            
         image_temp = tempdir+'/'+image.split('/')[-1].replace('.fz','')
         fits.writeto(image_temp, data, header=header, overwrite=True)
         # add to array of names
@@ -922,7 +1012,7 @@ def imcombine (field_ID, imagelist, outputfile, combine_type, overwrite=True,
 
     # set background settings in SWarp; if input background option was
     # 'blackbox', the background was already subtracted from the image
-    if back_type == 'blackbox':
+    if back_type == 'blackbox' or back_type == 'constant' or back_type== 'none':
         subtract_back_SWarp = 'N'
         back_type_SWarp = 'manual'
     else:
