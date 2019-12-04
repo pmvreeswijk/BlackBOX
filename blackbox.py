@@ -52,7 +52,7 @@ tnow.ut1
 
 
 __version__ = '0.9.2'
-keywords_version = '0.9.1'
+keywords_version = '0.9.2'
 
 #def init(l):
 #    global lock
@@ -134,6 +134,20 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     (20) optimal vs. large aperture magnitudes shows discrepant values
          at the bright end; why?
 
+    (21) force orientation in thumbnail images to be North up East left
+
+    (22) limit PSFEx LDAC catalog to [psfex_nstars] random stars
+         obeying S/N constraints, such that ldac catalog has reasonable
+         size
+
+    (23) header of output catalog is much more complete than header of
+         reduced image; need to update the latter
+
+         related: qc-flags in reduced images not consistent with those
+         of catalog files, i.e. reduced images can have more severe flag
+         than catalog file; why?
+
+
     
     Done:
     -----
@@ -171,7 +185,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
            when the actual variance is used, rather than sky +                
            RON**2. Whenever the number of iterations is higher than about     
            100, the reduced chi2 is very large anyway, so reduced this number 
-           to 1000, which leads to average execution time to be 0.1s/transient.  
+           to 1000, which leads to average execution time to be 0.1s/transient.
 
     """
     
@@ -538,9 +552,11 @@ def prep_packlist (date):
         list_2pack.append(glob.glob('{}/*/*/*/bias/*.fits'.format(red_dir)))
         list_2pack.append(glob.glob('{}/*/*/*/flat/*.fits'.format(red_dir)))
 
+
+    # ref files will be fpacked by the reference building module
     # add ref files
-    ref_dir = get_par(set_bb.ref_dir,tel)
-    list_2pack.append(glob.glob('{}/*/*.fits'.format(ref_dir)))
+    #ref_dir = get_par(set_bb.ref_dir,tel)
+    #list_2pack.append(glob.glob('{}/*/*.fits'.format(ref_dir)))
     
     # flatten this list of files
     list_2pack = [item for sublist in list_2pack for item in sublist]
@@ -1307,6 +1323,11 @@ def blackbox_reduce (filename):
                     run_qc_check (header_optsub, tel, 'new', fits_tmp_cat, log=log)
                     run_qc_check (header_optsub, tel, 'trans', fits_tmp_trans, log=log)
 
+                else:
+                    # update catalog header with latest qc-flags
+                    with fits.open(fits_tmp_cat, 'update') as hdulist:
+                        hdulist[-1].header = header_optsub
+                    
 
         if get_par(set_zogy.timing,tel):
             log_timing_memory (t0=t_blackbox_reduce, label='blackbox_reduce',
@@ -1387,7 +1408,16 @@ def blackbox_reduce (filename):
                               '[optimal_subtraction]: making dummy catalogs')
                     run_qc_check (header_optsub, tel, 'new', fits_tmp_cat, log=log)
                     run_qc_check (header_optsub, tel, 'trans', fits_tmp_trans, log=log)
-                
+
+                else:
+                    # update catalog header with latest qc-flags
+                    with fits.open(fits_tmp_cat, 'update') as hdulist:
+                        hdulist[-1].header = header_optsub
+                    # same for transient catalog header
+                    with fits.open(fits_tmp_trans, 'update') as hdulist:
+                        hdulist[-1].header = header_optsub
+
+                    
 
         # update reduced image header with extended header from ZOGY [header_optsub]
         with fits.open(new_fits, 'update') as hdulist:
