@@ -145,7 +145,9 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
          related: qc-flags in reduced images not consistent with those
          of catalog files, i.e. reduced images can have more severe flag
-         than catalog file; why?
+         than catalog file; why? - is because qc-flags in catalog headers
+         were not updated after zogy run, so they still had the qc-flags
+         from at the start of zogy.
 
 
     
@@ -1329,6 +1331,11 @@ def blackbox_reduce (filename):
                         hdulist[-1].header = header_optsub
                     
 
+        # update reduced image header with extended header from ZOGY [header_optsub]
+        with fits.open(new_fits, 'update') as hdulist:
+            hdulist[0].header = header_optsub
+
+            
         if get_par(set_zogy.timing,tel):
             log_timing_memory (t0=t_blackbox_reduce, label='blackbox_reduce',
                                log=log)
@@ -1416,8 +1423,7 @@ def blackbox_reduce (filename):
                     # same for transient catalog header
                     with fits.open(fits_tmp_trans, 'update') as hdulist:
                         hdulist[-1].header = header_optsub
-
-                    
+            
 
         # update reduced image header with extended header from ZOGY [header_optsub]
         with fits.open(new_fits, 'update') as hdulist:
