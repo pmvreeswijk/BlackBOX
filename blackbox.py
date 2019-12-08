@@ -98,6 +98,16 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
       --> why is updated function get_back so much slower on mlcontrol
           machine vs. macbook?
 
+    (6) change output catalog column names from ALPHAWIN_J2000 and
+        DELTAWIN_J2000 to RA_ICRS and DEC_ICRS
+
+        in principle this has been changed, but not very elegantly:
+        these old column names are still used throughout the code and
+        only changed to the ICRS ones when writing the output catalogs.
+        Should really be changed right after SExtractor catalog was
+        produced.
+
+    
     (8) filter out transients that correspond to a negative spot in the
         new image
 
@@ -110,6 +120,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     (12) go through logs, look for errors and exceptions and fix them:
       
       --> moffat fit to objects near the edge
+      --> avoid dividing by zero in e.g. optimal flux functions
 
 
     (14) switch PSF fit to D and Moffat fit to D around; Moffat fit
@@ -149,6 +160,19 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          were not updated after zogy run, so they still had the qc-flags
          from at the start of zogy.
 
+    (24) airmass of combined reference image is off (and therefore
+         also the zeropoint) because zogy is calculating it using DATE-OBS
+         and RA,DEC, but DATE-OBS is an average time for the combined
+         reference; maybe AIRMASS keyword can be updated with average
+         airmass? Or .. since flux was scaled to airmass 1 (true?),
+         airmass keywords can be updated to that value?
+
+    (25) does nproc decrease when running pool_func a 2nd time?
+
+    (26) determine diagnostic map of the zeropoints across the field;
+         could produce this by averaging stars' zeropoints over boxes
+         and then interpolating them, similar to how background map is 
+         determined
 
     
     Done:
@@ -173,9 +197,6 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
         - seems to have gone away by going to python 3.7 (see also 9)
 
-    (6) change output catalog column names from ALPHAWIN_J2000 and
-        DELTAWIN_J2000 to RA_ICRS and DEC_ICRS
-    
     (7) change epoch in header from 2000 to 2015.5
 
     (9) go to python 3.7 on chopper; update singularity image
@@ -2502,7 +2523,7 @@ def set_header(header, filename):
     edit_head(header, 'ALTITUDE', comments='[deg] Altitude in horizontal coordinates')
     edit_head(header, 'AZIMUTH', comments='[deg] Azimuth in horizontal coordinates')
     edit_head(header, 'RADESYS', value='ICRS', comments='Coordinate reference frame')
-    edit_head(header, 'EPOCH', value='J2015.5', comments='Coordinate reference epoch')
+    edit_head(header, 'EPOCH', value='2015.5', comments='Coordinate reference epoch')
     
     # RA
     if 'RA' in header:
