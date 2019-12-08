@@ -2523,7 +2523,7 @@ def set_header(header, filename):
     edit_head(header, 'ALTITUDE', comments='[deg] Altitude in horizontal coordinates')
     edit_head(header, 'AZIMUTH', comments='[deg] Azimuth in horizontal coordinates')
     edit_head(header, 'RADESYS', value='ICRS', comments='Coordinate reference frame')
-    edit_head(header, 'EPOCH', value='2015.5', comments='Coordinate reference epoch')
+    edit_head(header, 'EPOCH', value=2015.5, comments='Coordinate reference epoch')
     
     # RA
     if 'RA' in header:
