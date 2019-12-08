@@ -1349,12 +1349,12 @@ def blackbox_reduce (filename):
                 else:
                     # update catalog header with latest qc-flags
                     with fits.open(fits_tmp_cat, 'update') as hdulist:
-                        hdulist[-1].header = header_optsub
+                        hdulist[-1].header += header_optsub
                     
 
         # update reduced image header with extended header from ZOGY [header_optsub]
         with fits.open(new_fits, 'update') as hdulist:
-            hdulist[0].header = header_optsub
+            hdulist[0].header += header_optsub
 
             
         if get_par(set_zogy.timing,tel):
@@ -1439,16 +1439,16 @@ def blackbox_reduce (filename):
 
                 else:
                     # update catalog header with latest qc-flags
-                    with fits.open(fits_tmp_cat, 'update') as hdulist:
-                        hdulist[-1].header = header_optsub
+                    with fits.open(fits_tmp_cat, 'update') as hdulist:                        
+                        hdulist[-1].header += header_optsub
                     # same for transient catalog header
                     with fits.open(fits_tmp_trans, 'update') as hdulist:
-                        hdulist[-1].header = header_optsub
+                        hdulist[-1].header += header_optsub
             
 
         # update reduced image header with extended header from ZOGY [header_optsub]
         with fits.open(new_fits, 'update') as hdulist:
-            hdulist[0].header = header_optsub
+            hdulist[0].header += header_optsub
         
                     
         if get_par(set_zogy.timing,tel):
