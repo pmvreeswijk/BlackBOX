@@ -60,7 +60,6 @@ def buildref (telescope=None, date_start=None, date_end=None, field_ID=None,
          background image not present), prevent imcombine from
          stopping
 
-
     Done:
     -----
 
@@ -194,6 +193,13 @@ def buildref (telescope=None, date_start=None, date_end=None, field_ID=None,
          reduced images were not updated if there was a red flag inside
          ZOGY; moreover, the headers of the catalogs were also not updated
          with the flags occurring inside ZOGY; fixed in v0.9.2.
+
+    (17) add two settings parameters that determine the subset of
+         images in case of (too) many images of the same field
+         in the same filter:
+         - number of best images to select
+         - header keyword on which to sort the best images, e.g.
+           LIMMAG or S-SEEING
 
     """
     
@@ -360,16 +366,46 @@ def buildref (telescope=None, date_start=None, date_end=None, field_ID=None,
     filt_list = []
     for obj in objs_uniq:
     
-        if int(obj) == 0:
+        # skip fields '00000' and those beyond 20,000
+        if int(obj) == 0 or int(obj) >= 20000:
             continue
 
         for filt in filts_uniq:
             mask = ((table['OBJECT'] == obj) & (table['FILTER'] == filt))
-            if np.sum(mask) > 1:
+            ntrue = np.sum(mask)
+            if ntrue > 1:
+                nmax = get_par(set_br.subset_nmax,tel)
+                if ntrue > nmax:
+                    # more images available than [set_br.subset_nmax];
+                    # select subset of images, sorted by header
+                    # keyword also defined in settings file
+                    key_sort = get_par(set_br.subset_key,tel)
+                    indices_sort = np.argsort(table[key_sort][mask])
+                    # reverse indices if high end values should be
+                    # included
+                    if not get_par(set_br.subset_lowend,tel):
+                        indices_sort = indices_sort[::-1]
+                    # threshold value
+                    threshold = table[key_sort][mask][indices_sort[nmax]]
+                    print ('threshold: {}'.format(threshold))
+                    # update mask
+                    if get_par(set_br.subset_lowend,tel):
+                        mask &= (table[key_sort] < threshold)
+                    else:
+                        mask &= (table[key_sort] > threshold)
+                    q.put(genlog.info ('selected following subset of {} images '
+                                       'for field_ID {}, filter: {}, based on '
+                                       'header keyword: {}:\n{}'
+                                       .format(nmax, obj, filt, key_sort,
+                                               table[mask])))
+                    
+                # add this set of images with their field_ID and
+                # filter to the lists of images, field_IDs and filters
+                # to be processed
                 list_of_imagelists.append(list(table['FILE'][mask]))
                 obj_list.append(table['OBJECT'][mask][0])
                 filt_list.append(table['FILTER'][mask][0])
-
+                
 
     if len(table)==0:
         q.put(genlog.warning ('zero field IDs with sufficient number of '
@@ -526,7 +562,9 @@ def header2table (filenames):
     rows = []
 
     # keywords to add to table
-    keys = ['MJD-OBS', 'OBJECT', 'FILTER', 'QC-FLAG']
+    keys = ['MJD-OBS', 'OBJECT', 'FILTER', 'QC-FLAG',
+            # add keyword that is sorted on if many images are available
+            get_par(set_br.subset_key,tel)]
     if max_seeing is not None:
         keys.append('S-SEEING')
 
@@ -598,7 +636,7 @@ def header2table (filenames):
     for key in keys:
         names.append(key)
 
-    dtypes = ['S', float, int, 'S1', 'S6']
+    dtypes = ['S', float, int, 'S1', 'S6', float]
     if max_seeing is not None:
         dtypes.append(float)
 
@@ -1116,9 +1154,11 @@ def imcombine (field_ID, imagelist, outputfile, combine_type, overwrite=True,
         data, header = read_hdulist(image, get_header=True)
 
         # if set_br.tune_gain switch is set to True, apply gain
-        # correction factors inferred from master flat
-        if get_par(set_br.tune_gain,tel):
-            data = tune_gain (data, header)
+        # correction factors inferred from master flat - switched
+        # this off as the images have already been corrected
+        # for this additional gain factor by flatfielding
+        #if get_par(set_br.tune_gain,tel):
+        #    data = tune_gain (data, header)
             
         # read corresponding mask image
         image_mask = image.replace('red.fits', 'mask.fits')
@@ -1471,7 +1511,7 @@ def imcombine (field_ID, imagelist, outputfile, combine_type, overwrite=True,
     
     val_str = '[{},{}]'.format(start_date, end_date)
     header_out['R-TRANGE'] = (val_str,
-                              '[days] use images <= these limits of R-TSTART')
+                              '[date/days] use images <= these limits of R-TSTART')
     
     header_out['R-QCMAX'] = (max_qc_flag, 'use images <= this QC flag')
     

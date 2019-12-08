@@ -4,17 +4,10 @@
 #===============================================================================
 
 # number of processes to run in parallel
-nproc = 4
+nproc = 2
 # maximum number of threads for each process (this parameter
 # cannot be made telescope dependent through a dictionary!)
 nthread = 1
-
-#===============================================================================
-# Gain correction
-#===============================================================================
-
-# apply gain fine-tuning inferred from master flat
-tune_gain = False
 
 #===============================================================================
 # Directory structure and files to keep
@@ -60,3 +53,17 @@ back_size = 120
 
 # size (in background meshes) of the background-filtering mask
 back_filtersize = 3
+
+#===============================================================================
+# Select subset to combine in case of many images of the same field/filter
+#===============================================================================
+
+# maximum number of images to combine
+subset_nmax = 10
+# header keyword on which to sort if number of images exceeds
+# [subset_max]; N.B.: keyword value needs to be an integer or float in
+# order to be able to sort
+subset_key = 'LIMMAG'
+# include low end (True) or high end (False) of keyword values?; True for
+# e.g. S-SEEING, but False for e.g. LIMMAG
+subset_lowend = False
