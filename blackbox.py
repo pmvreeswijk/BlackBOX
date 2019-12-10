@@ -417,7 +417,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
 
     if get_par(set_zogy.timing,tel):
-        log_timing_memory (t0=t_run_blackbox, label='run_blackbox before fpacking', log=genlog)
+        log_timing_memory (t0=t_run_blackbox, label='run_blackbox before fpacking', log=logger)
         
 
     # do not execute rest of [run_blackbox] if single image was
@@ -450,7 +450,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
         if get_par(set_zogy.timing,tel):
             log_timing_memory (t0=t_run_blackbox, label='run_blackbox after fpacking', 
-                               log=genlog)
+                               log=logger)
 
 
     logging.shutdown()
@@ -1349,12 +1349,15 @@ def blackbox_reduce (filename):
                 else:
                     # update catalog header with latest qc-flags
                     with fits.open(fits_tmp_cat, 'update') as hdulist:
-                        hdulist[-1].header += header_optsub
-                    
+                        for key in header_optsub:
+                            if 'QC' in key:
+                                hdulist[-1].header[key] = (header_optsub[key],
+                                                           header.comments[key])
+
 
         # update reduced image header with extended header from ZOGY [header_optsub]
         with fits.open(new_fits, 'update') as hdulist:
-            hdulist[0].header += header_optsub
+            hdulist[0].header = header_optsub
 
             
         if get_par(set_zogy.timing,tel):
@@ -1439,16 +1442,22 @@ def blackbox_reduce (filename):
 
                 else:
                     # update catalog header with latest qc-flags
-                    with fits.open(fits_tmp_cat, 'update') as hdulist:                        
-                        hdulist[-1].header += header_optsub
+                    with fits.open(fits_tmp_cat, 'update') as hdulist:
+                        for key in header_optsub:
+                            if 'QC' in key:
+                                hdulist[-1].header[key] = (header_optsub[key],
+                                                           header.comments[key])
                     # same for transient catalog header
                     with fits.open(fits_tmp_trans, 'update') as hdulist:
-                        hdulist[-1].header += header_optsub
+                        for key in header_optsub:
+                            if 'QC' in key:
+                                hdulist[-1].header[key] = (header_optsub[key],
+                                                           header.comments[key])
             
 
         # update reduced image header with extended header from ZOGY [header_optsub]
         with fits.open(new_fits, 'update') as hdulist:
-            hdulist[0].header += header_optsub
+            hdulist[0].header = header_optsub
         
                     
         if get_par(set_zogy.timing,tel):
