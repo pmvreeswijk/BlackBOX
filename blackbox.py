@@ -1351,8 +1351,8 @@ def blackbox_reduce (filename):
                     with fits.open(fits_tmp_cat, 'update') as hdulist:
                         for key in header_optsub:
                             if 'QC' in key:
-                                hdulist[-1].header[key] = (header_optsub[key],
-                                                           header.comments[key])
+                                hdulist[-1].header[key] = (
+                                    header_optsub[key], header_optsub.comments[key])
 
 
         # update reduced image header with extended header from ZOGY [header_optsub]
@@ -1445,15 +1445,15 @@ def blackbox_reduce (filename):
                     with fits.open(fits_tmp_cat, 'update') as hdulist:
                         for key in header_optsub:
                             if 'QC' in key:
-                                hdulist[-1].header[key] = (header_optsub[key],
-                                                           header.comments[key])
+                                hdulist[-1].header[key] = (
+                                    header_optsub[key], header_optsub.comments[key])
                     # same for transient catalog header
                     with fits.open(fits_tmp_trans, 'update') as hdulist:
                         for key in header_optsub:
                             if 'QC' in key:
-                                hdulist[-1].header[key] = (header_optsub[key],
-                                                           header.comments[key])
-            
+                                hdulist[-1].header[key] = (
+                                    header_optsub[key], header_optsub.comments[key])
+
 
         # update reduced image header with extended header from ZOGY [header_optsub]
         with fits.open(new_fits, 'update') as hdulist:
