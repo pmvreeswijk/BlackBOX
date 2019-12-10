@@ -509,7 +509,7 @@ def pool_func_copy (func, filelist, *args):
 
     try:
         results = []
-        pool = Pool(get_par(set_bb.nproc,tel))
+        pool = Pool(get_par(set_br.nproc,tel))
         for filename in filelist:
             args_temp = [filename]
             for arg in args:
