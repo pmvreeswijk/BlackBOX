@@ -2035,7 +2035,7 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
             if imtype=='bias':
                 q.put(logger.info ('making master {} for night {}'.format(imtype, date_eve)))
                 if not get_par(set_bb.subtract_mbias,tel):
-                    q.put(logger.info ('(but will not be used as [subtract_mbias] '
+                    q.put(logger.info ('(but will not be applied to input image as [subtract_mbias] '
                                        'is set to False)'))
             if imtype=='flat':
                 q.put(logger.info ('making master {} in filter {} for night {}'
