@@ -13,6 +13,5 @@ setup(
                       'lmfit', 'sip_tpv', 'scikit-image',
                       # dependencies above: zogy
                       # dependencies below: blackbox
-                      'astroscrappy', 'acstools', 'ephem', 'watchdog',
-                      'fitsio']
+                      'astroscrappy', 'acstools', 'ephem', 'watchdog']
 )
