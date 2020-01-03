@@ -1,29 +1,17 @@
 
-import argparse, os, shutil, glob, re, fnmatch
-from subprocess import call
-import time, logging, tempfile
+from zogy import *
+
+import re, fnmatch
 from itertools import chain
 
-import numpy as np
-import astropy.io.fits as fits
-from astropy.wcs import WCS
-from astropy.time import Time
-from astropy import units as u
 from astropy.coordinates import Angle
-from astropy.stats import sigma_clipped_stats
-from astropy.wcs import WCS
-from astropy.io import ascii
-from astropy.table import Table, vstack
-from scipy import ndimage, stats
+from astropy.table import vstack
 import fitsio
-
-import matplotlib.pyplot as plt
 
 from multiprocessing import Pool, Manager, Lock, Queue, Array
 
 import aplpy
 
-from zogy import *
 from blackbox import date2mjd, str2bool, unzip
 from blackbox import get_par, already_exists, copy_files2keep
 from blackbox import create_log, define_sections, fpack
@@ -456,7 +444,7 @@ def buildref (telescope=None, date_start=None, date_end=None, field_ID=None,
     list_2pack = []
     for field_ID in objs_uniq:
         ref_path = '{}/{:05}'.format(ref_dir, field_ID)
-        ref_path = '{}_alt2'.format(ref_path)
+        ref_path = '{}_alt'.format(ref_path)
         list_2pack.append(glob.glob('{}/*.fits'.format(ref_path)))
 
     # unnest nested list_2pack
@@ -658,7 +646,7 @@ def prep_colfig (field_ID, filters):
     ref_path = '{}/{:05}'.format(get_par(set_bb.ref_dir,tel), field_ID)
     # for the moment, add _alt to this path to separate it from
     # existing reference images
-    ref_path = '{}_alt2'.format(ref_path)
+    ref_path = '{}_alt'.format(ref_path)
 
     # header keyword to use for scaling (e.g. PC-ZP or LIMMAG)
     key = 'LIMMAG'
@@ -727,7 +715,7 @@ def prep_ref (imagelist, field_ID, filt):
     ref_path = '{}/{:05}'.format(get_par(set_bb.ref_dir,tel), field_ID)
     # for the moment, add _alt to this path to separate it from
     # existing reference images
-    ref_path = '{}_alt2'.format(ref_path)
+    ref_path = '{}_alt'.format(ref_path)
     
     make_dir (ref_path)
     ref_fits_out = '{}/{}_{}_red.fits'.format(ref_path, tel, filt)
@@ -769,7 +757,7 @@ def prep_ref (imagelist, field_ID, filt):
     # prepare temporary folder
     # for the moment, add _alt to this path to separate it from
     # existing reference images
-    tmp_path = '{}/{:05}_alt2/{}'.format(get_par(set_bb.tmp_dir,tel), field_ID,
+    tmp_path = '{}/{:05}_alt/{}'.format(get_par(set_bb.tmp_dir,tel), field_ID,
                                     ref_fits_out.split('/')[-1].replace('.fits',''))
     make_dir (tmp_path, empty=True)
     
@@ -903,14 +891,15 @@ def prep_ref (imagelist, field_ID, filt):
             # copy combined image to reference folder
             shutil.move (ref_fits_temp, ref_path)
 
-
-        help_imcombine ('weighted', 'blackbox')
-        help_imcombine ('clipped', 'auto', back_size=60, back_filtersize=5)
-        help_imcombine ('clipped', 'auto', back_size=120, back_filtersize=5)
-        help_imcombine ('clipped', 'auto', back_size=240, back_filtersize=5)
-        help_imcombine ('clipped', 'auto', back_size=960, back_filtersize=5)
-        help_imcombine ('average', 'none')
-        help_imcombine ('clipped', 'constant')
+            
+        if False:
+            help_imcombine ('weighted', 'blackbox')
+            help_imcombine ('clipped', 'auto', back_size=60, back_filtersize=5)
+            help_imcombine ('clipped', 'auto', back_size=120, back_filtersize=5)
+            help_imcombine ('clipped', 'auto', back_size=240, back_filtersize=5)
+            help_imcombine ('clipped', 'auto', back_size=960, back_filtersize=5)
+            help_imcombine ('average', 'none')
+            help_imcombine ('clipped', 'constant')
 
 
 
@@ -1079,17 +1068,17 @@ def imcombine (field_ID, imagelist, outputfile, combine_type, overwrite=True,
             if os.listdir(tempdir):
                 log.info ('cleaning temporary directory {}'.format(tempdir))
                 cmd = 'rm {}/*'.format(tempdir)
-                result = call(cmd, shell=True)
+                result = subprocess.call(cmd, shell=True)
         else:
             cmd = ['mkdir','{}'.format(tempdir)]
-            result = call(cmd)
+            result = subprocess.call(cmd)
 
 
     # if SWarp configuration file does not exist, create default one in [tempdir]
     if swarp_cfg is None:
         swarp_cfg = tempdir+'/swarp.config'
         cmd = 'swarp -d > {}'.format(swarp_cfg)
-        result = call(cmd, shell=True)
+        result = subprocess.call(cmd, shell=True)
     else:
         if not os.path.isfile(swarp_cfg):
             raise IOError ('file {} does not exist'.format(swarp_cfg))
@@ -1444,7 +1433,7 @@ def imcombine (field_ID, imagelist, outputfile, combine_type, overwrite=True,
 
     cmd_str = ' '.join(cmd)
     log.info ('executing SWarp command:\n{}'.format(cmd_str))
-    result = call(cmd)
+    result = subprocess.call(cmd)
         
     # update header of outputfile
     data_out, header_out = read_hdulist(outputfile, get_header=True)
@@ -2020,7 +2009,7 @@ def buildref_optimal(imagelist):
         
     # and display
     cmd = ['ds9', '-zscale', 'R.fits', 'PR.fits', 'swarp_combined.fits']
-    result = call(cmd)
+    result = subprocess.call(cmd)
     
 
 ################################################################################
@@ -2279,7 +2268,7 @@ def run_psfex_adapted (cat_in, file_config, cat_out):
     # run psfex from the unix command line
     cmd = ['psfex', cat_in, '-c', file_config,'-OUTCAT_NAME', cat_out,
            '-PSF_SIZE', psf_size_config, '-PSF_SAMPLING', str(psf_sampling)]
-    result = call(cmd)    
+    result = subprocess.call(cmd)    
 
     if timing: print ('wall-time spent in run_psfex', time.time()-t)
     
@@ -2360,9 +2349,11 @@ if __name__ == "__main__":
     parser.add_argument('--seeing_max', type=float, default=None,
                         help='[arcsec] maximum seeing to consider')
     parser.add_argument('--make_colfig', type=str2bool, default=False,
-                        help='make color figures from uqi filters?')
+                        help='make color figures from uqi filters?; '
+                        'default=False')
     parser.add_argument('--filters_colfig', type=str, default='iqu',
-                        help='set of 3 filters to use for RGB color figures')
+                        help='set of 3 filters to use for RGB color figures; '
+                        'default=\'uqi\'')
 
     
     
