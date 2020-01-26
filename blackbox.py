@@ -76,21 +76,11 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     To do (for both blackbox.py and zogy.py):
     -----------------------------------------
 
-    (1) add reference image building module
-
-      --> probably best to merge imcombine_MLBG and build_ref_MLBG into one
-          single module, that also has a settings file
-
-      --> add possibility in zogy for input images to have zero background
-          through header keyword BKG-SUB with boolean value. This needs   
-          updating in function run_sextractor, running SExtractor with    
-          BACK_TYPE MANUAL and BACK_VALUE 0.0 if BKG-SUB==T(rue) and      
-          skipping the additional function get_back.                      
-    
     (3) map out and, if possible, decrease the memory consumption of
         blackbox and zogy
 
-    (4) in night mode, only images already present are processed
+    (4) in night mode, issue that only images already present are
+        processed
 
     (5) improve processing speed of background subtraction and other
         parts in the code where for-loops can be avoided
@@ -109,7 +99,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
     
     (8) filter out transients that correspond to a negative spot in the
-        new image
+        new or ref image
 
     (10) check if SExtractor background is manual or global and 
         has any influence on detections
@@ -122,14 +112,11 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
       --> moffat fit to objects near the edge
       --> avoid dividing by zero in e.g. optimal flux functions
 
-
-    (14) switch PSF fit to D and Moffat fit to D around; Moffat fit
-         appears to be much faster, and will decrease the number of 
-         transients to be fit in PSF fit to D
-
     (15) if too many transient regions are found, leave function        
          [get_trans] immediately as it takes very long to do the fits to
-         1000s of transients                                            
+         1000s of transients. Probably easier to check number of 
+         transients just before [get_trans] and flag red if more than
+         e.g. 1000.
 
     (16) speed up psfex by providing a limited random sample of good
          PSF stars, e.g. 1000, rather than all; needs to be random
@@ -140,7 +127,8 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     (18) replace string '+' concatenations with formats
     
     (19) make log input in functions optional through log=None, so that
-         they can be easily used by modules outside of blackbox/zogy
+         they can be easily used by modules outside of blackbox/zogy.
+         Maybe do the same for other parameters such as telescope.
 
     (20) optimal vs. large aperture magnitudes shows discrepant values
          at the bright end; why?
@@ -174,7 +162,47 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          and then interpolating them, similar to how background map is 
          determined
 
+    (27) number of initials SExtractor detections (S-NOBJ) not the same
+         as final number of objects in output catalog (5 sigma); maybe
+         add keyword that indicates the latter number
+
+    (28) flatfields regularly show a gradient diagonally across the image,
+         increasing from lower left to top right, and these flats are
+         not flagged red yet at the moment. Should include a parameter
+         in the header to check. Easiest option is to use the keyword
+         already present in the header: FLATRSTD, which is higher than
+         0.03-0.07 when things go wrong. Or the ratio of the median levels
+         of the 1st and last channel: FLATM1 / FLATM16. Related to this
+         is how to pick up condensation. Would need a finer grid (4x4
+         and one central square) than the channels to be able to pick that 
+         up using deviation from the average channel values. Rebin the
+         image and use statistics to discard a particular flat? See
+         ~/Python/BlackGEM/test_bin2D.py
+
+    (29) need way to avoid running SExtractor on edges of images; for 
+         MeerLICHT, edges are zeroed in BlackBOX
+
+    (30) if mask is provided, but saturation is not included (e.g. in case
+         only a bad pixel mask is provided), the saturated and 
+         saturated-connected pixels should be added to the mask 
     
+    (31) when processing WHT/ACAM image, import WCS calibration header 
+         keywords such as CRVAL?, CRPIX?, CD_??, are not overwritten 
+         by the new WCS solution. Why not? Maybe easiest solution is to
+         delete these header keywords when new WCS is needed.
+
+    (32) add sensor header keywords to reduced data, even if they don't 
+         exist yet in the raw image header, such as keywords from Cryostat 
+         and CompactRIO.
+
+    (33) check out new source-extractor; new capabilities or
+         signficiant improvements? Different parameters (cf. J2000 ->
+         ICRS)? On mac os and macports, it is not possible anymore to
+         install the old version 2.19.5, as it is considered obsolete; how
+         about Ubuntu?
+    
+
+
     Done:
     -----
 
@@ -193,6 +221,15 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
           zero background and also the read noise varies from channel to 
           channel, so scatter is probably more accurate. 
 
+      --> probably best to merge imcombine_MLBG and build_ref_MLBG into one
+          single module, that also has a settings file
+
+      --> add possibility in zogy for input images to have zero background
+          through header keyword BKG-SUB with boolean value. This needs   
+          updating in function run_sextractor, running SExtractor with    
+          BACK_TYPE MANUAL and BACK_VALUE 0.0 if BKG-SUB==T(rue) and      
+          skipping the additional function get_back.                      
+    
     (2) determine reason for stalls that Danielle encounters
 
         - seems to have gone away by going to python 3.7 (see also 9)
@@ -205,10 +242,19 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          
          - often a fit with use_bkg_var=True reaches the maximum number of    
            iterations (10,000, taking 3s), probably due to the higher error   
-           when the actual variance is used, rather than sky +                
-           RON**2. Whenever the number of iterations is higher than about     
-           100, the reduced chi2 is very large anyway, so reduced this number 
-           to 1000, which leads to average execution time to be 0.1s/transient.
+           when the actual variance rather than sky + RON**2 is used. Whenever 
+           the number of iterations is higher than about 100, the reduced chi2 
+           is very large anyway, so reduced this number to 1000, which leads to 
+           average execution time to be 0.1s/transient.
+
+    (14) switch around PSF fit to D and Moffat fit to D; Moffat fit
+         appears to be much faster, and will decrease the number of 
+         transients to be fit in PSF fit to D; on 2nd thought, the 
+         current chi2 threshold for the Moffat fit is very high, so
+         few transients will be discarded by it at the moment. Also,
+         Moffat fits are less robust than the PSF fit, so cannot use
+         it reliably to discard transients.
+
 
     """
     
@@ -988,7 +1034,7 @@ def blackbox_reduce (filename):
     try: 
         log.info('correcting for the overscan')
         os_processed = False
-        data = os_corr(data, header, imgtype)
+        data = os_corr(data, header, imgtype, log=log)
     except Exception as e:
         q.put(logger.info(traceback.format_exc()))
         q.put(logger.error('exception was raised during [os_corr]: {}'.format(e)))
@@ -2818,7 +2864,7 @@ def set_header(header, filename):
 
 ################################################################################
 
-def define_sections (data_shape):
+def define_sections (data_shape, tel='ML1'):
 
     """Function that defines and returns [chan_sec], [data_sec],
     [os_sec_hori], [os_sec_vert] and [data_sec_red], based on the
@@ -2886,7 +2932,7 @@ def define_sections (data_shape):
 
 ################################################################################
 
-def os_corr(data, header, imgtype):
+def os_corr(data, header, imgtype, tel='ML1', log=None):
 
     """Function that corrects [data] for the overscan signal in the
        vertical and horizontal overscan strips. The definitions of the
@@ -2957,9 +3003,10 @@ def os_corr(data, header, imgtype):
         try:
             p = np.polyfit(y_vos, mean_vos_col, vos_poldeg)
         except Exception as e:
-            log.info(traceback.format_exc())
-            log.info('exception was raised during polynomial fit to channel {} '
-                     'vertical overscan'.format(i_chan))
+            if log is not None:
+                log.info(traceback.format_exc())
+                log.info('exception was raised during polynomial fit to channel {} '
+                         'vertical overscan'.format(i_chan))
 
         # add fit coefficients to image header
         for nc in range(len(p)):
@@ -3086,9 +3133,10 @@ def os_corr(data, header, imgtype):
         header['FLATMED'] = (median, '[e-] median flat')
         header['FLATSTD'] = (std, '[e-] sigma (STD) flat')
 
-    
-    if get_par(set_zogy.timing,tel):
-        log_timing_memory (t0=t, label='os_corr', log=log)
+
+    if log is not None:
+        if get_par(set_zogy.timing,tel):
+            log_timing_memory (t0=t, label='os_corr', log=log)
 
     return data_out
 
