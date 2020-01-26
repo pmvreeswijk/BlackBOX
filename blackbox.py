@@ -2395,7 +2395,7 @@ def check_header1 (header, filename):
     for key in ['IMAGETYP', 'DATE-OBS', 'FILTER']:
         if key not in header:
             q.put(logger.error('crucial keyword {} not present in header; '
-                               'not processing {}'.format(filename)))
+                               'not processing {}'.format(key, filename)))
             header_ok = False
             # return immediately in this case so that presence of 
             # IMAGETYP does not need to be checked below
@@ -2444,7 +2444,7 @@ def check_header1 (header, filename):
         if imgtype=='object':
             if key not in header:
                 q.put(logger.error('crucial keyword {} not present in header; '
-                                   'not processing {}'.format(filename)))
+                                   'not processing {}'.format(key, filename)))
                 header_ok = False
                 return header_ok
             
