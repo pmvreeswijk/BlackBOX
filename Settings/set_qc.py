@@ -257,6 +257,22 @@ qc_range = {
         'T-LFLUX':  {'default':'None', 'val_type': 'skip',  'val_range': None, 'cat_type': 'trans', 'comment': '[e-/s] full-frame transient [T-NSIGMA]-sigma limit. flux'},
         #
         
+    },
+
+    'BG2': {
+        # general
+        'N-INFNAN': {'default':'None', 'val_type': 'min_max', 'val_range': [ (0,0), (1,10), (11,1e6) ], 'cat_type': 'all', 'comment': 'number of pixels with infinite/nan values'},
+    },
+
+    'BG3': {
+        # general
+        'N-INFNAN': {'default':'None', 'val_type': 'min_max', 'val_range': [ (0,0), (1,10), (11,1e6) ], 'cat_type': 'all', 'comment': 'number of pixels with infinite/nan values'},
+    },
+
+    'BG4': {
+        # general
+        'N-INFNAN': {'default':'None', 'val_type': 'min_max', 'val_range': [ (0,0), (1,10), (11,1e6) ], 'cat_type': 'all', 'comment': 'number of pixels with infinite/nan values'},
     }
+
 }
 
