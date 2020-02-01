@@ -1034,7 +1034,7 @@ def blackbox_reduce (filename):
     try: 
         log.info('correcting for the overscan')
         os_processed = False
-        data = os_corr(data, header, imgtype, log=log)
+        data = os_corr(data, header, imgtype, tel=tel, log=log)
     except Exception as e:
         q.put(logger.info(traceback.format_exc()))
         q.put(logger.error('exception was raised during [os_corr]: {}'.format(e)))
@@ -1558,7 +1558,7 @@ def get_flatstats (data, header):
     
     # add the channel median level to the flatfield header
     chan_sec, data_sec, os_sec_hori, os_sec_vert, data_sec_red = (
-        define_sections(np.shape(data)))
+        define_sections(np.shape(data), tel=tel))
     nchans = np.shape(data_sec)[0]
     
     for i_chan in range(nchans):
@@ -2225,7 +2225,7 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
                 # appears smooth without any jumps in levels 
                 # between the different channels
 
-                __, __, __, __, data_sec_red = define_sections(data_shape)
+                __, __, __, __, data_sec_red = define_sections(data_shape, tel=tel)
                 nchans = np.shape(data_sec_red)[0]
                 med_chan_cntr = np.zeros(nchans)
                 std_chan_cntr = np.zeros(nchans)
@@ -2301,7 +2301,7 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
 
                 # including the means and standard deviations of the master
                 # bias in the separate channels
-                __, __, __, __, data_sec_red = define_sections(data_shape)
+                __, __, __, __, data_sec_red = define_sections(data_shape, tel=tel)
                 nchans = np.shape(data_sec_red)[0]
                 mean_chan = np.zeros(nchans)
                 std_chan = np.zeros(nchans)
@@ -2864,7 +2864,7 @@ def set_header(header, filename):
 
 ################################################################################
 
-def define_sections (data_shape, tel='ML1'):
+def define_sections (data_shape, tel=None):
 
     """Function that defines and returns [chan_sec], [data_sec],
     [os_sec_hori], [os_sec_vert] and [data_sec_red], based on the
@@ -2932,7 +2932,7 @@ def define_sections (data_shape, tel='ML1'):
 
 ################################################################################
 
-def os_corr(data, header, imgtype, tel='ML1', log=None):
+def os_corr(data, header, imgtype, tel=None, log=None):
 
     """Function that corrects [data] for the overscan signal in the
        vertical and horizontal overscan strips. The definitions of the
@@ -2947,7 +2947,7 @@ def os_corr(data, header, imgtype, tel='ML1', log=None):
         t = time.time()
 
     chan_sec, data_sec, os_sec_hori, os_sec_vert, data_sec_red = (
-        define_sections(np.shape(data)))
+        define_sections(np.shape(data), tel=tel))
         
     # use median box filter with width [dcol] to decrease the noise
     # level in the overscan column's clipped mean for the horizontal
@@ -3155,7 +3155,7 @@ def xtalk_corr (data, crosstalk_file):
     source -= 1
         
     # channel image sections
-    chan_sec, __, __, __, __ = define_sections(np.shape(data))
+    chan_sec, __, __, __, __ = define_sections(np.shape(data), tel=tel)
     # number of channels
     nchans = np.shape(chan_sec)[0]
         
@@ -3262,7 +3262,8 @@ def gain_corr(data, header):
 
     gain = get_par(set_bb.gain,tel)
     # channel image sections
-    chan_sec, __, __, __, __ = define_sections(np.shape(data))
+    chan_sec, __, __, __, __ = define_sections(np.shape(data), tel=tel)
+
 
     for i_chan in range(np.shape(chan_sec)[0]):
         data[chan_sec[i_chan]] *= gain[i_chan]
