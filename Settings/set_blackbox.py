@@ -71,10 +71,12 @@ new_2keep = ['_D.fits', '_Scorr.fits', '_trans_limmag.fits', '_trans.fits'] + al
 #===============================================================================
 
 # name of Xtalk file created by Kerry
-crosstalk_file = {'ML1': os.environ['ZOGYHOME']+'/CalFiles/crosstalk_20180620.txt'}
+crosstalk_file = {'ML1': os.environ['ZOGYHOME']+'/CalFiles/crosstalk_20180620.txt',
+                  'BG': os.environ['ZOGYHOME']+'/CalFiles/crosstalk_20180620.txt'}
 
 # name of initial bad pixel mask
-bad_pixel_mask = {'ML1': os.environ['ZOGYHOME']+'/CalFiles/bpm_u_0p05.fits.fz'}
+bad_pixel_mask = {'ML1': os.environ['ZOGYHOME']+'/CalFiles/bpm_u_0p05.fits.fz',
+                  'BG': os.environ['ZOGYHOME']+'/CalFiles/bpm_u_0p05.fits.fz'}
 
 # name of ML/BG field definition file
 mlbg_fieldIDs = '{}/CalFiles/MLBG_FieldIDs_Mar2019.dat'.format(os.environ['ZOGYHOME'])
@@ -87,7 +89,7 @@ mlbg_fieldIDs = '{}/CalFiles/MLBG_FieldIDs_Mar2019.dat'.format(os.environ['ZOGYH
 # values adopted for these LA Cosmic's parameters used in
 # astroscrappy; play with these values and see what works best; Kerry
 # had sigclip=6 and objlim=10
-sigclip = 6.0
+sigclip = {'ML1': 6.0, 'BG': 20}
 sigfrac = 0.3
 objlim = 10.0
 niter = 3
@@ -117,7 +119,9 @@ gain = {'ML1': (np.array([2.31, 2.39, 2.40, 2.44, 2.43, 2.42, 2.47, 2.40,
                           2.32, 2.43, 2.38, 2.39, 2.43, 2.46, 2.51, 2.51]) *
                 # ML correction factor from q-band master flat 3 June 2019, with flat_window=1
                 np.array([1.044, 1.016, 1.014, 1.000, 1.012, 1.017, 0.998, 1.027,
-                          1.038, 0.998, 1.021, 1.017, 1.002, 0.998, 0.978, 0.980]))}
+                          1.038, 0.998, 1.021, 1.017, 1.002, 0.998, 0.978, 0.980])),
+        'BG':  (np.array([2.60, 2.60, 2.60, 2.60, 2.60, 2.60, 2.60, 2.60,
+                          2.60, 2.60, 2.60, 2.60, 2.60, 2.60, 2.60, 2.60]))}
 
 # assumed saturation level in ADU of raw images
 satlevel = 55000
