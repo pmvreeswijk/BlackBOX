@@ -105,7 +105,9 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
         has any influence on detections
 
     (11) replace clipped_stats with more robust sigma_clipped_stats
-         in zogy.py and blackbox.py
+         in zogy.py and blackbox.py; N.B.: sigma_clipped_stats returns
+         output with dtype float64 - convert to float32 if these
+         turn into large arrays
 
     (12) go through logs, look for errors and exceptions and fix them:
       
@@ -200,7 +202,6 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          ICRS)? On mac os and macports, it is not possible anymore to
          install the old version 2.19.5, as it is considered obsolete; how
          about Ubuntu?
-    
 
 
     Done:
@@ -255,6 +256,11 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          Moffat fits are less robust than the PSF fit, so cannot use
          it reliably to discard transients.
 
+    (34) bkg and bkg_std images in tmp dir are float64; check
+         precision in get_back so that these are not bigger than
+         float32
+
+    (35) if tmp folders are kept, fpack them as well
 
     """
     
@@ -626,7 +632,14 @@ def prep_packlist (date):
     # add ref files
     #ref_dir = get_par(set_bb.ref_dir,tel)
     #list_2pack.append(glob.glob('{}/*/*.fits'.format(ref_dir)))
+
     
+    # add tmp folders if they are kept
+    if get_par(set_bb.keep_tmp,tel):
+        tmp_dir = get_par(set_bb.tmp_dir,tel)
+        list_2pack.append(glob.glob('{}/*/*.fits'.format(tmp_dir)))
+
+        
     # flatten this list of files
     list_2pack = [item for sublist in list_2pack for item in sublist]
     # and get the unique items
