@@ -104,11 +104,6 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     (10) check if SExtractor background is manual or global and 
         has any influence on detections
 
-    (11) replace clipped_stats with more robust sigma_clipped_stats
-         in zogy.py and blackbox.py; N.B.: sigma_clipped_stats returns
-         output with dtype float64 - convert to float32 if these
-         turn into large arrays
-
     (12) go through logs, look for errors and exceptions and fix them:
       
       --> moffat fit to objects near the edge
@@ -203,6 +198,11 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          install the old version 2.19.5, as it is considered obsolete; how
          about Ubuntu?
 
+    (36) check if background STD image produced by source-extractor is
+         reasonably close to the improved background STD image made in
+         [get_back]; if not, then improved background determination in
+         run_sextractor still needs to be done even if the background
+         was already subtracted from the new or ref image.
 
     Done:
     -----
@@ -238,6 +238,11 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     (7) change epoch in header from 2000 to 2015.5
 
     (9) go to python 3.7 on chopper; update singularity image
+
+    (11) replace clipped_stats with more robust sigma_clipped_stats
+         in zogy.py and blackbox.py; N.B.: sigma_clipped_stats returns
+         output with dtype float64 - convert to float32 if these
+         turn into large arrays
 
     (13) why is PSF to D so much slower when use_bkg_var=True?
          
@@ -1558,13 +1563,14 @@ def get_flatstats (data, header):
         value_temp, 'pre-defined statistics section [y1:y2,x1:x2]')
             
     # statistics on STATSEC
-    mean_sec, std_sec, median_sec = clipped_stats(data[sec_temp])
+    mean_sec, median_sec, std_sec = sigma_clipped_stats(data[sec_temp],
+                                                        mask_value=0)
     header['MEDSEC'] = (median_sec, '[e-] median flat over STATSEC')
     header['STDSEC'] = (std_sec, '[e-] sigma (STD) flat over STATSEC')
     header['RSTDSEC'] = (std_sec/median_sec, 'relative sigma (STD) flat over STATSEC')
 
     # full image statistics
-    mean, std, median = clipped_stats(data)
+    mean, median, std = sigma_clipped_stats(data, mask_value=0)
     header['FLATMED'] = (median, '[e-] median flat')
     header['FLATSTD'] = (std, '[e-] sigma (STD) flat')
     header['FLATRSTD'] = (std/median, 'relative sigma (STD) flat')
@@ -2117,8 +2123,9 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
 
                 if imtype=='flat':
                     # divide by median over the region [set_bb.flat_norm_sec]
-                    mean, std, median = clipped_stats(
-                        master_cube[i_file][get_par(set_bb.flat_norm_sec,tel)])
+                    mean, median, std = sigma_clipped_stats(
+                        master_cube[i_file][get_par(set_bb.flat_norm_sec,tel)],
+                        mask_value=0)
                     if log is not None:
                         log.info ('flat name: {}, mean: {}, std: {}, median: {}'
                                   .format(filename, mean, std, median))
@@ -2189,7 +2196,8 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
                     'sigma (STD) master flat over STATSEC')
 
                 # full image statistics
-                mean_master, std_master, median_master = clipped_stats(master_median)
+                mean_master, median_master, std_master = sigma_clipped_stats(
+                    master_median, mask_value=0)
                 header_master['MFMED'] = (median_master, 'median master flat')
                 header_master['MFSTD'] = (std_master, 'sigma (STD) master flat')
 
@@ -2308,7 +2316,8 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
             elif imtype=='bias':
 
                 # add some header keywords to the master bias
-                mean_master, std_master = clipped_stats(master_median, get_median=False)
+                mean_master, __, std_master = sigma_clipped_stats(
+                    master_median, mask_value=0)
                 header_master['MBMEAN'] = (mean_master, '[e-] mean master bias')
                 header_master['MBRDN'] = (std_master, '[e-] sigma (STD) master bias')
 
@@ -2321,7 +2330,8 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
 
                 for i_chan in range(nchans):
                     data_chan = master_median[data_sec_red[i_chan]]
-                    mean_chan[i_chan], std_chan[i_chan] = clipped_stats(data_chan, get_median=False)
+                    mean_chan[i_chan], __, std_chan[i_chan] = sigma_clipped_stats(
+                        data_chan, mask_value=0)
                 for i_chan in range(nchans):
                     header_master['MBIASM{}'.format(i_chan+1)] = (
                         mean_chan[i_chan], '[e-] channel {} mean master bias'.format(i_chan+1))
@@ -3010,7 +3020,8 @@ def os_corr(data, header, imgtype, tel=None, log=None):
         # determine clipped mean for each row
         data_vos = data[os_sec_vert[i_chan]]
         mean_vos_col, median_vos_col, std_vos_col = sigma_clipped_stats(data_vos,
-                                                                        axis=1)
+                                                                        axis=1,
+                                                                        mask_value=0)
         y_vos = np.arange(nrows_chan)
         # fit low order polynomial
         try:
@@ -3040,22 +3051,12 @@ def os_corr(data, header, imgtype, tel=None, log=None):
         
         data_vos = data[os_sec_vert[i_chan]]
         # determine mean and std of overscan subtracted vos:
-        mean_vos[i_chan], std_vos[i_chan] = clipped_stats(data_vos, get_median=False)
-        # the above mean_vos is close to zero; overwrite it with the mean polyfit value
+        mean_vos[i_chan], __, std_vos[i_chan] = sigma_clipped_stats(data_vos,
+                                                                    mask_value=0)
+        # the above mean_vos is close to zero; instead use the mean polyfit value
+        # (but keep the std_vos)
         mean_vos[i_chan] = np.mean(fit_vos_col)
                 
-        if False:
-            # add statistics of top and bottom part of vertical overscan
-            # to enable checking of any vertical gradient present
-            data_vos_top = data_vos[-1000:,:]
-            data_vos_bottom = data_vos[0:1000:,:]
-            mean_vos_top[i_chan], std_vos_top[i_chan] = clipped_stats(
-                data_vos_top, get_median=False)
-            mean_vos_bottom[i_chan], std_vos_bottom[i_chan] = clipped_stats(
-                data_vos_bottom, get_median=False)
-            meandiff_vos[i_chan] = mean_vos_top[i_chan] - mean_vos_bottom[i_chan]
-        
-
         # -------------------
         # horizontal overscan
         # -------------------
@@ -3076,9 +3077,8 @@ def os_corr(data, header, imgtype, tel=None, log=None):
                                            log=log)
         
         # determine clipped mean for each column
-        mean_hos, median_hos, std_hos = sigma_clipped_stats(data_hos, axis=0)
-                                                            #mask=mask_hos,
-                                                            #cenfunc='median')
+        mean_hos, median_hos, std_hos = sigma_clipped_stats(data_hos, axis=0,
+                                                            mask_value=0)
         if dcol > 1:
             oscan = [np.median(mean_hos[max(k-dcol_half,0):min(k+dcol_half+1,ncols)])
                      for k in range(ncols)]
@@ -3142,7 +3142,7 @@ def os_corr(data, header, imgtype, tel=None, log=None):
             '[e-] sigma (STD) flat over STATSEC')
 
         # full image statistics
-        mean, std, median = clipped_stats(data_out)
+        mean, median, std = sigma_clipped_stats(data_out, mask_value=0)
         header['FLATMED'] = (median, '[e-] median flat')
         header['FLATSTD'] = (std, '[e-] sigma (STD) flat')
 
