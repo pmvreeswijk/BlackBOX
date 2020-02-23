@@ -239,10 +239,24 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
     (9) go to python 3.7 on chopper; update singularity image
 
-    (11) replace clipped_stats with more robust sigma_clipped_stats
-         in zogy.py and blackbox.py; N.B.: sigma_clipped_stats returns
-         output with dtype float64 - convert to float32 if these
-         turn into large arrays
+    (11) replace clipped_stats with more robust sigma_clipped_stats in
+         zogy.py and blackbox.py; N.B.: sigma_clipped_stats returns
+         output with dtype float64 - convert to float32 if these turn
+         into large arrays. 
+
+         Curious bug: when bottleneck is installed, the mean returned
+         by sigma_clipped_stats is that of bottleneck.nanmean (see
+         https://docs.astropy.org/en/stable/api/astropy.stats.sigma_clipped_stats.html)
+         but that is incorrect for a large (size>=2**25) array with
+         dtype float32 as input (see
+         e.g. https://github.com/pandas-dev/pandas/issues/25307); no
+         obvious reference to this on the bottleneck github page.
+         Came across this when running sigma_clipped_stats on full
+         MeerLICHT images (~2**27) and mean values being strangely off
+         compared to e.g. np.nanmean. If mean of full image is needed,
+         convert the data to float64 - only 1 such occurrence in
+         blackbox.
+
 
     (13) why is PSF to D so much slower when use_bkg_var=True?
          
@@ -1561,16 +1575,16 @@ def get_flatstats (data, header):
         sec_temp[1].start+1, sec_temp[1].stop+1) 
     header['STATSEC'] = (
         value_temp, 'pre-defined statistics section [y1:y2,x1:x2]')
-            
+    
     # statistics on STATSEC
-    mean_sec, median_sec, std_sec = sigma_clipped_stats(data[sec_temp],
+    __, median_sec, std_sec = sigma_clipped_stats(data[sec_temp],
                                                         mask_value=0)
     header['MEDSEC'] = (median_sec, '[e-] median flat over STATSEC')
     header['STDSEC'] = (std_sec, '[e-] sigma (STD) flat over STATSEC')
     header['RSTDSEC'] = (std_sec/median_sec, 'relative sigma (STD) flat over STATSEC')
 
     # full image statistics
-    mean, median, std = sigma_clipped_stats(data, mask_value=0)
+    __, median, std = sigma_clipped_stats(data, mask_value=0)
     header['FLATMED'] = (median, '[e-] median flat')
     header['FLATSTD'] = (std, '[e-] sigma (STD) flat')
     header['FLATRSTD'] = (std/median, 'relative sigma (STD) flat')
@@ -2123,12 +2137,12 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
 
                 if imtype=='flat':
                     # divide by median over the region [set_bb.flat_norm_sec]
-                    mean, median, std = sigma_clipped_stats(
+                    __, median, std = sigma_clipped_stats(
                         master_cube[i_file][get_par(set_bb.flat_norm_sec,tel)],
                         mask_value=0)
                     if log is not None:
-                        log.info ('flat name: {}, mean: {}, std: {}, median: {}'
-                                  .format(filename, mean, std, median))
+                        log.info ('flat name: {}, median: {}, std: {}'
+                                  .format(filename, median, std))
                     master_cube[i_file] /= median
 
                     # collect RA and DEC to check for dithering
@@ -2196,7 +2210,7 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
                     'sigma (STD) master flat over STATSEC')
 
                 # full image statistics
-                mean_master, median_master, std_master = sigma_clipped_stats(
+                __, median_master, std_master = sigma_clipped_stats(
                     master_median, mask_value=0)
                 header_master['MFMED'] = (median_master, 'median master flat')
                 header_master['MFSTD'] = (std_master, 'sigma (STD) master flat')
@@ -2317,7 +2331,7 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
 
                 # add some header keywords to the master bias
                 mean_master, __, std_master = sigma_clipped_stats(
-                    master_median, mask_value=0)
+                    master_median.astype('float64'), mask_value=0)
                 header_master['MBMEAN'] = (mean_master, '[e-] mean master bias')
                 header_master['MBRDN'] = (std_master, '[e-] sigma (STD) master bias')
 
@@ -3142,7 +3156,7 @@ def os_corr(data, header, imgtype, tel=None, log=None):
             '[e-] sigma (STD) flat over STATSEC')
 
         # full image statistics
-        mean, median, std = sigma_clipped_stats(data_out, mask_value=0)
+        __, median, std = sigma_clipped_stats(data_out, mask_value=0)
         header['FLATMED'] = (median, '[e-] median flat')
         header['FLATSTD'] = (std, '[e-] sigma (STD) flat')
 
