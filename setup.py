@@ -6,7 +6,7 @@ setup(
     url='https://github.com/pmvreeswijk/BlackBOX',
     author='Paul Vreeswijk, Kerry Paterson, Danielle Pieterse',
     author_email='pmvreeswijk@gmail.com',
-    python_requires='>=3',
+    python_requires='>=2.7',
     license='MIT',
     packages=find_packages(),
     install_requires=['numpy', 'astropy', 'matplotlib', 'scipy', 'pyfftw',
