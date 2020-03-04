@@ -88,19 +88,6 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
       --> why is updated function get_back so much slower on mlcontrol
           machine vs. macbook?
 
-    (6) change output catalog column names from ALPHAWIN_J2000 and
-        DELTAWIN_J2000 to RA_ICRS and DEC_ICRS
-
-        in principle this has been changed, but not very elegantly:
-        these old column names are still used throughout the code and
-        only changed to the ICRS ones when writing the output catalogs.
-        Should really be changed right after SExtractor catalog was
-        produced.
-
-    
-    (8) filter out transients that correspond to a negative spot in the
-        new or ref image
-
     (10) check if SExtractor background is manual or global and 
         has any influence on detections
 
@@ -121,8 +108,6 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
     (17) moffat fit to transients in D provides negative chi2s?
 
-    (18) replace string '+' concatenations with formats
-    
     (19) make log input in functions optional through log=None, so that
          they can be easily used by modules outside of blackbox/zogy.
          Maybe do the same for other parameters such as telescope.
@@ -204,6 +189,29 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          run_sextractor still needs to be done even if the background
          was already subtracted from the new or ref image.
 
+    (37) determine image zeropoints per channel, and try fitting a
+         polynomial surface to the zeropoint values across the frame.
+         The zeropoints are determined in zogy, so need to save an
+         ascii file with the zeropoint info that can be used by
+         BlackBOX.
+
+    (38) add switch, or use the existing "redo" switch of zogy, to
+         force redoing the zogy part even if the reduced image already
+         exists in the reduced folder. So that a reduced image can be
+         altered and run through zogy again.
+
+    (40) singularity container building on ML-controlroom2 machine:
+         problem with installing packages fitsio and reproject (latter
+         is not important) and also watchdog seems to install fine but
+         cannot be imported inside python. Tried with different versions
+         of python (3, 3.6, 3.7, 3.8), but none works ok. Also tried
+         installing packages through apt-get, e.g.:
+
+         apt-get -y install python3-numpy python3-astropy python3-matplotlib
+         ...
+
+         but then still problems, o.a. with matplotlib
+
     Done:
     -----
 
@@ -235,7 +243,19 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
         - seems to have gone away by going to python 3.7 (see also 9)
 
+    (6) change output catalog column names from ALPHAWIN_J2000 and
+        DELTAWIN_J2000 to simply RA and DEC - this has been
+        implemented in [run_sextractor]; chosen not to add _ICRS to
+        the names, because if zogy input image is already WCS
+        corrected (in case it is not used by BlackBOX), it may not be
+        in ICRS. Also, the RA/DEC catalog output columns in the
+        transient catalog do not contain the ICRS extension either,
+        such as RA_PEAK or RA_PSF_D.
+
     (7) change epoch in header from 2000 to 2015.5
+
+    (8) filter out transients that correspond to a negative spot in the
+        new or ref image
 
     (9) go to python 3.7 on chopper; update singularity image
 
@@ -257,7 +277,6 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          convert the data to float64 - only 1 such occurrence in
          blackbox.
 
-
     (13) why is PSF to D so much slower when use_bkg_var=True?
          
          - often a fit with use_bkg_var=True reaches the maximum number of    
@@ -275,11 +294,26 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          Moffat fits are less robust than the PSF fit, so cannot use
          it reliably to discard transients.
 
+    (18) replace string '+' concatenations with formats
+    
     (34) bkg and bkg_std images in tmp dir are float64; check
          precision in get_back so that these are not bigger than
          float32
 
     (35) if tmp folders are kept, fpack them as well
+
+    (39) PaulG noticed that something went wrong in scheduling
+         observations (ascii2schedule.py?) with dithering pattern at
+         relatively large declination, which may indicate a cos(dec)
+         is not taken into account properly.
+         -> this distance is calculated with the haversine function:
+
+         if haversine(table_ID['RA'][i_ID], table_ID['DEC'][i_ID],
+                      table_obs['RA'][i_obs], table_obs['DEC'][i_obs]) > 10./60:
+
+         which should be correct; would be helpful if Paul noted down
+         the output error, as that lists the input table coordinates and 
+         the field coordinates.
 
     """
     
@@ -563,7 +597,8 @@ def create_masters (imtype, filt=None, mdate=None):
 
         # master bias/flat already present?
         master_present = (os.path.isfile(fits_master) or
-                          os.path.isfile(fits_master+'.fz'))
+                          os.path.isfile('{}.fz'.format(fits_master)))
+
         # if not, prepare it
         if not master_present:
             __ = master_prep (data_shape, path, date_eve, imtype, filt=filt)
@@ -576,7 +611,7 @@ def create_masters (imtype, filt=None, mdate=None):
 
 def already_exists (filename, get_filename=False):
     
-    file_list = [filename, filename+'.fz', filename+'.gz',
+    file_list = [filename, '{}.fz'.format(filename), '{}.gz'.format(filename),
                  filename.replace('.fz',''), filename.replace('.gz','')]
     
     exists = False
@@ -1373,14 +1408,14 @@ def blackbox_reduce (filename):
         # if reference in this filter is being made, let the affected
         # process wait until reference building is done
         while True:
-            log.info ('waiting for reference image to be made for '+
+            log.info ('waiting for reference image to be made for '
                       'OBJECT: {}, FILTER: {}'.format(obj, filt))
             time.sleep(5)
             if not check_ref(ref_ID_filt, (obj, filt)):
                 break
-        log.info ('done waiting for reference image to be made for '+
+        log.info ('done waiting for reference image to be made for '
                   'OBJECT: {}, FILTER: {}'.format(obj, filt))
-                    
+        
 
     # if ref image has not yet been processed:
     ref_present = already_exists (ref_fits_out)
@@ -1701,7 +1736,7 @@ def create_log (logfile):
 
     log = logging.getLogger()
     log.setLevel(logging.INFO)
-    logFormatter = logging.Formatter('%(asctime)s.%(msecs)03d [%(levelname)s, %(process)s] '+
+    logFormatter = logging.Formatter('%(asctime)s.%(msecs)03d [%(levelname)s, %(process)s] '
                                      '%(message)s [%(funcName)s, line %(lineno)d]',
                                      '%Y-%m-%dT%H:%M:%S')
     logging.Formatter.converter = time.gmtime #convert time in logger to UTC
@@ -1840,7 +1875,7 @@ def sat_detect (data, header, data_mask, header_mask, tmp_path):
                 break
             satellite_fitting = True
             binned_data[mask_binned == 1] = np.median(binned_data)
-            fits_old_mask = tmp_path+'/old_mask.fits'
+            fits_old_mask = '{}/old_mask.fits'.format(tmp_path)
             if os.path.isfile(fits_old_mask):
                 old_mask = read_hdulist(fits_old_mask)
                 mask_binned = old_mask+mask_binned
@@ -2059,9 +2094,11 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
             date_temp = Time(mjd_noon, format='mjd').isot.split('T')[0].replace('-','/')
             path_temp = '{}/{}/{}'.format(red_dir, date_temp, imtype)
             if imtype=='flat':
-                file_list.append(sorted(glob.glob('{}/{}_*_{}.fits*'.format(path_temp, tel, filt))))
+                file_list.append(sorted(
+                    glob.glob('{}/{}_*_{}.fits*'.format(path_temp, tel, filt))))
             else:
-                file_list.append(sorted(glob.glob('{}/{}_*.fits*'.format(path_temp, tel))))
+                file_list.append(sorted(
+                    glob.glob('{}/{}_*.fits*'.format(path_temp, tel))))
 
         # clean up [file_list]
         file_list = [f for sublist in file_list for f in sublist]
@@ -2374,11 +2411,11 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
 def get_closest_biasflat (date_eve, file_type, filt=None):
 
     red_dir = get_par(set_bb.red_dir,tel)
-    search_str = '{}/*/*/*/{}/{}'.format(red_dir, file_type, file_type+'_????????')
+    search_str = '{}/*/*/*/{}/{}_????????'.format(red_dir, file_type, file_type)
     if filt is None:
-        search_str += '.fits*'
+        search_str = '{}.fits*'.format(search_str)
     else:
-        search_str += '_{}.fits*'.format(filt)
+        search_str = '{}_{}.fits*'.format(search_str, filt)
 
     files = glob.glob(search_str)
     nfiles = len(files)
@@ -2410,7 +2447,7 @@ def date2mjd (date_str, time_str=None, get_jd=False):
         date_str = '{}-{}-{}'.format(date_str[0:4], date_str[4:6], date_str[6:8])
 
     if time_str is not None:
-        date_str += ' {}'.format(time_str) 
+        date_str = '{} {}'.format(date_str, time_str) 
         
     if get_jd:
         return Time(date_str).jd
@@ -2831,10 +2868,10 @@ def set_header(header, filename):
 
     if tel=='ML1':
         origin = 'SAAO-Sutherland (K94)'
-        telescop = 'MeerLICHT-'+tel[2:]
+        telescop = 'MeerLICHT-{}'.format(tel[2:])
     if tel[0:2]=='BG':
         origin = 'ESO-LaSilla (809)'
-        telescop = 'BlackGEM-'+tel[2:]
+        telescop = 'BlackGEM-{}'.format(tel[2:])
     edit_head(header, 'ORIGIN', value=origin, comments='Origin of data (MPEC Observatory code)')
     edit_head(header, 'TELESCOP', value=telescop, comments='Telescope ID')
     
@@ -3412,10 +3449,11 @@ def sort_files(read_path, search_str, recursive=False):
        
     #glob all raw files and sort
     if recursive:
-        all_files = sorted(glob.glob(read_path+'/**/'+search_str), 
-                           recursive=recursive)
+        all_files = sorted(glob.glob('{}/**/{}'.format(read_path, search_str),
+                                     recursive=recursive))
     else:
-        all_files = sorted(glob.glob(read_path+'/'+search_str))
+        all_files = sorted(glob.glob('{}/{}'.format(read_path, search_str)))
+
 
     biases = [] #list of biases
     darks = [] #list of darks
@@ -3640,10 +3678,10 @@ def action(item_list):
                     else:
                         break
                 #copying(filename) #check to see if write is finished writing
-                q.put(logger.info('Found new file '+filename))
+                q.put(logger.info('Found new file: {}'.format(filename)))
         except AttributeError: #if event is a file
             filename = event
-            q.put(logger.info('Found old file '+filename))
+            q.put(logger.info('Found old file: {} '.format(filename)))
 
         # old or new, reduce it
         try_blackbox_reduce (filename)
