@@ -151,10 +151,13 @@ qc_range = {
         'MBMEAN'  : {'default':'None', 'val_type': 'sigma', 'val_range':   [ (0, 5) ],               'cat_type': None, 'comment': '[e-] mean master bias'},
         'MBRDN'   : {'default':'None', 'val_type': 'sigma', 'val_range':   [ (0, 5) ],               'cat_type': None, 'comment': '[e-] sigma (STD) master bias'},
 
-        # individual flats (this keyword should not end up in dummy catalogs)
+        # individual flats (these should not end up in dummy catalogs)
         'MEDSEC'  : {'default':'None', 'val_type': 'min_max', 'val_range': [ (2.4*20e3, 2.4*30e3), (2.4*15e3, 2.4*35e3), (2.4*10e3, 2.4*40e3) ], 'cat_type': None, 'comment': '[e-] median flat over STATSEC (bias-subtracted)'},
-        'RSTDSEC' : {'default':'None', 'val_type': 'sigma', 'val_range': [ (0, 0.01) ],              'cat_type': None, 'comment': 'relative sigma (STD) flat over STATSEC'},
-        'FLATRSTD': {'default':'None', 'val_type': 'sigma', 'val_range': [ (0,0.025),(0,0.026),(0,0.027)], 'cat_type': None, 'comment': 'relative sigma (STD) flat'},
+        #'RSTDSEC' : {'default':'None', 'val_type': 'sigma', 'val_range': [ (0, 0.01) ],              'cat_type': None, 'comment': 'relative sigma (STD) flat over STATSEC'},
+        #'FLATRSTD': {'default':'None', 'val_type': 'sigma', 'val_range': [ (0,0.025),(0,0.026),(0,0.027)], 'cat_type': None, 'comment': 'relative sigma (STD) flat'},
+        'RDIF-MAX': {'default':'None', 'val_type': 'min_max', 'val_range': [ (0,0.03), (0,0.035), (0,0.04) ], 'cat_type': None, 'comment': '(max(subs)-min(subs)) / (max(subs)+min(subs))'},
+        'RSTD-MAX': {'default':'None', 'val_type': 'min_max', 'val_range': [ (0,0.05) ],             'cat_type': None, 'comment': 'maximum relative sigma (STD) of subimages'},
+
         
         # master flat (these keywords should not end up in dummy catalogs)
         'NFLAT'   : {'default':'None', 'val_type': 'min_max', 'val_range': [ (6,50), (4,5), (3,3) ], 'cat_type': None, 'comment': 'number of flat frames combined'},
@@ -169,7 +172,7 @@ qc_range = {
         # cosmics/satellites
         'NCOSMICS': {'default':'None', 'val_type': 'min_max', 'val_range': [ (3,50), (2.5,100), (2,200) ], 'cat_type': 'all', 'comment': '[/s] number of cosmic rays identified'},
         'NSATS'   : {'default':'None', 'val_type': 'min_max', 'val_range': [ (0,1), (2,3), (4,5) ],  'cat_type': 'all', 'comment': 'number of satellite trails identified'},
-
+        
         # SExtractor
         'S-NOBJ'  : {'default':'None', 'val_type': 'min_max', 'val_range': [ (5e3,5e4), (3e3,2e5), (1e3,1e6) ], 'cat_type': 'all', 'comment': 'number of objects detected by SExtractor'},
         'S-SEEING': {'default':'None', 'val_type': 'min_max', 'val_range': [ (2,4), (1,5), (0.5,7) ],'cat_type': 'all', 'comment': '[arcsec] SExtractor seeing estimate'},
