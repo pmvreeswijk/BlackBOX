@@ -1783,14 +1783,14 @@ def get_flatstats (data, header, imgtype, data_mask, nsubs_side=6):
                (np.amax(mini_median) + np.amin(mini_median)))
     
     header['NSUBS'] = (nsubs_side**2, 'number of subimages for statistics')
-    header['RDIF_MAX'] = (danstat, '(max(subs)-min(subs)) / (max(subs)+min(subs))')
+    header['RDIF-MAX'] = (danstat, '(max(subs)-min(subs)) / (max(subs)+min(subs))')
 
     mask_nonzero = (mini_median != 0)
     if np.sum(mask_nonzero) != 0:
         rstd = mini_std[mask_nonzero] / mini_median[mask_nonzero]
         index_max = np.argmax(rstd)
         rstd_max = rstd.ravel()[index_max]
-        header['RSTD_MAX'] = (rstd_max, 'maximum relative sigma (STD) of subimages')
+        header['RSTD-MAX'] = (rstd_max, 'maximum relative sigma (STD) of subimages')
     
     return
 
