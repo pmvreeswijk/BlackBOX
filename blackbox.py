@@ -554,7 +554,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
         # was created yet; this is not done with pool of processes,
         # because it is not time-critical and takes 10GB of memory for
         # each set of 10 biases or flats
-        q.put(logger.info('preparing missing master frames'))
+        q.put(logger.info('looking for and preparing missing master frames'))
         create_masters ('bias')
         for filt in get_par(set_zogy.zp_default,tel).keys():
             create_masters ('flat', filt=filt)
@@ -800,35 +800,45 @@ def create_jpg (filename):
 
     try:
         
-        image_jpg = '{}.jpg'.format(filename.split('.fits')[0], extension)
-        q.put(logger.info('saving {} to {}'.format(filename, image_jpg)))
+        image_jpg = '{}.jpg'.format(filename.split('.fits')[0])
+
+        if os.path.isfile(image_jpg):
+            
+            q.put(logger.info('{} already exists; skipping {}'
+                              .format(image_jpg, filename)))
+
+        else:
+
+            q.put(logger.info('saving {} to {}'.format(filename, image_jpg)))
               
-        # read input image
-        data, header = read_hdulist(filename, get_header=True)
+            # read input image
+            data, header = read_hdulist(filename, get_header=True)
         
-        imgtype = header['imagetyp'].lower()
-        if imgtype == 'object':
-            title = ('file:{}   object:{}   filter:{}   exptime:{:.1f}s'
-                     .format(image_jpg.replace('.jpg',''), header['object'],
-                             header['filter'], header['exptime']))
-        else:
-            title = ('file:{}   imgtype:{}   filter:{}   exptime:{:.1f}s'
-                     .format(image_jpg.replace('.jpg',''), header['imagetyp'],
-                             header['filter'], header['exptime']))
+            imgtype = header['imagetyp'].lower()
+            file_str = image_jpg.split('/')[-1].split('.jpg')[0]
+            if imgtype == 'object':
+                title = ('file:{}   object:{}   filter:{}   exptime:{:.1f}s'
+                         .format(file_str, header['object'],
+                                 header['filter'], header['exptime']))
+            else:
+                title = ('file:{}   imgtype:{}   filter:{}   exptime:{:.1f}s'
+                         .format(file_str, header['imagetyp'],
+                                 header['filter'], header['exptime']))
 
-        pixelcoords = True
-        if pixelcoords:
-            f = aplpy.FITSFigure(data)
-        else:
-            f = aplpy.FITSFigure(filename)
+            pixelcoords = True
+            if pixelcoords:
+                f = aplpy.FITSFigure(data)
+            else:
+                f = aplpy.FITSFigure(filename)
 
-        f.show_colorscale(cmap='gray', pmin=5, pmax=95)
-        f.add_colorbar()
-        f.set_title(title)
-        #f.add_grid()
-        #f.set_theme('pretty')
-        f.save(image_jpg)
-        f.close()
+            f.show_colorscale(cmap='gray', pmin=5, pmax=95)
+            f.add_colorbar()
+            f.set_title(title)
+            #f.add_grid()
+            #f.set_theme('pretty')
+            f.save(image_jpg)
+            f.close()
+            
 
     except Exception as e:
         q.put(logger.info(traceback.format_exc()))
