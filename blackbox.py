@@ -34,6 +34,8 @@ from watchdog.events import FileSystemEventHandler
 from qc import qc_check, run_qc_check
 import platform
 
+import aplpy
+
 # due to regular problems with downloading default IERS file (needed
 # to compute UTC-UT1 corrections for e.g. sidereal time computation),
 # Steven created a mirror of this file in a google storage bucket
@@ -77,7 +79,8 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     -----------------------------------------
 
     (3) map out and, if possible, decrease the memory consumption of
-        blackbox and zogy
+        blackbox and zogy - needs to be done on chopper or mlcontrol
+        machine at Radboud, as laptop has too little memory
 
     (4) in night mode, issue that only images already present are
         processed
@@ -89,7 +92,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
           machine vs. macbook?
 
     (10) check if SExtractor background is manual or global and 
-        has any influence on detections
+         has any influence on detections
 
     (12) go through logs, look for errors and exceptions and fix them:
       
@@ -115,11 +118,9 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     (20) optimal vs. large aperture magnitudes shows discrepant values
          at the bright end; why?
 
-    (21) force orientation in thumbnail images to be North up East left
-
     (22) limit PSFEx LDAC catalog to [psfex_nstars] random stars
          obeying S/N constraints, such that ldac catalog has reasonable
-         size
+         size - see (16)
 
     (23) header of output catalog is much more complete than header of
          reduced image; need to update the latter
@@ -139,27 +140,17 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
     (25) does nproc decrease when running pool_func a 2nd time?
 
-    (26) determine diagnostic map of the zeropoints across the field;
-         could produce this by averaging stars' zeropoints over boxes
-         and then interpolating them, similar to how background map is 
-         determined
+    (26) determine image zeropoints per channel, and try fitting a
+         polynomial surface to the zeropoint values across the frame.
+         Or by averaging stars' zeropoints over boxes and then
+         interpolating them, similar to how background map is
+         determined. The zeropoints are determined in zogy, so if they
+         are needed in BlackBOX, then need to save an ascii file with
+         the zeropoint info that can be used by BlackBOX.
 
     (27) number of initials SExtractor detections (S-NOBJ) not the same
          as final number of objects in output catalog (5 sigma); maybe
          add keyword that indicates the latter number
-
-    (28) flatfields regularly show a gradient diagonally across the image,
-         increasing from lower left to top right, and these flats are
-         not flagged red yet at the moment. Should include a parameter
-         in the header to check. Easiest option is to use the keyword
-         already present in the header: FLATRSTD, which is higher than
-         0.03-0.07 when things go wrong. Or the ratio of the median levels
-         of the 1st and last channel: FLATM1 / FLATM16. Related to this
-         is how to pick up condensation. Would need a finer grid (4x4
-         and one central square) than the channels to be able to pick that 
-         up using deviation from the average channel values. Rebin the
-         image and use statistics to discard a particular flat? See
-         ~/Python/BlackGEM/test_bin2D.py
 
     (29) need way to avoid running SExtractor on edges of images; for 
          MeerLICHT, edges are zeroed in BlackBOX
@@ -189,18 +180,12 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          run_sextractor still needs to be done even if the background
          was already subtracted from the new or ref image.
 
-    (37) determine image zeropoints per channel, and try fitting a
-         polynomial surface to the zeropoint values across the frame.
-         The zeropoints are determined in zogy, so need to save an
-         ascii file with the zeropoint info that can be used by
-         BlackBOX.
-
-    (38) add switch, or use the existing "redo" switch of zogy, to
+    (37) add switch, or use the existing "redo" switch of zogy, to
          force redoing the zogy part even if the reduced image already
          exists in the reduced folder. So that a reduced image can be
          altered and run through zogy again.
 
-    (40) singularity container building on ML-controlroom2 machine:
+    (39) singularity container building on ML-controlroom2 machine:
          problem with installing packages fitsio and reproject (latter
          is not important) and also watchdog seems to install fine but
          cannot be imported inside python. Tried with different versions
@@ -211,6 +196,14 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          ...
 
          but then still problems, o.a. with matplotlib
+
+    (40) Paul mentonioned issue with astrometry for 47Tuc, especially
+         in the u-band; seems that the A-DRASTD and A-DDESTD are a bit
+         higher than allowed and many u-band images are flagged red.
+
+    (41) go through headers of all images again and check if ranges
+         set in set_qc are still appropriate.
+
 
     Done:
     -----
@@ -264,18 +257,20 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          output with dtype float64 - convert to float32 if these turn
          into large arrays. 
 
-         Curious bug: when bottleneck is installed, the mean returned
-         by sigma_clipped_stats is that of bottleneck.nanmean (see
+         Curious bug: when bottleneck is installed, the mean and std
+         returned by sigma_clipped_stats is that of bottleneck.nanmean
+         and nanstd (see
          https://docs.astropy.org/en/stable/api/astropy.stats.sigma_clipped_stats.html)
          but that is incorrect for a large (size>=2**25) array with
          dtype float32 as input (see
          e.g. https://github.com/pandas-dev/pandas/issues/25307); no
          obvious reference to this on the bottleneck github page.
          Came across this when running sigma_clipped_stats on full
-         MeerLICHT images (~2**27) and mean values being strangely off
-         compared to e.g. np.nanmean. If mean of full image is needed,
-         convert the data to float64 - only 1 such occurrence in
-         blackbox.
+         MeerLICHT images (~2**27) and mean and std values being
+         strangely off compared to e.g. np.nanmean. If mean or std of
+         full image is needed, convert the data to float64. Out of
+         precaution, updated all sigma_clipped_stats input to float64.
+
 
     (13) why is PSF to D so much slower when use_bkg_var=True?
          
@@ -296,13 +291,33 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
     (18) replace string '+' concatenations with formats
     
+    (21) force orientation in thumbnail images to be North up East left
+
+    (28) flatfields regularly show a gradient diagonally across the image,
+         increasing from lower left to top right, and these flats are
+         not flagged red yet at the moment. Should include a parameter
+         in the header to check. Easiest option is to use the keyword
+         already present in the header: FLATRSTD, which is higher than
+         0.03-0.07 when things go wrong. Or the ratio of the median levels
+         of the 1st and last channel: FLATM1 / FLATM16. Related to this
+         is how to pick up condensation. Would need a finer grid (4x4
+         and one central square) than the channels to be able to pick that 
+         up using deviation from the average channel values. Rebin the
+         image and use statistics to discard a particular flat? See
+         ~/Python/BlackGEM/test_bin2D.py
+         
+         in the end, added a couple of statistics to the flat and 
+         reduced image header: ST-MRDIF and ST-MRDEV with which all of
+         the flats with gradients can be discarded and most of the
+         condensation spots as well.
+
     (34) bkg and bkg_std images in tmp dir are float64; check
          precision in get_back so that these are not bigger than
          float32
 
     (35) if tmp folders are kept, fpack them as well
 
-    (39) PaulG noticed that something went wrong in scheduling
+    (38) PaulG noticed that something went wrong in scheduling
          observations (ascii2schedule.py?) with dithering pattern at
          relatively large declination, which may indicate a cos(dec)
          is not taken into account properly.
@@ -314,6 +329,9 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          which should be correct; would be helpful if Paul noted down
          the output error, as that lists the input table coordinates and 
          the field coordinates.
+
+    (42) add jpg of reduced new/ref images to output, in similar
+         fashion to fpacking of images at the end of blackbox
 
     """
     
@@ -553,6 +571,15 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
         result = pool_func (fpack, list_2pack)
 
 
+        # create jpg images for all reduced frames
+        # ----------------------------------------
+        q.put(logger.info('creating jpg images'))
+        # create list of files to jpg
+        list_2jpg = prep_jpglist (date)
+        # use [pool_func] to process the list
+        result = pool_func (create_jpg, list_2jpg)
+
+
         if get_par(set_zogy.timing,tel):
             log_timing_memory (t0=t_run_blackbox, label='run_blackbox after fpacking', 
                                log=logger)
@@ -731,6 +758,81 @@ def fpack (filename):
     except Exception as e:
         q.put(logger.info(traceback.format_exc()))
         q.put(logger.error('exception was raised in fpacking of image {} {}'
+                           .format(filename,e)))
+
+
+################################################################################
+
+def prep_jpglist (date):
+    
+    list_2jpg = []
+    if date is not None:
+        # add files in [write_path]
+        write_path, __ = get_path(date, 'write')
+        list_2jpg.append(glob.glob('{}/*_red.fits.fz'.format(write_path)))
+        # add fits files in bias and flat directories
+        list_2jpg.append(glob.glob('{}/bias/*.fits.fz'.format(write_path)))
+        list_2jpg.append(glob.glob('{}/flat/*.fits.fz'.format(write_path)))
+    else:
+        # just add all fits files in [telescope]/red/*/*/*/*.fits
+        # (could do it more specifically by going through raw fits
+        # files and finding out where their reduced images are)
+        red_dir = get_par(set_bb.red_dir,tel)
+        list_2jpg.append(glob.glob('{}/*/*/*/*_red.fits.fz'.format(red_dir)))
+        # add fits files in bias and flat directories
+        list_2jpg.append(glob.glob('{}/*/*/*/bias/*.fits.fz'.format(red_dir)))
+        list_2jpg.append(glob.glob('{}/*/*/*/flat/*.fits.fz'.format(red_dir)))
+
+        
+    # flatten this list of files
+    list_2jpg = [item for sublist in list_2jpg for item in sublist]
+    # and get the unique items
+    list_2jpg = list(set(list_2jpg))
+
+    return list_2jpg
+    
+
+################################################################################
+
+def create_jpg (filename):
+
+    """Create jpg image from fits"""
+
+    try:
+        
+        image_jpg = '{}.jpg'.format(filename.split('.fits')[0], extension)
+        q.put(logger.info('saving {} to {}'.format(filename, image_jpg)))
+              
+        # read input image
+        data, header = read_hdulist(filename, get_header=True)
+        
+        imgtype = header['imagetyp'].lower()
+        if imgtype == 'object':
+            title = ('file:{}   object:{}   filter:{}   exptime:{:.1f}s'
+                     .format(image_jpg.replace('.jpg',''), header['object'],
+                             header['filter'], header['exptime']))
+        else:
+            title = ('file:{}   imgtype:{}   filter:{}   exptime:{:.1f}s'
+                     .format(image_jpg.replace('.jpg',''), header['imagetyp'],
+                             header['filter'], header['exptime']))
+
+        pixelcoords = True
+        if pixelcoords:
+            f = aplpy.FITSFigure(data)
+        else:
+            f = aplpy.FITSFigure(filename)
+
+        f.show_colorscale(cmap='gray', pmin=5, pmax=95)
+        f.add_colorbar()
+        f.set_title(title)
+        #f.add_grid()
+        #f.set_theme('pretty')
+        f.save(image_jpg)
+        f.close()
+
+    except Exception as e:
+        q.put(logger.info(traceback.format_exc()))
+        q.put(logger.error('exception was raised in creating jpg of image {} {}'
                            .format(filename,e)))
 
 
@@ -1217,7 +1319,7 @@ def blackbox_reduce (filename):
     # if IMAGETYP=flat, write [data] to fits and return
     if imgtype == 'flat':
         # first add some statistics to header
-        get_flatstats (data, header)
+        get_flatstats (data, header, imgtype, data_mask)
         # call [run_qc_check] to update header with any QC flags
         run_qc_check (header, tel, log=log)
         # write to fits
@@ -1343,7 +1445,7 @@ def blackbox_reduce (filename):
         ds9_arrays(mask=data_mask)
         print (header['NSATS'])
 
-    
+
     # if header of object image contains a red flag, create dummy
     # binary fits catalogs (both 'new' and 'trans') and return,
     # skipping zogy's [optimal subtraction] below
@@ -1601,7 +1703,7 @@ def blackbox_reduce (filename):
 
 ################################################################################
 
-def get_flatstats (data, header):
+def get_flatstats (data, header, imgtype, data_mask, nsubs_side=6):
     
     # add some header keywords with the statistics
     sec_temp = get_par(set_bb.flat_norm_sec,tel)
@@ -1612,14 +1714,19 @@ def get_flatstats (data, header):
         value_temp, 'pre-defined statistics section [y1:y2,x1:x2]')
     
     # statistics on STATSEC
-    __, median_sec, std_sec = sigma_clipped_stats(data[sec_temp],
-                                                        mask_value=0)
+    index_stat = get_rand_indices(data[sec_temp].shape)
+    __, median_sec, std_sec = sigma_clipped_stats(data[sec_temp][index_stat]
+                                                  .astype('float64'),
+                                                  mask_value=0)
     header['MEDSEC'] = (median_sec, '[e-] median flat over STATSEC')
     header['STDSEC'] = (std_sec, '[e-] sigma (STD) flat over STATSEC')
-    header['RSTDSEC'] = (std_sec/median_sec, 'relative sigma (STD) flat over STATSEC')
+    header['RSTDSEC'] = (std_sec/median_sec, 'relative sigma (STD) flat '
+                         'over STATSEC')
 
     # full image statistics
-    __, median, std = sigma_clipped_stats(data, mask_value=0)
+    index_stat = get_rand_indices(data.shape)
+    __, median, std = sigma_clipped_stats(data[index_stat].astype('float64'),
+                                          mask_value=0)
     header['FLATMED'] = (median, '[e-] median flat')
     header['FLATSTD'] = (std, '[e-] sigma (STD) flat')
     header['FLATRSTD'] = (std/median, 'relative sigma (STD) flat')
@@ -1644,8 +1751,47 @@ def get_flatstats (data, header):
         header['FLATRS{}'.format(i_chan+1)] = (
             std_temp/median_temp,
             'channel {} relative sigma (STD) flat'.format(i_chan+1))
+        
 
+    # split image in 6x6 subimages and calculate a few additional
+    # statistics
+    
+    # determine mask to reject
+    mask_reject = (data_mask != 0)
+    
+    # determine boxsize
+    ysize, xsize = data.shape
+    boxsize = int(ysize / nsubs_side)
+    
+    # create masked array
+    data_masked = np.ma.masked_array(data, mask=mask_reject)
+    
+    # reshape
+    data_masked_reshaped = data_masked.reshape(
+        nsubs_side,boxsize,-1,boxsize).swapaxes(1,2).reshape(
+            nsubs_side,nsubs_side,-1)
+    
+    # get clipped statistics
+    index_stat = get_rand_indices((data_masked_reshaped.shape[2],))
+    mini_mean, mini_median, mini_std = sigma_clipped_stats (
+        data_masked_reshaped[:,:,index_stat].astype('float64'),
+        sigma=3, axis=2, mask_value=0)
 
+    # statistic used by Danielle, or the maximum relative difference
+    # between the boxes' medians
+    danstat = ((np.amax(mini_median) - np.amin(mini_median)) /
+               (np.amax(mini_median) + np.amin(mini_median)))
+    
+    header['NSUBS'] = (nsubs_side**2, 'number of subimages for statistics')
+    header['RDIF_MAX'] = (danstat, '(max(subs)-min(subs)) / (max(subs)+min(subs))')
+
+    mask_nonzero = (mini_median != 0)
+    if np.sum(mask_nonzero) != 0:
+        rstd = mini_std[mask_nonzero] / mini_median[mask_nonzero]
+        index_max = np.argmax(rstd)
+        rstd_max = rstd.ravel()[index_max]
+        header['RSTD_MAX'] = (rstd_max, 'maximum relative sigma (STD) of subimages')
+    
     return
 
 
@@ -2174,8 +2320,9 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
 
                 if imtype=='flat':
                     # divide by median over the region [set_bb.flat_norm_sec]
+                    index_flat_norm = get_par(set_bb.flat_norm_sec,tel)
                     __, median, std = sigma_clipped_stats(
-                        master_cube[i_file][get_par(set_bb.flat_norm_sec,tel)],
+                        master_cube[i_file][index_flat_norm].astype('float64'),
                         mask_value=0)
                     if log is not None:
                         log.info ('flat name: {}, median: {}, std: {}'
@@ -2246,9 +2393,10 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
                     np.std(master_median[sec_temp]),
                     'sigma (STD) master flat over STATSEC')
 
-                # full image statistics
+                # "full" image statistics
+                index_stat = get_rand_indices(master_median.shape)
                 __, median_master, std_master = sigma_clipped_stats(
-                    master_median, mask_value=0)
+                    master_median[index_stat].astype('float64'), mask_value=0)
                 header_master['MFMED'] = (median_master, 'median master flat')
                 header_master['MFSTD'] = (std_master, 'sigma (STD) master flat')
 
@@ -2367,8 +2515,9 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
             elif imtype=='bias':
 
                 # add some header keywords to the master bias
+                index_stat = get_rand_indices(master_median.shape)
                 mean_master, __, std_master = sigma_clipped_stats(
-                    master_median.astype('float64'), mask_value=0)
+                    master_median[index_stat].astype('float64'), mask_value=0)
                 header_master['MBMEAN'] = (mean_master, '[e-] mean master bias')
                 header_master['MBRDN'] = (std_master, '[e-] sigma (STD) master bias')
 
@@ -2381,8 +2530,9 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
 
                 for i_chan in range(nchans):
                     data_chan = master_median[data_sec_red[i_chan]]
+                    index_stat = get_rand_indices(data_chan.shape)
                     mean_chan[i_chan], __, std_chan[i_chan] = sigma_clipped_stats(
-                        data_chan, mask_value=0)
+                        data_chan[index_stat].astype('float64'), mask_value=0)
                 for i_chan in range(nchans):
                     header_master['MBIASM{}'.format(i_chan+1)] = (
                         mean_chan[i_chan], '[e-] channel {} mean master bias'.format(i_chan+1))
@@ -3048,13 +3198,6 @@ def os_corr(data, header, imgtype, tel=None, log=None):
     mean_vos = np.zeros(nchans)
     std_vos = np.zeros(nchans)
 
-    # additional ones for top and bottom part of vos
-    mean_vos_top = np.zeros(nchans)
-    std_vos_top = np.zeros(nchans)
-    mean_vos_bottom = np.zeros(nchans)
-    std_vos_bottom = np.zeros(nchans)
-    meandiff_vos = np.zeros(nchans)
-    
     vos_poldeg = get_par(set_bb.voscan_poldeg,tel)
     nrows_chan = np.shape(data[chan_sec[0]])[0]
     
@@ -3070,9 +3213,9 @@ def os_corr(data, header, imgtype, tel=None, log=None):
 
         # determine clipped mean for each row
         data_vos = data[os_sec_vert[i_chan]]
-        mean_vos_col, median_vos_col, std_vos_col = sigma_clipped_stats(data_vos,
-                                                                        axis=1,
-                                                                        mask_value=0)
+        mean_vos_col, __, __ = sigma_clipped_stats(data_vos.astype('float64'),
+                                                   axis=1, mask_value=0)
+
         y_vos = np.arange(nrows_chan)
         # fit low order polynomial
         try:
@@ -3102,10 +3245,10 @@ def os_corr(data, header, imgtype, tel=None, log=None):
         
         data_vos = data[os_sec_vert[i_chan]]
         # determine mean and std of overscan subtracted vos:
-        mean_vos[i_chan], __, std_vos[i_chan] = sigma_clipped_stats(data_vos,
-                                                                    mask_value=0)
+        __, __, std_vos[i_chan] = sigma_clipped_stats(data_vos.astype('float64'),
+                                                      mask_value=0)
         # the above mean_vos is close to zero; instead use the mean polyfit value
-        # (but keep the std_vos)
+        # (but keep the std_vos calculated above)
         mean_vos[i_chan] = np.mean(fit_vos_col)
                 
         # -------------------
@@ -3128,8 +3271,8 @@ def os_corr(data, header, imgtype, tel=None, log=None):
                                            log=log)
         
         # determine clipped mean for each column
-        mean_hos, median_hos, std_hos = sigma_clipped_stats(data_hos, axis=0,
-                                                            mask_value=0)
+        mean_hos, __, __ = sigma_clipped_stats(data_hos.astype('float64'), axis=0,
+                                               mask_value=0)
         if dcol > 1:
             oscan = [np.median(mean_hos[max(k-dcol_half,0):min(k+dcol_half+1,ncols)])
                      for k in range(ncols)]
@@ -3163,16 +3306,6 @@ def os_corr(data, header, imgtype, tel=None, log=None):
     header['BIASMEAN'] = (np.mean(mean_vos), '[e-] average all channel means vert. overscan')
     header['RDNOISE'] = (np.mean(std_vos), '[e-] average all channel sigmas vert. overscan')
 
-    # add top and bottom parts as well
-    #result = add_stats(mean_vos_top, std_vos_top, 'top', 'T')
-    #result = add_stats(mean_vos_bottom, std_vos_bottom, 'bot.', 'B')        
-    
-    # add the difference between mean levels at top and bottom
-    if False:
-        for i_chan in range(nchans):
-            header['BIASTB{}'.format(i_chan+1)] = (
-                meandiff_vos[i_chan], '[e-] channel {} mean diff. top-bottom vert. overcan'
-                .format(i_chan+1))
         
     # if the image is a flatfield, add some header keywords with
     # the statistics of [data_out]
@@ -3193,7 +3326,9 @@ def os_corr(data, header, imgtype, tel=None, log=None):
             '[e-] sigma (STD) flat over STATSEC')
 
         # full image statistics
-        __, median, std = sigma_clipped_stats(data_out, mask_value=0)
+        index_stat = get_rand_indices(data_out.shape)
+        __, median, std = sigma_clipped_stats(data_out[index_stat].astype('float64'),
+                                              mask_value=0)
         header['FLATMED'] = (median, '[e-] median flat')
         header['FLATSTD'] = (std, '[e-] sigma (STD) flat')
 
