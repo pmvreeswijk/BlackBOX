@@ -9,10 +9,10 @@ setup(
     python_requires='>=2.7',
     license='MIT',
     packages=find_packages(),
-    install_requires=['numpy', 'astropy', 'matplotlib', 'scipy', 'pyfftw',
-                      'lmfit', 'sip_tpv', 'scikit-image', 'bottleneck',
+    install_requires=[#'numpy', 'astropy', 'matplotlib', 'scipy', 'pyfftw',
+                      #'lmfit', 'sip_tpv', 'scikit-image', 'bottleneck',
                       # dependencies above: zogy
                       # dependencies below: blackbox
-                      'astroscrappy', 'acstools', 'ephem', 'watchdog',
-                      'fitsio', 'memory-profiler', 'aplpy']
+                      'watchdog', 'astroscrappy', 'acstools', 'ephem',
+                      'aplpy', 'memory-profiler', 'fitsio']
 )
