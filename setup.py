@@ -14,5 +14,5 @@ setup(
                       # dependencies above: zogy
                       # dependencies below: blackbox
                       'watchdog', 'astroscrappy', 'acstools', 'ephem',
-                      'aplpy', 'memory-profiler', 'fitsio']
+                      'aplpy', 'memory-profiler']
 )
