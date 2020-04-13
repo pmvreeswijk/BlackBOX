@@ -1,6 +1,10 @@
 
-import os, sys, gc
-from Settings import set_zogy, set_blackbox as set_bb
+import os
+import sys
+import gc
+
+from Settings import set_zogy
+from Settings import set_blackbox as set_bb
 
 # setting number of threads through environment variable (used by
 # e.g. astroscrappy) needs to be done before numpy is imported in
@@ -191,11 +195,16 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          cannot be imported inside python. Tried with different versions
          of python (3, 3.6, 3.7, 3.8), but none works ok. Also tried
          installing packages through apt-get, e.g.:
-
+    
          apt-get -y install python3-numpy python3-astropy python3-matplotlib
          ...
 
          but then still problems, o.a. with matplotlib
+
+         IDIA will soon switch from singularity version 2.6.1 to
+         version 3.5.2 (see email from ILIFU on 26 March 2020) - see
+         if that could help the above issues
+        
 
     (40) Paul mentonioned issue with astrometry for 47Tuc, especially
          in the u-band; seems that the A-DRASTD and A-DDESTD are a bit
@@ -204,6 +213,11 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     (41) go through headers of all images again and check if ranges
          set in set_qc are still appropriate.
 
+    (43) determine which background box size to use
+
+    (44) keep BlackBOX en ZOGY in separate directories when installing
+
+    (45) add/keep dome azimuth header keyword
 
     Done:
     -----
@@ -821,9 +835,8 @@ def create_jpg (filename):
                          .format(file_str, header['object'],
                                  header['filter'], header['exptime']))
             else:
-                title = ('file:{}   imgtype:{}   filter:{}   exptime:{:.1f}s'
-                         .format(file_str, header['imagetyp'],
-                                 header['filter'], header['exptime']))
+                title = ('file:{}   imgtype:{}   filter:{}'
+                         .format(file_str, header['imagetyp'], header['filter']))
 
             pixelcoords = True
             if pixelcoords:
