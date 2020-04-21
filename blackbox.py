@@ -3,8 +3,8 @@ import os
 import sys
 import gc
 
-from Settings import set_zogy
-from Settings import set_blackbox as set_bb
+import set_zogy
+import set_blackbox as set_bb
 
 # setting number of threads through environment variable (used by
 # e.g. astroscrappy) needs to be done before numpy is imported in
@@ -144,14 +144,6 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
     (25) does nproc decrease when running pool_func a 2nd time?
 
-    (26) determine image zeropoints per channel, and try fitting a
-         polynomial surface to the zeropoint values across the frame.
-         Or by averaging stars' zeropoints over boxes and then
-         interpolating them, similar to how background map is
-         determined. The zeropoints are determined in zogy, so if they
-         are needed in BlackBOX, then need to save an ascii file with
-         the zeropoint info that can be used by BlackBOX.
-
     (27) number of initials SExtractor detections (S-NOBJ) not the same
          as final number of objects in output catalog (5 sigma); maybe
          add keyword that indicates the latter number
@@ -161,12 +153,13 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
     (30) if mask is provided, but saturation is not included (e.g. in case
          only a bad pixel mask is provided), the saturated and 
-         saturated-connected pixels should be added to the mask 
+         saturated-connected pixels should be added to the mask
     
-    (31) when processing WHT/ACAM image, import WCS calibration header 
-         keywords such as CRVAL?, CRPIX?, CD_??, are not overwritten 
-         by the new WCS solution. Why not? Maybe easiest solution is to
-         delete these header keywords when new WCS is needed.
+    (31) when processing WHT/ACAM image, important WCS calibration
+         header keywords such as CRVAL?, CRPIX?, CD_??, are not
+         overwritten by the new WCS solution. Why not? Maybe easiest
+         solution is to delete these header keywords when new WCS is
+         needed.
 
     (32) add sensor header keywords to reduced data, even if they don't 
          exist yet in the raw image header, such as keywords from Cryostat 
@@ -188,23 +181,6 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          force redoing the zogy part even if the reduced image already
          exists in the reduced folder. So that a reduced image can be
          altered and run through zogy again.
-
-    (39) singularity container building on ML-controlroom2 machine:
-         problem with installing packages fitsio and reproject (latter
-         is not important) and also watchdog seems to install fine but
-         cannot be imported inside python. Tried with different versions
-         of python (3, 3.6, 3.7, 3.8), but none works ok. Also tried
-         installing packages through apt-get, e.g.:
-    
-         apt-get -y install python3-numpy python3-astropy python3-matplotlib
-         ...
-
-         but then still problems, o.a. with matplotlib
-
-         IDIA will soon switch from singularity version 2.6.1 to
-         version 3.5.2 (see email from ILIFU on 26 March 2020) - see
-         if that could help the above issues
-        
 
     (40) Paul mentonioned issue with astrometry for 47Tuc, especially
          in the u-band; seems that the A-DRASTD and A-DDESTD are a bit
@@ -307,6 +283,14 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     
     (21) force orientation in thumbnail images to be North up East left
 
+    (26) determine image zeropoints per channel, and try fitting a
+         polynomial surface to the zeropoint values across the frame.
+         Or by averaging stars' zeropoints over boxes and then
+         interpolating them, similar to how background map is
+         determined. The zeropoints are determined in zogy, so if they
+         are needed in BlackBOX, then need to save an ascii file with
+         the zeropoint info that can be used by BlackBOX.
+
     (28) flatfields regularly show a gradient diagonally across the image,
          increasing from lower left to top right, and these flats are
          not flagged red yet at the moment. Should include a parameter
@@ -343,6 +327,25 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          which should be correct; would be helpful if Paul noted down
          the output error, as that lists the input table coordinates and 
          the field coordinates.
+
+    (39) singularity container building on ML-controlroom2 machine:
+         problem with installing packages fitsio and reproject (latter
+         is not important) and also watchdog seems to install fine but
+         cannot be imported inside python. Tried with different versions
+         of python (3, 3.6, 3.7, 3.8), but none works ok. Also tried
+         installing packages through apt-get, e.g.:
+    
+         apt-get -y install python3-numpy python3-astropy python3-matplotlib
+         ...
+
+         but then still problems, o.a. with matplotlib
+
+         IDIA will soon switch from singularity version 2.6.1 to
+         version 3.5.2 (see email from ILIFU on 26 March 2020) - see
+         if that could help the above issues
+    
+         Solution: deleted required installation of fitsio in setup.py 
+                   file; also switched to singularity 3.5.2 
 
     (42) add jpg of reduced new/ref images to output, in similar
          fashion to fpacking of images at the end of blackbox
@@ -1166,7 +1169,7 @@ def blackbox_reduce (filename):
     try:
         log.info('correcting for the gain')
         gain_processed = False
-        data = gain_corr(data, header)
+        data = gain_corr(data, header, tel=tel, log=log)
     except Exception as e:
         #q.put(logger.info(traceback.format_exc()))
         #q.put(logger.error('exception was raised during [gain_corr]: {}'.format(e)))
@@ -1561,7 +1564,7 @@ def blackbox_reduce (filename):
             zogy_processed = False
             header_optsub = optimal_subtraction(
                 ref_fits=new_fits, ref_fits_mask=new_fits_mask, 
-                set_file='Settings.set_zogy', log=log, verbose=None,
+                set_file='set_zogy', log=log, verbose=None,
                 nthread=get_par(set_bb.nthread,tel), telescope=tel)
         except Exception as e:
             log.info(traceback.format_exc())
@@ -1657,7 +1660,7 @@ def blackbox_reduce (filename):
             zogy_processed = False
             header_optsub = optimal_subtraction(
                 new_fits=new_fits, ref_fits=ref_fits, new_fits_mask=new_fits_mask,
-                ref_fits_mask=ref_fits_mask, set_file='Settings.set_zogy', log=log, 
+                ref_fits_mask=ref_fits_mask, set_file='set_zogy', log=log, 
                 verbose=None, nthread=get_par(set_bb.nthread,tel), telescope=tel)
         except Exception as e:
             log.info(traceback.format_exc())
@@ -3472,7 +3475,7 @@ def xtalk_corr (data, crosstalk_file):
     
 ################################################################################
 
-def gain_corr(data, header):
+def gain_corr(data, header, tel=None, log=None):
 
     if get_par(set_zogy.timing,tel):
         t = time.time()
@@ -3491,8 +3494,9 @@ def gain_corr(data, header):
         data[chan_sec[i_chan]] *= gain[i_chan]
         header['GAIN{}'.format(i_chan+1)] = (gain[i_chan], 'gain applied to channel {}'.format(i_chan+1))
 
-    if get_par(set_zogy.timing,tel):
-        log_timing_memory (t0=t, label='gain_corr', log=log)
+    if log is not None:
+        if get_par(set_zogy.timing,tel):
+            log_timing_memory (t0=t, label='gain_corr', log=log)
         
     return data
 
