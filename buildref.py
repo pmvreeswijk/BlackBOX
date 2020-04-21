@@ -6,7 +6,14 @@ from itertools import chain
 
 from astropy.coordinates import Angle
 from astropy.table import vstack
-import fitsio
+
+# trouble installing fitsio in singularity container so create
+# fallback on astropy.io.fits (imported in zogy import above)
+try:
+    import fitsio
+    use_fitsio = True
+except:
+    use_fitsio = False
 
 from multiprocessing import Pool, Manager, Lock, Queue, Array
 
@@ -17,7 +24,9 @@ from blackbox import get_par, already_exists, copy_files2keep
 from blackbox import create_log, define_sections, fpack
 from qc import qc_check, run_qc_check
 
-from Settings import set_zogy, set_buildref as set_br, set_blackbox as set_bb
+import set_zogy
+import set_buildref as set_br
+import set_blackbox as set_bb
 
 
 __version__ = '0.4'
@@ -47,6 +56,18 @@ def buildref (telescope=None, date_start=None, date_end=None, field_ID=None,
     (15) when something is wrong with a single file (e.g. mini
          background image not present), prevent imcombine from
          stopping
+
+    (18) edges of images can be noisy compared to the rest of the image;
+         could be improved by considering those pixels with less than
+         certain amount of images (e.g. 3) as edge pixels.
+
+    (19) reduce size of bkg and bkg_std images in output directory
+         by creating mini images; N.B.: currently the function mini2back
+         uses the background box size from the zogy settings file - it 
+         would be better to use the value saved in the header of the mini
+         images, as the background box size with which a mini image was 
+         made may not be the same as the currently set value in the 
+         settings file.
 
     Done:
     -----
@@ -562,11 +583,15 @@ def header2table (filenames):
         # check if filename exists, fpacked or not
         exists, filename = already_exists (filename, get_filename=True)
         if exists:
-            # read header; use fitsio as it is faster than
-            # astropy.io.fits on when not using solid state disk
-            with fitsio.FITS(filename) as hdulist:
-                h = hdulist[-1].read_header()
-
+            if use_fitsio:
+                # read header; use fitsio as it is faster than
+                # astropy.io.fits on when not using solid state disk
+                with fitsio.FITS(filename) as hdulist:
+                    h = hdulist[-1].read_header()
+            else:
+                with fits.open(filename) as hdulist:
+                    h = hdulist[-1].read_header()
+                    
         else:
             q.put(genlog.warning('file does not exist; skipping image {}'
                                  .format(filename)))
@@ -600,8 +625,12 @@ def header2table (filenames):
                 continue
 
             # read header
-            with fitsio.FITS(catname) as hdulist:
-                h_cat = hdulist[-1].read_header()
+            if use_fitsio:
+                with fitsio.FITS(catname) as hdulist:
+                    h_cat = hdulist[-1].read_header()
+            else:
+                with fits.open(catname) as hdulist:
+                    h_cat = hdulist[-1].read_header()
 
             # if a dummycats were created, copy the qc-flag to the reduced
             # image header
