@@ -4,7 +4,8 @@ import numpy as np
 import astropy.io.fits as fits
 from zogy import format_cat, get_par
 
-from Settings import set_qc, set_zogy
+import set_qc
+import set_zogy
 
 __version__ = '0.2'
 
