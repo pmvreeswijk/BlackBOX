@@ -71,15 +71,16 @@ new_2keep = ['_D.fits', '_Scorr.fits', '_trans_limmag.fits', '_trans.fits'] + al
 #===============================================================================
 
 # name of Xtalk file created by Kerry
-crosstalk_file = {'ML1': os.environ['ZOGYHOME']+'/CalFiles/crosstalk_20180620.txt',
-                  'BG': os.environ['ZOGYHOME']+'/CalFiles/crosstalk_20180620.txt'}
+crosstalk_file = {'ML1': os.environ['BLACKBOXHOME']+'/CalFiles/crosstalk_20180620.txt',
+                  'BG': os.environ['BLACKBOXHOME']+'/CalFiles/crosstalk_20180620.txt'}
 
 # name of initial bad pixel mask
-bad_pixel_mask = {'ML1': os.environ['ZOGYHOME']+'/CalFiles/bpm_u_0p05.fits.fz',
-                  'BG': os.environ['ZOGYHOME']+'/CalFiles/bpm_u_0p05.fits.fz'}
+bad_pixel_mask = {'ML1': os.environ['BLACKBOXHOME']+'/CalFiles/bpm_u_0p05.fits.fz',
+                  'BG': os.environ['BLACKBOXHOME']+'/CalFiles/bpm_u_0p05.fits.fz'}
 
 # name of ML/BG field definition file
-mlbg_fieldIDs = '{}/CalFiles/MLBG_FieldIDs_Mar2019.dat'.format(os.environ['ZOGYHOME'])
+mlbg_fieldIDs = ('{}/CalFiles/MLBG_FieldIDs_Mar2019.dat'
+                 .format(os.environ['BLACKBOXHOME']))
 
 
 #===============================================================================
