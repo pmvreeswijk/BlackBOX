@@ -30,8 +30,9 @@ v_zogy="0.9.1"
 
 # define home of zogy, data and blackbox
 zogyhome=${PWD}/ZOGY
-datahome=${PWD}
 blackboxhome=${PWD}/BlackBOX
+# define data home (here defined for MeerLICHT):
+datahome=/ceph/meerlicht
 
 # exit script if zogyhome and/or blackboxhome already exist
 if [ -d "${zogyhome}" ] || [ -d "${blackboxhome}" ]
@@ -81,11 +82,6 @@ then
     v_blackbox_git="@v${v_blackbox}"
 fi
 git clone ${blackbox_branch} https://github.com/pmvreeswijk/BlackBOX
-
-# rsync BlackBOX content to ZOGY
-rsync -av ${blackboxhome}/* ${zogyhome}
-# remove BlackBOX to avoid confusion
-rm -rf ${blackboxhome}
 
 
 # install ZOGY and BlackBOX repositories
@@ -196,25 +192,27 @@ echo "# BlackBOX and ZOGY system variables"
 if [[ ${SHELL} == *"bash"* ]] || [[ ${SHELL} == *"zsh"* ]]
 then
     echo "export ZOGYHOME=${zogyhome}"
+    echo "export BLACKBOXHOME=${blackboxhome}"
     echo "# update DATAHOME to folder where the data are sitting"
     echo "export DATAHOME=${datahome}"
     echo "if [ -z \"\${PYTHONPATH}\" ]"
     echo "then"
-    echo "    export PYTHONPATH=${zogyhome}:${zogyhome}/Settings"
+    echo "    export PYTHONPATH=${zogyhome}:${zogyhome}/Settings:${blackboxhome}:${blackboxhome}/Settings"
     echo "else"
-    echo "    export PYTHONPATH=\${PYTHONPATH}:${zogyhome}:${zogyhome}/Settings"
+    echo "    export PYTHONPATH=\${PYTHONPATH}:${zogyhome}:${zogyhome}/Settings:${blackboxhome}:${blackboxhome}/Settings"
     echo "fi"
 fi
 
 if [[ ${SHELL} == *"csh"* ]]
 then
     echo "setenv ZOGYHOME ${zogyhome}"
+    echo "setenv BLACKBOXHOME ${blackboxhome}"
     echo "# update DATAHOME to folder where the data are sitting"
     echo "setenv DATAHOME ${datahome}"
     echo "if ( \$?PYTHONPATH ) then"
-    echo "    setenv PYTHONPATH \${PYTHONPATH}:${zogyhome}:${zogyhome}/Settings"
+    echo "    setenv PYTHONPATH \${PYTHONPATH}:${zogyhome}:${zogyhome}/Settings:${blackboxhome}:${blackboxhome}/Settings"
     echo "else"
-    echo "    setenv PYTHONPATH ${zogyhome}:${zogyhome}/Settings"
+    echo "    setenv PYTHONPATH ${zogyhome}:${zogyhome}/Settings:${blackboxhome}:${blackboxhome}/Settings"
     echo "endif"
 fi
 
