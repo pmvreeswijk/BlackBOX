@@ -96,6 +96,9 @@ sudo -H ${pip} install git+git://github.com/pmvreeswijk/BlackBOX${v_blackbox_git
 
 # SExtractor
 sudo ${packman} install source-extractor
+# the executable for this installation is 'source-extractor' while
+# BlackBOX versions before 0.9.2 expect 'sex'; make a symbolic link
+ln -s /opt/local/bin/source-extractor /opt/local/bin/sex
 
 # PSFEx
 # gcc8 is needed for atlas
