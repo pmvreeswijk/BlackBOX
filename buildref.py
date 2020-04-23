@@ -831,7 +831,7 @@ def prep_ref (imagelist, field_ID, filt):
         zogy_processed = False
         header_optsub = optimal_subtraction(
             ref_fits=ref_fits, ref_fits_mask=ref_fits_mask,
-            set_file='Settings.set_zogy', log=log, verbose=None,
+            set_file='set_zogy', log=log, verbose=None,
             nthread=get_par(set_br.nthread,tel), telescope=tel)
     except Exception as e:
         q.put (genlog.info(traceback.format_exc()))

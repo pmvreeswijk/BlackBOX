@@ -179,7 +179,7 @@ echo "# BlackBOX and ZOGY system variables"
 if [[ ${SHELL} == *"bash"* ]] || [[ ${SHELL} == *"zsh"* ]]
 then
     echo "export ZOGYHOME=${zogyhome}"
-    echo "export BLACKBOXHOME=${zogyhome}"
+    echo "export BLACKBOXHOME=${blackboxhome}"
     echo "# update DATAHOME to folder where the data are sitting"
     echo "export DATAHOME=${datahome}"
     echo "if [ -z \"\${PYTHONPATH}\" ]"
