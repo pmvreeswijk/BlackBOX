@@ -2,6 +2,7 @@
 import os
 import sys
 import gc
+import pickle
 
 import set_zogy
 import set_blackbox as set_bb
@@ -44,7 +45,8 @@ import aplpy
 # to compute UTC-UT1 corrections for e.g. sidereal time computation),
 # Steven created a mirror of this file in a google storage bucket
 from astropy.utils import iers
-iers.conf.iers_auto_url = 'https://storage.googleapis.com/blackbox-auxdata/timing/finals2000A.all'
+iers.conf.iers_auto_url = (
+    'https://storage.googleapis.com/blackbox-auxdata/timing/finals2000A.all')
 iers.conf.iers_auto_url_mirror = 'http://maia.usno.navy.mil/ser7/finals2000A.all'
 
 #from pympler import tracker
@@ -191,9 +193,16 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
     (43) determine which background box size to use
 
-    (44) keep BlackBOX en ZOGY in separate directories when installing
-
     (45) add/keep dome azimuth header keyword
+
+    (46) filter cosmic rays not detected by astroscrappy from output
+         catalog with condition object: FWHM_obj < f * FWHM_ima, where
+         f needs to be determined (~0.1-0.5). Or using error estimate
+         on image FWHM: FWHM_obj < FWHM_ima * nsigma * err_FWHM_ima
+    
+    (47) improve astroscrappy cosmic-ray rejection parameters; too
+         many cosmics go undetected
+
 
     Done:
     -----
@@ -349,6 +358,8 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
     (42) add jpg of reduced new/ref images to output, in similar
          fashion to fpacking of images at the end of blackbox
+
+    (44) keep BlackBOX en ZOGY in separate directories when installing
 
     """
     
@@ -1199,7 +1210,8 @@ def blackbox_reduce (filename):
         try: 
             log.info('correcting for the crosstalk')
             xtalk_processed = False
-            data = xtalk_corr (data, get_par(set_bb.crosstalk_file,tel))
+            crosstalk_file = get_par(set_bb.crosstalk_file,tel)
+            data = xtalk_corr (data, crosstalk_file)
         except Exception as e:
             q.put(logger.info(traceback.format_exc()))
             q.put(logger.error('exception was raised during [xtalk_corr]: {}'
@@ -1210,19 +1222,13 @@ def blackbox_reduce (filename):
             xtalk_processed = True
         finally:
             header['XTALK-P'] = (xtalk_processed, 'corrected for crosstalk?')
-            header['XTALK-F'] = (get_par(set_bb.crosstalk_file,tel).split('/')[-1],
+            header['XTALK-F'] = (crosstalk_file.split('/')[-1],
                                  'name crosstalk coefficients file')
             
 
         if get_par(set_zogy.display,tel):
             ds9_arrays(Xtalk_cor=data)
             
-            
-    # PMV 2018/12/20: non-linearity correction is not yet done, but
-    # still add these keywords to the header
-    header['NONLIN-P'] = (False, 'corrected for non-linearity?')
-    header['NONLIN-F'] = ('None', 'name non-linearity correction file')
-
 
     # overscan correction
     #####################
@@ -1244,6 +1250,34 @@ def blackbox_reduce (filename):
     if get_par(set_zogy.display,tel):
         ds9_arrays(os_cor=data)
 
+
+    # non-linearity correction
+    ##########################
+    nonlin_corr_processed = False
+    header['NONLIN-P'] = (nonlin_corr_processed, 'corrected for non-linearity?')
+    header['NONLIN-F'] = ('None', 'name non-linearity correction file')
+    
+    if imgtype != 'bias' and get_par(set_bb.correct_nonlin,tel):
+
+        try:
+            log.info('correcting for the non-linearity')
+            nonlin_corr_file = get_par(set_bb.nonlin_corr_file,tel)
+            data = nonlin_corr(data, nonlin_corr_file, log=log)
+            header['NONLIN-F'] = (nonlin_corr_file.split('/')[-1],
+                                  'name non-linearity correction file')
+        except Exception as e:
+            #q.put(logger.info(traceback.format_exc()))
+            #q.put(logger.error('exception was raised during [nonlin_corr]: '
+            #                   '{}'.format(e)))
+            log.info(traceback.format_exc())
+            log.error('exception was raised during [nonlin_corr]: {}'
+                      .format(e))
+        else:
+            nonlin_corr_processed = True
+        finally:
+            header['NONLIN-P'] = nonlin_corr_processed
+
+
     # if IMAGETYP=bias or dark, write [data] to fits and return
     if imgtype == 'bias' or imgtype == 'dark':
         # call [run_qc_check] to update header with any QC flags
@@ -1252,7 +1286,7 @@ def blackbox_reduce (filename):
         fits.writeto(fits_out, data.astype('float32'), header, overwrite=True)
         return
     
-
+    
     # master bias creation
     ######################
     try:
@@ -1277,8 +1311,8 @@ def blackbox_reduce (filename):
     # master bias subtraction
     #########################
     mbias_processed = False
-    header['MBIAS-F'] = ('None', 'name of master bias applied')
     header['MBIAS-P'] = (mbias_processed, 'corrected for master bias?')
+    header['MBIAS-F'] = ('None', 'name of master bias applied')
 
     # check if mbias needs to be subtracted
     if fits_mbias is not None and get_par(set_bb.subtract_mbias,tel):
@@ -1288,8 +1322,7 @@ def blackbox_reduce (filename):
             log.info('subtracting the master bias')
             data_mbias, header_mbias = read_hdulist(fits_mbias, get_header=True)
             data -= data_mbias
-            header['MBIAS-F'] = (fits_mbias.split('/')[-1].split('.fits')[0], 
-                                 'name of master bias applied')
+            header['MBIAS-F'] = fits_mbias.split('/')[-1].split('.fits')[0]
 
             # for object image, add number of days separating image and master bias
             if imgtype == 'object':
@@ -1308,13 +1341,13 @@ def blackbox_reduce (filename):
         else:
             mbias_processed = True
         finally:
-            header['MBIAS-P'] = (mbias_processed, 'corrected for master bias?')
+            header['MBIAS-P'] = mbias_processed
 
 
     # display
     if get_par(set_zogy.display,tel):
         ds9_arrays(bias_sub=data)
-
+        
 
     # create initial mask array
     ###########################
@@ -1345,7 +1378,8 @@ def blackbox_reduce (filename):
     # if IMAGETYP=flat, write [data] to fits and return
     if imgtype == 'flat':
         # first add some statistics to header
-        get_flatstats (data, header, imgtype, data_mask)
+        if os_processed:
+            get_flatstats (data, header, imgtype)
         # call [run_qc_check] to update header with any QC flags
         run_qc_check (header, tel, log=log)
         # write to fits
@@ -1712,7 +1746,9 @@ def blackbox_reduce (filename):
                                  move=False, log=log)
 
 
-    lock.acquire()
+    lock.acquire()    # change to [run_dir]
+    if get_par(set_zogy.make_plots,tel):
+        os.chdir(get_par(set_bb.run_dir,tel))
     # change to [run_dir]
     if get_par(set_zogy.make_plots,tel):
         os.chdir(get_par(set_bb.run_dir,tel))
@@ -1729,7 +1765,7 @@ def blackbox_reduce (filename):
 
 ################################################################################
 
-def get_flatstats (data, header, imgtype, data_mask, nsubs_side=6):
+def get_flatstats (data, header, imgtype, nsubs_side=6):
     
     # add some header keywords with the statistics
     sec_temp = get_par(set_bb.flat_norm_sec,tel)
@@ -1782,25 +1818,19 @@ def get_flatstats (data, header, imgtype, data_mask, nsubs_side=6):
     # split image in 6x6 subimages and calculate a few additional
     # statistics
     
-    # determine mask to reject
-    mask_reject = (data_mask != 0)
-    
     # determine boxsize
     ysize, xsize = data.shape
     boxsize = int(ysize / nsubs_side)
     
-    # create masked array
-    data_masked = np.ma.masked_array(data, mask=mask_reject)
-    
     # reshape
-    data_masked_reshaped = data_masked.reshape(
+    data_reshaped = data.reshape(
         nsubs_side,boxsize,-1,boxsize).swapaxes(1,2).reshape(
             nsubs_side,nsubs_side,-1)
     
     # get clipped statistics
-    index_stat = get_rand_indices((data_masked_reshaped.shape[2],))
+    index_stat = get_rand_indices((data_reshaped.shape[2],))
     mini_mean, mini_median, mini_std = sigma_clipped_stats (
-        data_masked_reshaped[:,:,index_stat].astype('float64'),
+        data_reshaped[:,:,index_stat].astype('float64'),
         sigma=3, axis=2, mask_value=0)
 
     # statistic used by Danielle, or the maximum relative difference
@@ -2088,7 +2118,8 @@ def cosmics_corr (data, header, data_mask, header_mask):
     if get_par(set_zogy.timing,tel):
         t = time.time()
     
-    satlevel_electrons = get_par(set_bb.satlevel,tel) * np.mean(get_par(set_bb.gain,tel)) 
+    satlevel_electrons = (get_par(set_bb.satlevel,tel) *
+                          np.mean(get_par(set_bb.gain,tel)) - header['BIASMEAN'])
     mask_cr, data = astroscrappy.detect_cosmics(
         data, inmask=(data_mask!=0), sigclip=get_par(set_bb.sigclip,tel),
         sigfrac=get_par(set_bb.sigfrac,tel), objlim=get_par(set_bb.objlim,tel),
@@ -2161,13 +2192,14 @@ def mask_init (data, header):
     data[mask_infnan] = 0
     # and add them to [data_mask] with same value defined for 'bad' pixels
     # unless that pixel was already masked
-    data_mask[(mask_infnan) & (data_mask==0)] += get_par(set_zogy.mask_value['bad'],tel)
+    data_mask[(mask_infnan) & (data_mask==0)] += get_par(
+        set_zogy.mask_value['bad'],tel)
     
     # identify saturated pixels; saturation level (ADU) is taken from
     # blackbox settings file, which needs to be mulitplied by the gain
     # and have the mean biaslevel subtracted
-    satlevel_electrons = (get_par(set_bb.satlevel,tel)*np.mean(get_par(set_bb.gain,tel))
-                          - header['BIASMEAN'])
+    satlevel_electrons = (get_par(set_bb.satlevel,tel) *
+                          np.mean(get_par(set_bb.gain,tel)) - header['BIASMEAN'])
     mask_sat = (data >= satlevel_electrons)
     # add them to the mask of edge and bad pixels
     data_mask[mask_sat] += get_par(set_zogy.mask_value['saturated'],tel)
@@ -2180,13 +2212,16 @@ def mask_init (data, header):
     
     # and pixels connected to saturated pixels
     struct = np.ones((3,3), dtype=bool)
-    mask_satconnect = ndimage.binary_dilation(mask_sat, structure=struct, iterations=2)
+    mask_satconnect = ndimage.binary_dilation(mask_sat, structure=struct,
+                                              iterations=2)
     # add them to the mask
-    data_mask[(mask_satconnect) & (~mask_sat)] += get_par(set_zogy.mask_value['saturated-connected'],tel)
+    data_mask[(mask_satconnect) & (~mask_sat)] += get_par(
+        set_zogy.mask_value['saturated-connected'],tel)
 
     # create initial mask header 
     header_mask = fits.Header()
-    header_mask['SATURATE'] = (satlevel_electrons, '[e-] adopted saturation threshold')
+    header_mask['SATURATE'] = (satlevel_electrons, '[e-] adopted saturation '
+                               'threshold')
     header['NOBJ-SAT'] = (nobj_sat, 'number of saturated objects')
     # also add these to the header of image itself
     header['SATURATE'] = (satlevel_electrons, '[e-] adopted saturation threshold')
@@ -2300,10 +2335,11 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
                 if ((imtype=='bias' and get_par(set_bb.subtract_mbias,tel))
                     or imtype=='flat'):
                     if log is not None:
-                        log.info ('Warning: too few images to produce master {} for '
-                                  'evening date {} +/- window of {} days\n'
-                                  'instead using: {}'.
-                                  format(imtype, date_eve, nwindow, fits_master_close))
+                        log.info ('Warning: too few images to produce master {} '
+                                  'for evening date {} +/- window of {} days\n'
+                                  'instead using: {}'
+                                  .format(imtype, date_eve, nwindow,
+                                          fits_master_close))
                 # previously we created a symbolic link so future
                 # files would automatically use this as the master
                 # file, but as this symbolic link is confusing, let's
@@ -2316,20 +2352,23 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
                 if ((imtype=='bias' and get_par(set_bb.subtract_mbias,tel))
                     or imtype=='flat'):
                     if log is not None:
-                        log.error('no alternative master {} found'.format(imtype))
+                        log.error('no alternative master {} found'
+                                  .format(imtype))
                 return None
                 
         else:
             if imtype=='bias':
-                q.put(logger.info ('making master {} for night {}'.format(imtype, date_eve)))
+                q.put(logger.info ('making master {} for night {}'
+                                   .format(imtype, date_eve)))
                 if not get_par(set_bb.subtract_mbias,tel):
-                    q.put(logger.info ('(but will not be applied to input image as [subtract_mbias] '
-                                       'is set to False)'))
+                    q.put(logger.info ('(but will not be applied to input image '
+                                       'as [subtract_mbias] is set to False)'))
             if imtype=='flat':
                 q.put(logger.info ('making master {} in filter {} for night {}'
                                    .format(imtype, filt, date_eve)))
-                
-            # assuming that individual flats/biases have the same shape as the input data
+
+            # assuming that individual flats/biases have the same
+            # shape as the input data
             ysize, xsize = data_shape
             master_cube = np.zeros((nfiles, ysize, xsize), dtype='float32')
 
@@ -2366,7 +2405,8 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
                                 'XBINNING', 'YBINNING', 'MJD-OBS', 'AIRMASS', 
                                 'ORIGIN', 'TELESCOP', 'PYTHON-V', 'BB-V']:
                         if key in header_temp:
-                            header_master[key] = header_temp[key]
+                            header_master[key] = (header_temp[key],
+                                                  header_temp.comments[key])
 
 
                 if imtype=='flat':
@@ -2387,8 +2427,8 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
                 if i_file==nfiles-1:
                     for key in ['DATE-END', 'MJD-END']:
                         if key in header_temp:
-                            header_master[key] = header_temp[key]
-
+                            header_master[key] = (header_temp[key],
+                                                  header_temp.comments[key])
                     
             # determine the median
             master_median = np.median(master_cube, axis=0)
@@ -3255,8 +3295,12 @@ def os_corr(data, header, imgtype, tel=None, log=None):
         # add fit coefficients to image header
         for nc in range(len(p)):
             p_reverse = p[::-1]
+            if np.isfinite(p_reverse[nc]):
+                value = p_reverse[nc]
+            else:
+                value = 'None'              
             header['BIAS{}A{}'.format(i_chan+1, nc)] = (
-                p_reverse[nc], '[e-] channel {} vert. overscan A{} polyfit coeff'
+                value, '[e-] channel {} vert. overscan A{} polyfit coeff'
                 .format(i_chan+1, nc))
             
         # fit values
@@ -3475,24 +3519,74 @@ def xtalk_corr (data, crosstalk_file):
     
 ################################################################################
 
-def gain_corr(data, header, tel=None, log=None):
+def nonlin_corr(data, nonlin_corr_file, log=None):
 
     if get_par(set_zogy.timing,tel):
         t = time.time()
+
+    # read file with list of splinefit objects
+    with open(nonlin_corr_file, 'rb') as f:
+        fit_splines = pickle.load(f)
+
+    # spline fit was determined from counts instead of electrons, so
+    # need gain and correct channel for channel; could also perform
+    # this correction before the gain correction, but then
+    # overscan/bias correction should be done before the gain
+    # correction as well
+    gain = get_par(set_bb.gain,tel)
+
+    # determine reduced data sections
+    __, __, __, __, data_sec_red = define_sections(np.shape(data), tel=tel)
+
+    # loop channels
+    nchans = np.shape(data_sec_red)[0]
+    for i_chan in range(nchans):
+
+        # spline determines fractional correction:
+        #   splinefit = (data - linear fit) / linear fit
+        # so to correct data to linear fit:
+        #   linear fit = data / (splinefit + 1)
+
+        # temporary array with channel data in counts
+        data_counts = data[data_sec_red[i_chan]]/gain[i_chan]
+
+        # do not correct for data above 50,000 (+bias level)
+        frac_corr = np.ones(data_counts.shape)
+        mask_corr = (data_counts <= 50000)
+        frac_corr[mask_corr] = fit_splines[i_chan](data_counts[mask_corr])
+
+        # correct input data in electrons
+        data[data_sec_red[i_chan]] /= (frac_corr + 1)
+
+
+    if log is not None:
+        if get_par(set_zogy.timing,tel):
+            log_timing_memory (t0=t, label='nonlin_corr', log=log)
+        
+    return data
+
+
+################################################################################
+
+def gain_corr(data, header, tel=None, log=None):
 
     """Returns [data] corrected for the [gain] defined in [set_bb.gain]
        for the different channels
 
     """
+ 
+    if get_par(set_zogy.timing,tel):
+        t = time.time()
 
     gain = get_par(set_bb.gain,tel)
     # channel image sections
     chan_sec, __, __, __, __ = define_sections(np.shape(data), tel=tel)
 
-
-    for i_chan in range(np.shape(chan_sec)[0]):
+    nchans = np.shape(chan_sec)[0]
+    for i_chan in range(nchans):
         data[chan_sec[i_chan]] *= gain[i_chan]
-        header['GAIN{}'.format(i_chan+1)] = (gain[i_chan], 'gain applied to channel {}'.format(i_chan+1))
+        header['GAIN{}'.format(i_chan+1)] = (gain[i_chan], 'gain applied to '
+                                             'channel {}'.format(i_chan+1))
 
     if log is not None:
         if get_par(set_zogy.timing,tel):

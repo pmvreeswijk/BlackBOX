@@ -1,10 +1,6 @@
 import os
 import numpy as np
 
-# discontinuing versions for this setting file as it is automatically
-# linked to the blackbox.py version using tags in github
-#__version__ = '0.8.1'
-
 #===============================================================================
 # Number of processes and threads
 #===============================================================================
@@ -23,6 +19,9 @@ nthread = 2
 subtract_mbias = False
 # perform satellite detection
 detect_sats = True
+# perform non-linearity correction
+correct_nonlin = False
+
 
 # time window [days] within which to include biases in master bias 
 # (0=only same night, 1=including previous and next night, etc.)
@@ -82,6 +81,11 @@ bad_pixel_mask = {'ML1': os.environ['BLACKBOXHOME']+'/CalFiles/bpm_u_0p05.fits.f
 mlbg_fieldIDs = ('{}/CalFiles/MLBG_FieldIDs_Mar2019.dat'
                  .format(os.environ['BLACKBOXHOME']))
 
+# name of file with non-linearity correcting spline
+nonlin_corr_file = {'ML1': '{}/CalFiles/nonlin_splines_20200501.pkl'
+                    .format(os.environ['BLACKBOXHOME']),
+                    'BG': '{}/CalFiles/nonlin_splines_20200501.pkl'
+                    .format(os.environ['BLACKBOXHOME'])}
 
 #===============================================================================
 # Cosmic ray and satellite trail detection
