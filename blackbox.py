@@ -1045,12 +1045,6 @@ def blackbox_reduce (filename):
             
     fits_out = '{}/{}_{}_{}.fits'.format(path[imgtype], tel, utdate, uttime)
 
-    # initialize names of output binary fits catalogs to None so that
-    # these will not be created for the bias and flat frames if
-    # [qc_check] detects a red flag
-    fits_out_cat = None
-    fits_out_trans = None
-
     if imgtype == 'bias':
         make_dir (bias_path)
 
@@ -1078,10 +1072,6 @@ def blackbox_reduce (filename):
                 
         fits_out = fits_out.replace('.fits', '_red.fits')
         fits_out_mask = fits_out.replace('_red.fits', '_mask.fits')
-
-        # names of correponding output binary fits catalogs
-        fits_out_cat = fits_out.replace('.fits', '_cat.fits')
-        fits_out_trans = fits_out.replace('.fits', '_trans.fits')
         
         # and reference image
         ref_path = '{}/{}'.format(get_par(set_bb.ref_dir,tel), obj)
@@ -1471,6 +1461,14 @@ def blackbox_reduce (filename):
         ds9_arrays(mask=data_mask)
         print (header['NSATS'])
 
+    # output images and catalogs to refer to [tmp] directory
+    new_fits = '{}/{}'.format(tmp_path, fits_out.split('/')[-1])
+    new_fits_mask = new_fits.replace('_red.fits', '_mask.fits')
+    fits_tmp_cat = new_fits.replace('.fits', '_cat.fits')
+    fits_tmp_trans = new_fits.replace('.fits', '_trans.fits')
+
+    tmp_base = new_fits.split('_red.fits')[0]
+    new_base = fits_out.split('_red.fits')[0]
 
     # if header of object image contains a red flag, create dummy
     # binary fits catalogs (both 'new' and 'trans') and return,
@@ -1479,17 +1477,22 @@ def blackbox_reduce (filename):
     if qc_flag=='red':
         log.error('red QC flag in image {}; making dummy catalogs and returning'
                   .format(fits_out))
-        run_qc_check (header, tel, 'new', fits_out_cat, log=log)
-        run_qc_check (header, tel, 'trans', fits_out_trans, log=log)
+        run_qc_check (header, tel, 'new', fits_tmp_cat, log=log)
+        run_qc_check (header, tel, 'trans', fits_tmp_trans, log=log)
+
+        # copy selected output files to new directory and remove tmp folder
+        # corresponding to the object image
+        result = copy_files2keep(tmp_base, new_base, get_par(set_bb.all_2keep,tel),
+                                 move=False, log=log)
+        clean_tmp(tmp_base)
+
         return
 
     
-    # write data and mask to output images in [tmp_path]
-    log.info('writing reduced image and mask to {}'.format(tmp_path))
-    new_fits = '{}/{}'.format(tmp_path, fits_out.split('/')[-1])
-    new_fits_mask = new_fits.replace('_red.fits', '_mask.fits')
+    # write data and mask to output images in [tmp_path] and
     # add name of reduced image and corresponding mask in header just
     # before writing it
+    log.info('writing reduced image and mask to {}'.format(tmp_path))
     redfile = fits_out.split('/')[-1].split('.fits')[0]
     header['REDFILE'] = (redfile, 'BlackBOX reduced image name')
     header['MASKFILE'] = (redfile.replace('_red', '_mask'), 
@@ -1500,10 +1503,6 @@ def blackbox_reduce (filename):
     fits.writeto(new_fits_mask, data_mask.astype('uint8'), header_mask,
                  overwrite=True)
 
-    # output catalogs to refer to [tmp] directory
-    fits_tmp_cat = '{}/{}'.format(tmp_path, fits_out_cat.split('/')[-1]) 
-    fits_tmp_trans = '{}/{}'.format(tmp_path, fits_out_trans.split('/')[-1]) 
-        
 
     # run zogy's [optimal_subtraction]
     ##################################
@@ -1575,6 +1574,13 @@ def blackbox_reduce (filename):
         finally:
             if not zogy_processed:
                 log.error('due to exception: returning without copying reference files')
+
+                # copy selected output files to red directory and remove tmp folder
+                # corresponding to the image
+                result = copy_files2keep(tmp_base, new_base, get_par(set_bb.all_2keep,tel),
+                                         move=False, log=log)
+                clean_tmp(tmp_base)
+
                 return
             else:
                 # feed [header_optsub] to [run_qc_check], and make
@@ -1607,8 +1613,6 @@ def blackbox_reduce (filename):
                 
         # copy the set of files [all_2keep] to the reduced
         # directory for future building of new reference image
-        tmp_base = new_fits.split('_red.fits')[0]
-        new_base = fits_out.split('_red.fits')[0]
         result = copy_files2keep(tmp_base, new_base, 
                                  get_par(set_bb.all_2keep,tel), move=False,
                                  log=log)
@@ -1617,13 +1621,14 @@ def blackbox_reduce (filename):
             # also copy dummy transient catalog in case of red flag
             result = copy_files2keep(tmp_base, new_base, ['_trans.fits'],
                                      log=log)
+            clean_tmp(tmp_base)
         else:
             # now move [ref_2keep] to the reference directory
             ref_base = ref_fits_out.split('_red.fits')[0]
             result = copy_files2keep(tmp_base, ref_base,
                                      get_par(set_bb.ref_2keep,tel),
                                      move=False, log=log)
-            
+            clean_tmp(tmp_base)
             
         # now that reference is built, remove this reference ID
         # and filter combination from the [ref_ID_filt] queue
@@ -1670,6 +1675,13 @@ def blackbox_reduce (filename):
         finally:
             if not zogy_processed:
                 log.error('due to exception: returning without copying new files')
+
+                # copy selected output files to red directory and remove tmp folder
+                # corresponding to the image
+                result = copy_files2keep(tmp_base, new_base, get_par(set_bb.all_2keep,tel),
+                                         move=False, log=log)
+                clean_tmp(tmp_base)
+
                 return
             else:
                 # feed [header_optsub] to [run_qc_check], and if there
@@ -1705,22 +1717,10 @@ def blackbox_reduce (filename):
             log_timing_memory (t0=t_blackbox_reduce, label='blackbox_reduce', log=log)
 
         # copy selected output files to new directory
-        new_base = fits_out.split('_red.fits')[0]
-        tmp_base = new_fits.split('_red.fits')[0]
         result = copy_files2keep(tmp_base, new_base,
                                  get_par(set_bb.new_2keep,tel),
                                  move=False, log=log)
-
-
-    lock.acquire()
-    # change to [run_dir]
-    if get_par(set_zogy.make_plots,tel):
-        os.chdir(get_par(set_bb.run_dir,tel))
-    # and delete [tmp_path] if [set_bb.keep_tmp] not True
-    if not get_par(set_bb.keep_tmp,tel) and os.path.isdir(tmp_path):
-        shutil.rmtree(tmp_path)
-    lock.release()
-
+        clean_tmp(tmp_base)
 
     log.info('reached the end of function blackbox_reduce')
     
@@ -1953,6 +1953,27 @@ def make_dir_nolock(path, empty=False):
         shutil.rmtree(path)
     if not os.path.isdir(path):
         os.makedirs(path)
+
+    return
+
+
+################################################################################
+
+def clean_tmp(temp_base):
+
+    """ Function that removes the tmp folder corresponding to the
+        reduced image / reference image if [set_bb.keep_tmp] not True.
+    """
+
+    lock.acquire()
+    # change to [run_dir]
+    if get_par(set_zogy.make_plots,tel):
+        os.chdir(get_par(set_bb.run_dir,tel))
+    # and delete [temp_path] if [set_bb.keep_tmp] not True
+    temp_path = temp_base.rsplit('/',1)[0]
+    if not get_par(set_bb.keep_tmp,tel) and os.path.isdir(temp_path):
+        shutil.rmtree(temp_path)
+    lock.release()
 
     return
 
