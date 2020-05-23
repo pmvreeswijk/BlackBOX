@@ -203,6 +203,19 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     (47) improve astroscrappy cosmic-ray rejection parameters; too
          many cosmics go undetected
 
+    (48) add mode such that all input files are considered new images,
+         i.e. no reference images are created, nor is the comparison
+         between new and ref done. This is to speed up the processing
+         of a large number of files to be used for the reference
+         building routine. Once the reference images are built, the
+         files will need to be processed again, but without any steps
+         that can be skipped - see also item #37.
+
+    (49) creating master flats can/should be multiprocessed
+
+    (50) change jpg scaling to zscale
+
+    (51) check what is done when no master flat is found
 
     Done:
     -----
@@ -541,8 +554,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
         # add files that are already present in the read_path
         # directory to the night queue, to reduce these first
         for filename in filenames: 
-            queue.put([filename])
-            
+            queue.put(filename)
             
         # determine time of next sunrise
         obs = ephem.Observer()
@@ -1091,17 +1103,19 @@ def blackbox_reduce (filename):
         
         exists, ref_fits_temp = already_exists (ref_fits_out, get_filename=True)
         if exists:
-            header_ref = read_hdulist(ref_fits_temp, get_data=False, get_header=True)
+            header_ref = read_hdulist(ref_fits_temp, get_data=False,
+                                      get_header=True)
             utdate_ref, uttime_ref = get_date_time(header_ref)
             if utdate_ref==utdate and uttime_ref==uttime:
-                q.put(logger.info ('this image {} is the current reference image; skipping'
-                                   .format(fits_out.split('/')[-1])))
+                q.put(logger.info ('this image {} is the current reference image '
+                                   'of field {}; skipping'
+                                   .format(fits_out.split('/')[-1], obj)))
                 return
 
 
     if already_exists (fits_out):
-        q.put(logger.warning ('corresponding reduced {} image {} already exist; skipping'
-                           .format(imgtype, fits_out.split('/')[-1])))
+        q.put(logger.warning ('corresponding reduced {} image {} already exist; '
+                              'skipping'.format(imgtype, fits_out.split('/')[-1])))
         return
 
     
@@ -3914,53 +3928,91 @@ def copying(file):
 
 ################################################################################
 
-def action(item_list):
+def action(queue):
     '''Action to take during night mode of pipeline.
 
-    For new events, continues if it is a file. '''
+    For new events, continues if it is a fits file. '''
 
     while True:
 
-        #get parameters for list
-        [event] = item_list.get(True)
-        
+        if queue.empty():
+            q.put(logger.info('queue is empty for now'))
+
+        # get event from queue
+        event = queue.get(True)
+
         try:
             # get name of new file
-            filename = str(event.src_path) 
-            print ('event_type:', event.event_type)
+            filename = str(event.src_path)
+
+            q.put(logger.info('detected a new file: {}'.format(filename)))
+            
             #only continue if event is a fits
             if 'fits' in filename: 
-                # file N.B.: when copying files to [read_path]
-                # directory using rsync without --inplace option, a
-                # temporary file (starting with
-                # .[filename].[randomstr]) is first created, which
-                # causes an infinite loop below as that filename is
-                # subsequently not found when the syncing has
-                # finished. Using rsync --inplace or cp is fine.
 
-                # this while True block below replaces the
-                # [copying] function, but probably need to add a
-                # time-out in case the file never completely
-                # arrives
-                while True:
+                # if filename is a temporary rsync copy (default
+                # behaviour of rsync is to create a temporary file
+                # starting with .[filename].[randomstr]; can be
+                # changed with option "--inplace"), then let filename
+                # refer to the eventual file created by rsync
+                fn_head, fn_tail = os.path.split(filename)
+                if fn_tail[0] == '.':
+                    filename = '{}/{}'.format(
+                        fn_head, '.'.join(fn_tail.split('.')[1:-1]))
+                    q.put(logger.info('changed filename from rsync copy {} to {}'
+                                      .format(event.src_path, filename)))
+                
+                # this while loop below replaces the old [copying]
+                # function; it times out after wait_max is reached
+                wait_max = 30
+                t0 = time.time()
+                nsleep = 0
+                while time.time()-t0 < wait_max:
+                    
                     try:
+                        # give file a bit of time to arrive
+                        time.sleep(5)
+                        nsleep += 1
+                        # read the file
                         data = read_hdulist(filename)
                     except Exception as e:
-                        q.put(logger.info('Waiting for file {} to completely arrive'
-                                          .format(filename)))
-                        #print (e)
-                        time.sleep(3)
+                        process = False
+                        if nsleep==1:
+                            q.put(logger.info(
+                                'problem reading file {} but will keep trying '
+                                'for {}s; current exception: {}'.format(
+                                    filename, wait_max, e)))
                     else:
-                        break
-                #copying(filename) #check to see if write is finished writing
-                q.put(logger.info('Found new file: {}'.format(filename)))
-        except AttributeError: #if event is a file
-            filename = event
-            q.put(logger.info('Found old file: {} '.format(filename)))
+                        # if fits file was read fine, set process flag to True
+                        process = True
 
-        # old or new, reduce it
-        try_blackbox_reduce (filename)
-        
+
+                if process:
+                    # if fits file was read fine, process it
+                    try_blackbox_reduce (filename)
+                    
+                else:
+                    q.put(logger.info('wait time for file {} exceeded {}s; '
+                                      'bailing out with final exception: {}'
+                                      .format(filename, wait_max, e)))
+
+            else: #if 'fits' in filename: 
+                q.put(logger.info('{} is not a fits file; skipping it'
+                                  .format(filename)))
+                    
+        except AttributeError:
+            # when blackbox is started in night mode, any file already
+            # present in the relevant path will lead to an
+            # AttributeError (in filename=str(event.src_path)); these
+            # could be processed as well, but these are already added
+            # to the queue before at the top in [run_blackbox]
+            filename = event
+            if False:
+                q.put(logger.info('detected an old file: {}; not processing it '
+                                  .format(filename)))
+
+    return
+
 
 ################################################################################
 
@@ -3978,7 +4030,7 @@ class FileWatcher(FileSystemEventHandler, object):
 
         :param event: new event found
         :type event: event'''
-        self._queue.put([event])
+        self._queue.put(event)
 
 
 ################################################################################
