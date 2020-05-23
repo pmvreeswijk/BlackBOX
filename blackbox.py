@@ -3944,72 +3944,72 @@ def action(queue):
         try:
             # get name of new file
             filename = str(event.src_path)
-
-            q.put(logger.info('detected a new file: {}'.format(filename)))
+            filetype = 'new'
             
-            #only continue if event is a fits
-            if 'fits' in filename: 
-
-                # if filename is a temporary rsync copy (default
-                # behaviour of rsync is to create a temporary file
-                # starting with .[filename].[randomstr]; can be
-                # changed with option "--inplace"), then let filename
-                # refer to the eventual file created by rsync
-                fn_head, fn_tail = os.path.split(filename)
-                if fn_tail[0] == '.':
-                    filename = '{}/{}'.format(
-                        fn_head, '.'.join(fn_tail.split('.')[1:-1]))
-                    q.put(logger.info('changed filename from rsync copy {} to {}'
-                                      .format(event.src_path, filename)))
-                
-                # this while loop below replaces the old [copying]
-                # function; it times out after wait_max is reached
-                wait_max = 30
-                t0 = time.time()
-                nsleep = 0
-                while time.time()-t0 < wait_max:
-                    
-                    try:
-                        # give file a bit of time to arrive
-                        time.sleep(5)
-                        nsleep += 1
-                        # read the file
-                        data = read_hdulist(filename)
-                    except Exception as e:
-                        process = False
-                        if nsleep==1:
-                            q.put(logger.info(
-                                'problem reading file {} but will keep trying '
-                                'for {}s; current exception: {}'.format(
-                                    filename, wait_max, e)))
-                    else:
-                        # if fits file was read fine, set process flag to True
-                        process = True
-
-
-                if process:
-                    # if fits file was read fine, process it
-                    try_blackbox_reduce (filename)
-                    
-                else:
-                    q.put(logger.info('wait time for file {} exceeded {}s; '
-                                      'bailing out with final exception: {}'
-                                      .format(filename, wait_max, e)))
-
-            else: #if 'fits' in filename: 
-                q.put(logger.info('{} is not a fits file; skipping it'
-                                  .format(filename)))
-                    
         except AttributeError:
-            # when blackbox is started in night mode, any file already
-            # present in the relevant path will lead to an
-            # AttributeError (in filename=str(event.src_path)); these
-            # could be processed as well, but these are already added
-            # to the queue before at the top in [run_blackbox]
+            # instead of event, queue entry is a filename added in
+            # [run_blackbox]
             filename = event
-            if False:
-                q.put(logger.info('detected an old file: {}; not processing it '
-                                  .format(filename)))
+            filetype = 'pre-existing'
+            
+        q.put(logger.info('detected a {} file: {}'.format(filetype, filename)))
+            
+        # only continue if a fits file
+        if 'fits' not in filename:
+
+            q.put(logger.info('{} is not a fits file; skipping it'
+                              .format(filename)))
+
+        else   
+            # if filename is a temporary rsync copy (default
+            # behaviour of rsync is to create a temporary file
+            # starting with .[filename].[randomstr]; can be
+            # changed with option "--inplace"), then let filename
+            # refer to the eventual file created by rsync
+            fn_head, fn_tail = os.path.split(filename)
+            if fn_tail[0] == '.':
+                filename = '{}/{}'.format(
+                    fn_head, '.'.join(fn_tail.split('.')[1:-1]))
+                q.put(logger.info('changed filename from rsync copy {} to {}'
+                                  .format(event.src_path, filename)))
+                
+            # this while loop below replaces the old [copying]
+            # function; it times out after wait_max is reached
+            wait_max = 30
+            t0 = time.time()
+            nsleep = 0
+            while time.time()-t0 < wait_max:
+                    
+                try:
+                    # read the file
+                    data = read_hdulist(filename)
+
+                except Exception as e:
+
+                    process = False
+                    if nsleep==0:
+                        q.put(logger.info(
+                            'problem reading file {} but will keep trying '
+                            'for {}s; current exception: {}'.format(
+                                filename, wait_max, e)))
+
+                    # give file a bit of time to arrive before next read attempt
+                    time.sleep(5)
+                    nsleep += 1
+
+                else:
+                    # if fits file was read fine, set process flag to True
+                    process = True
+
+
+            if process:
+                # if fits file was read fine, process it
+                try_blackbox_reduce (filename)
+                    
+            else:
+                q.put(logger.info('wait time for file {} exceeded {}s; '
+                                  'bailing out with final exception: {}'
+                                  .format(filename, wait_max, e)))
 
     return
 
