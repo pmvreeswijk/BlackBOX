@@ -1625,8 +1625,8 @@ def blackbox_reduce (filename):
 
                 # copy selected output files to red directory and remove tmp folder
                 # corresponding to the image
-                result = copy_files2keep(tmp_base, new_base, get_par(set_bb.all_2keep,tel),
-                                         move=False, log=log)
+                #result = copy_files2keep(tmp_base, new_base, get_par(set_bb.all_2keep,tel),
+                #                         move=False, log=log)
                 clean_tmp(tmp_base)
 
                 return
@@ -1726,8 +1726,8 @@ def blackbox_reduce (filename):
 
                 # copy selected output files to red directory and remove tmp folder
                 # corresponding to the image
-                result = copy_files2keep(tmp_base, new_base, get_par(set_bb.all_2keep,tel),
-                                         move=False, log=log)
+                #result = copy_files2keep(tmp_base, new_base, get_par(set_bb.all_2keep,tel),
+                #                         move=False, log=log)
                 clean_tmp(tmp_base)
 
                 return
