@@ -214,6 +214,41 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
     (51) check what is done when no master flat is found
 
+    (52) perform background subtraction per channel for ML/BG, i.e.
+         boxsize needs to fit integer times in channel and median
+         filtering is done within channels, not across channel
+         borders.
+
+    (53) split processing into 3 steps that can be executed
+         independently using switches in blackbox settings file:
+
+         1) image reduction
+         2) catalog extraction and calibration
+         3) transient detection
+
+         This allows more flexibility for different purposes. E.g.
+         step 3 could be skipped in preparation of the reference image
+         building (step 2 still required for that for the image QC and
+         some required header keywords). Or allows to re-run just
+         steps 2+3.
+
+         Related to this is to force to redo a step if it was already
+         done, i.e. the output products are already present - see also
+         item (37). Maybe each of these step switches should be
+         accompanied by a force switch.
+
+    (54) get rid of repeated lines in the log once and for all!
+
+    (55) Paul's suggestion: instead of mix of 11x11 and 6x6 - and what
+         not - subimages for different purposes, why not go to 8x8
+         where entire subimage is contained within the channel?
+
+    (56) fpacken/jpgs aanpassen voor Google pubsub versie met --image
+         optie
+
+    (57) header als apart fits bestand opslaan
+
+
     Done:
     -----
 
@@ -3963,7 +3998,7 @@ def action(queue):
             q.put(logger.info('{} is not a fits file; skipping it'
                               .format(filename)))
 
-        else   
+        else:
             # if filename is a temporary rsync copy (default
             # behaviour of rsync is to create a temporary file
             # starting with .[filename].[randomstr]; can be
