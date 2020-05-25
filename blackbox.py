@@ -24,6 +24,8 @@ from astropy.stats import sigma_clipped_stats
 from astropy.coordinates import Angle
 from astropy.time import Time
 from astropy import units as u
+from astropy.visualization import ZScaleInterval as zscale
+
 import astroscrappy
 from acstools.satdet import detsat, make_mask, update_dq
 import shutil
@@ -87,9 +89,6 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     (3) map out and, if possible, decrease the memory consumption of
         blackbox and zogy - needs to be done on chopper or mlcontrol
         machine at Radboud, as laptop has too little memory
-
-    (4) in night mode, issue that only images already present are
-        processed
 
     (5) improve processing speed of background subtraction and other
         parts in the code where for-loops can be avoided
@@ -213,8 +212,6 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
     (49) creating master flats can/should be multiprocessed
 
-    (50) change jpg scaling to zscale
-
     (51) check what is done when no master flat is found
 
     Done:
@@ -247,6 +244,9 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     (2) determine reason for stalls that Danielle encounters
 
         - seems to have gone away by going to python 3.7 (see also 9)
+
+    (4) in night mode, issue that only images already present are
+        processed
 
     (6) change output catalog column names from ALPHAWIN_J2000 and
         DELTAWIN_J2000 to simply RA and DEC - this has been
@@ -373,6 +373,8 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          fashion to fpacking of images at the end of blackbox
 
     (44) keep BlackBOX en ZOGY in separate directories when installing
+
+    (50) change jpg scaling to zscale
 
     """
     
@@ -870,7 +872,8 @@ def create_jpg (filename):
             else:
                 f = aplpy.FITSFigure(filename)
 
-            f.show_colorscale(cmap='gray', pmin=5, pmax=95)
+            vmin, vmax = zscale().get_limits(data)
+            f.show_colorscale(cmap='gray', vmin=vmin, vmax=vmax)
             f.add_colorbar()
             f.set_title(title)
             #f.add_grid()
