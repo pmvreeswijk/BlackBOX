@@ -194,8 +194,6 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
   * (43) determine which background box size to use
 
-  * (45) add/keep dome azimuth header keyword DOMEAZ
-
   * (46) filter cosmic rays not detected by astroscrappy from output
          catalog with condition object: FWHM_obj < f * FWHM_ima, where
          f needs to be determined (~0.1-0.5). Or using error estimate
@@ -242,16 +240,17 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          for different purposes, why not go to 8x8 where entire
          subimage is contained within the channel?
 
-  * (56) fpacken/jpgs aanpassen voor Google pubsub versie met --image
-         optie
+  * (56) fpack/jpgs at end of blackbox does not work when single image
+         is provided with --image option, which will be used in Google
+         Cloud
 
-    (57) header als apart fits bestand opslaan
+    (57) save header as separate fits file
 
 
     Done:
     -----
 
-    (1) add reference image building module
+  * (1) add reference image building module
 
       --> Scorr image with new reference image has low scatter, but shows
           ringing features similar to those often seen in the D image; 
@@ -275,11 +274,11 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
           BACK_TYPE MANUAL and BACK_VALUE 0.0 if BKG-SUB==T(rue) and      
           skipping the additional function get_back.                      
     
-    (2) determine reason for stalls that Danielle encounters
+  * (2) determine reason for stalls that Danielle encounters
 
         - seems to have gone away by going to python 3.7 (see also 9)
 
-    (4) in night mode, issue that only images already present are
+  * (4) in night mode, issue that only images already present are
         processed
 
     (6) change output catalog column names from ALPHAWIN_J2000 and
@@ -291,12 +290,12 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
         transient catalog do not contain the ICRS extension either,
         such as RA_PEAK or RA_PSF_D.
 
-    (7) change epoch in header from 2000 to 2015.5
+  * (7) change epoch in header from 2000 to 2015.5
 
-    (8) filter out transients that correspond to a negative spot in the
+  * (8) filter out transients that correspond to a negative spot in the
         new or ref image
 
-    (9) go to python 3.7 on chopper; update singularity image
+  * (9) go to python 3.7 on chopper; update singularity image
 
     (11) replace clipped_stats with more robust sigma_clipped_stats in
          zogy.py and blackbox.py; N.B.: sigma_clipped_stats returns
@@ -337,9 +336,9 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
     (18) replace string '+' concatenations with formats
     
-    (21) force orientation in thumbnail images to be North up East left
+  * (21) force orientation in thumbnail images to be North up East left
 
-    (26) determine image zeropoints per channel, and try fitting a
+  * (26) determine image zeropoints per channel, and try fitting a
          polynomial surface to the zeropoint values across the frame.
          Or by averaging stars' zeropoints over boxes and then
          interpolating them, similar to how background map is
@@ -347,7 +346,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          are needed in BlackBOX, then need to save an ascii file with
          the zeropoint info that can be used by BlackBOX.
 
-    (28) flatfields regularly show a gradient diagonally across the image,
+  * (28) flatfields regularly show a gradient diagonally across the image,
          increasing from lower left to top right, and these flats are
          not flagged red yet at the moment. Should include a parameter
          in the header to check. Easiest option is to use the keyword
@@ -384,7 +383,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          the output error, as that lists the input table coordinates and 
          the field coordinates.
 
-    (39) singularity container building on ML-controlroom2 machine:
+  * (39) singularity container building on ML-controlroom2 machine:
          problem with installing packages fitsio and reproject (latter
          is not important) and also watchdog seems to install fine but
          cannot be imported inside python. Tried with different versions
@@ -403,14 +402,16 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          Solution: deleted required installation of fitsio in setup.py 
                    file; also switched to singularity 3.5.2 
 
-    (42) add jpg of reduced new/ref images to output, in similar
+  * (42) add jpg of reduced new/ref images to output, in similar
          fashion to fpacking of images at the end of blackbox
 
     (44) keep BlackBOX en ZOGY in separate directories when installing
 
+  * (45) add/keep dome azimuth header keyword DOMEAZ
+
     (50) change jpg scaling to zscale
 
-    (52) perform background subtraction per channel for ML/BG, i.e.
+  * (52) perform background subtraction per channel for ML/BG, i.e.
          boxsize needs to fit integer times in channel and median
          filtering is done within channels, not across channel
          borders.
@@ -1560,25 +1561,7 @@ def blackbox_reduce (filename):
     tmp_base = new_fits.split('_red.fits')[0]
     new_base = fits_out.split('_red.fits')[0]
 
-    # if header of object image contains a red flag, create dummy
-    # binary fits catalogs (both 'new' and 'trans') and return,
-    # skipping zogy's [optimal subtraction] below
-    qc_flag = run_qc_check (header, tel, log=log)
-    if qc_flag=='red':
-        log.error('red QC flag in image {}; making dummy catalogs and returning'
-                  .format(fits_out))
-        run_qc_check (header, tel, 'new', fits_tmp_cat, log=log)
-        run_qc_check (header, tel, 'trans', fits_tmp_trans, log=log)
 
-        # copy selected output files to new directory and remove tmp folder
-        # corresponding to the object image
-        result = copy_files2keep(tmp_base, new_base, get_par(set_bb.all_2keep,tel),
-                                 move=False, log=log)
-        clean_tmp(tmp_base)
-
-        return
-
-    
     # write data and mask to output images in [tmp_path] and
     # add name of reduced image and corresponding mask in header just
     # before writing it
@@ -1592,6 +1575,31 @@ def blackbox_reduce (filename):
     header_mask['DATEFILE'] = (Time.now().isot, 'UTC date of writing file')
     fits.writeto(new_fits_mask, data_mask.astype('uint8'), header_mask,
                  overwrite=True)
+
+
+    # if header of object image contains a red flag, create dummy
+    # binary fits catalogs (both 'new' and 'trans') and return,
+    # skipping zogy's [optimal subtraction] below
+    qc_flag = run_qc_check (header, tel, log=log)
+    if qc_flag=='red':
+        log.error('red QC flag in image {}; making dummy catalogs and returning'
+                  .format(fits_out))
+        run_qc_check (header, tel, 'new', fits_tmp_cat, log=log)
+        run_qc_check (header, tel, 'trans', fits_tmp_trans, log=log)
+
+        # update header with qc-flags
+        with fits.open(new_fits, 'update') as hdulist:
+            for key in header:
+                if 'QC' in key:
+                    hdulist[-1].header[key] = (header[key], header.comments[key])
+
+        # copy selected output files to new directory and remove tmp folder
+        # corresponding to the object image
+        result = copy_files2keep(tmp_base, new_base, get_par(set_bb.all_2keep,tel),
+                                 move=False, log=log)
+        clean_tmp(tmp_base)
+
+        return
 
 
     # run zogy's [optimal_subtraction]
