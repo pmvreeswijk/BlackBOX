@@ -86,7 +86,9 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     To do (for both blackbox.py and zogy.py):
     -----------------------------------------
 
-    (3) map out and, if possible, decrease the memory consumption of
+  * indicates import issue
+
+  * (3) map out and, if possible, decrease the memory consumption of
         blackbox and zogy - needs to be done on chopper or mlcontrol
         machine at Radboud, as laptop has too little memory
 
@@ -120,7 +122,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          they can be easily used by modules outside of blackbox/zogy.
          Maybe do the same for other parameters such as telescope.
 
-    (20) optimal vs. large aperture magnitudes shows discrepant values
+  * (20) optimal vs. large aperture magnitudes shows discrepant values
          at the bright end; why?
 
     (22) limit PSFEx LDAC catalog to [psfex_nstars] random stars
@@ -178,28 +180,28 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          run_sextractor still needs to be done even if the background
          was already subtracted from the new or ref image.
 
-    (37) add switch, or use the existing "redo" switch of zogy, to
+  * (37) add switch, or use the existing "redo" switch of zogy, to
          force redoing the zogy part even if the reduced image already
          exists in the reduced folder. So that a reduced image can be
          altered and run through zogy again.
 
-    (40) Paul mentonioned issue with astrometry for 47Tuc, especially
+  * (40) Paul mentonioned issue with astrometry for 47Tuc, especially
          in the u-band; seems that the A-DRASTD and A-DDESTD are a bit
          higher than allowed and many u-band images are flagged red.
 
-    (41) go through headers of all images again and check if ranges
+  * (41) go through headers of all images again and check if ranges
          set in set_qc are still appropriate.
 
-    (43) determine which background box size to use
+  * (43) determine which background box size to use
 
-    (45) add/keep dome azimuth header keyword
+  * (45) add/keep dome azimuth header keyword DOMEAZ
 
-    (46) filter cosmic rays not detected by astroscrappy from output
+  * (46) filter cosmic rays not detected by astroscrappy from output
          catalog with condition object: FWHM_obj < f * FWHM_ima, where
          f needs to be determined (~0.1-0.5). Or using error estimate
          on image FWHM: FWHM_obj < FWHM_ima * nsigma * err_FWHM_ima
     
-    (47) improve astroscrappy cosmic-ray rejection parameters; too
+  * (47) improve astroscrappy cosmic-ray rejection parameters; too
          many cosmics go undetected
 
     (48) add mode such that all input files are considered new images,
@@ -210,16 +212,11 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          files will need to be processed again, but without any steps
          that can be skipped - see also item #37.
 
-    (49) creating master flats can/should be multiprocessed
+  * (49) creating master flats can/should be multiprocessed
 
     (51) check what is done when no master flat is found
 
-    (52) perform background subtraction per channel for ML/BG, i.e.
-         boxsize needs to fit integer times in channel and median
-         filtering is done within channels, not across channel
-         borders.
-
-    (53) split processing into 3 steps that can be executed
+  * (53) split processing into 3 steps that can be executed
          independently using switches in blackbox settings file:
 
          1) image reduction
@@ -237,13 +234,15 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          item (37). Maybe each of these step switches should be
          accompanied by a force switch.
 
+         See also item (48).
+
     (54) get rid of repeated lines in the log once and for all!
 
-    (55) Paul's suggestion: instead of mix of 11x11 and 6x6 - and what
-         not - subimages for different purposes, why not go to 8x8
-         where entire subimage is contained within the channel?
+    (55) Paul's suggestion: instead of mix of 11x11 and 6x6 subimages
+         for different purposes, why not go to 8x8 where entire
+         subimage is contained within the channel?
 
-    (56) fpacken/jpgs aanpassen voor Google pubsub versie met --image
+  * (56) fpacken/jpgs aanpassen voor Google pubsub versie met --image
          optie
 
     (57) header als apart fits bestand opslaan
@@ -410,6 +409,11 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     (44) keep BlackBOX en ZOGY in separate directories when installing
 
     (50) change jpg scaling to zscale
+
+    (52) perform background subtraction per channel for ML/BG, i.e.
+         boxsize needs to fit integer times in channel and median
+         filtering is done within channels, not across channel
+         borders.
 
     """
     
@@ -2936,8 +2940,9 @@ def set_header(header, filename):
         edit_head(header, 'YBINNING', value=ybinning, comments='[pix] Binning factor Y axis')
 
 
-    edit_head(header, 'ALTITUDE', comments='[deg] Altitude in horizontal coordinates')
-    edit_head(header, 'AZIMUTH', comments='[deg] Azimuth in horizontal coordinates')
+    edit_head(header, 'ALTITUDE', comments='[deg] Telescope altitude')
+    edit_head(header, 'AZIMUTH', comments='[deg] Telescope azimuth (N=0;E=90)')
+    edit_head(header, 'DOMEAZ', comments='[deg] Dome azimuth (N=0;E=90)')
     edit_head(header, 'RADESYS', value='ICRS', comments='Coordinate reference frame')
     edit_head(header, 'EPOCH', value=2015.5, comments='Coordinate reference epoch')
     
@@ -3075,7 +3080,6 @@ def set_header(header, filename):
         lha_deg = lst_deg - ra_deg
         edit_head(header, 'HA', value=lha_deg, comments='[deg] Local hour angle (=LST-RA)')
 
-    
     # Weather headers required for Database
     edit_head(header, 'CL-BASE',  value='None', dtype=float, comments='[m] Reinhardt cloud base altitude')
     edit_head(header, 'RH-MAST',  value='None', dtype=float, comments='Vaisala RH mast')
@@ -3193,7 +3197,7 @@ def set_header(header, filename):
     keys_sort = ['SIMPLE', 'BITPIX', 'NAXIS', 'NAXIS1', 'NAXIS2',
                  'BUNIT', 'BSCALE', 'BZERO',
                  'XBINNING', 'YBINNING',
-                 'ALTITUDE', 'AZIMUTH', 'RADESYS', 'EPOCH',
+                 'ALTITUDE', 'AZIMUTH', 'DOMEAZ', 'RADESYS', 'EPOCH',
                  'RA', 'RA-REF', 'RA-TEL', 'DEC', 'DEC-REF', 'DEC-TEL',
                  'HA', 'FLIPSTAT', 'ISTRACKI',
                  'OBJECT', 'IMAGETYP', 'FILTER', 'EXPTIME',
