@@ -15,6 +15,14 @@ nthread = 2
 # Reduction steps
 #===============================================================================
 
+# switch on/off different steps
+im_reduce = True 
+cat_extract = True
+trans_extract = True
+
+# force re-processing of new image only for steps that are switched on
+force_reproc_new = True
+
 # subtract master bias
 subtract_mbias = False
 # perform satellite detection
@@ -61,8 +69,9 @@ for tel in ['ML1', 'BG2', 'BG3', 'BG4']:
     tmp_dir[tel] = '{}/{}/tmp'.format(tmp_dir_base, tel)
 
 # name endings of files to keep for the reference and new images
-all_2keep = ['_red.fits', '_mask.fits', '_cat.fits', '_mini.fits', '_red.log']
-ref_2keep = ['_ldac.fits', '_psf.fits', '_psfex.cat', '_weights.fits'] + all_2keep
+all_2keep = ['_red.fits', '_mask.fits', '_cat.fits', '_mini.fits', '_red.log',
+             '_psf.fits', '_psfex.cat']
+ref_2keep = ['_ldac.fits', '_weights.fits'] + all_2keep
 new_2keep = ['_D.fits', '_Scorr.fits', '_trans_limmag.fits', '_trans.fits'] + all_2keep
 
 #===============================================================================
@@ -101,7 +110,7 @@ niter = 3
 # use separable median filter instead of the full median filter;
 # [sepmed]=True is significantly faster (factor ~3), but can lead to
 # bright stars being masked and corrected as if they are cosmics
-sepmed = False
+sepmed = True
 
 # binning used for satellite trail detection
 sat_bin = 2
@@ -127,6 +136,14 @@ gain = {'ML1': (np.array([2.31, 2.39, 2.40, 2.44, 2.43, 2.42, 2.47, 2.40,
                           1.038, 0.998, 1.021, 1.017, 1.002, 0.998, 0.978, 0.980])),
         'BG':  (np.array([2.60, 2.60, 2.60, 2.60, 2.60, 2.60, 2.60, 2.60,
                           2.60, 2.60, 2.60, 2.60, 2.60, 2.60, 2.60, 2.60]))}
+
+# from STA test report SN22838
+#gain = {'ML1': (np.array([2.1022, 2.1274, 2.1338, 2.1487, 2.1699, 2.1659, 2.1817, 2.1237,
+#                          2.0904, 2.1186, 2.1202, 2.1407, 2.1476, 2.1483, 2.1683, 2.1518]))}
+# determined from 20170707-1MHz-1s10pPTC-Scaled test data by PMV (20200501):
+#gain = {'ML1': (np.array([2.16, 2.17, 2.20, 2.20, 2.24, 2.22, 2.26, 2.17,
+#                          2.15, 2.16, 2.14, 2.19, 2.18, 2.25, 2.20, 2.20]))
+
 
 # assumed saturation level in ADU of raw images
 satlevel = 55000

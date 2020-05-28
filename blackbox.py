@@ -180,11 +180,6 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          run_sextractor still needs to be done even if the background
          was already subtracted from the new or ref image.
 
-  * (37) add switch, or use the existing "redo" switch of zogy, to
-         force redoing the zogy part even if the reduced image already
-         exists in the reduced folder. So that a reduced image can be
-         altered and run through zogy again.
-
   * (40) Paul mentonioned issue with astrometry for 47Tuc, especially
          in the u-band; seems that the A-DRASTD and A-DDESTD are a bit
          higher than allowed and many u-band images are flagged red.
@@ -202,37 +197,9 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
   * (47) improve astroscrappy cosmic-ray rejection parameters; too
          many cosmics go undetected
 
-    (48) add mode such that all input files are considered new images,
-         i.e. no reference images are created, nor is the comparison
-         between new and ref done. This is to speed up the processing
-         of a large number of files to be used for the reference
-         building routine. Once the reference images are built, the
-         files will need to be processed again, but without any steps
-         that can be skipped - see also item #37.
-
   * (49) creating master flats can/should be multiprocessed
 
     (51) check what is done when no master flat is found
-
-  * (53) split processing into 3 steps that can be executed
-         independently using switches in blackbox settings file:
-
-         1) image reduction
-         2) catalog extraction and calibration
-         3) transient detection
-
-         This allows more flexibility for different purposes. E.g.
-         step 3 could be skipped in preparation of the reference image
-         building (step 2 still required for that for the image QC and
-         some required header keywords). Or allows to re-run just
-         steps 2+3.
-
-         Related to this is to force to redo a step if it was already
-         done, i.e. the output products are already present - see also
-         item (37). Maybe each of these step switches should be
-         accompanied by a force switch.
-
-         See also item (48).
 
     (54) get rid of repeated lines in the log once and for all!
 
@@ -245,7 +212,6 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          Cloud
 
     (57) save header as separate fits file
-
 
     Done:
     -----
@@ -269,10 +235,10 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
           single module, that also has a settings file
 
       --> add possibility in zogy for input images to have zero background
-          through header keyword BKG-SUB with boolean value. This needs   
-          updating in function run_sextractor, running SExtractor with    
-          BACK_TYPE MANUAL and BACK_VALUE 0.0 if BKG-SUB==T(rue) and      
-          skipping the additional function get_back.                      
+          through header keyword BKG-SUB with boolean value. This needs
+          updating in function run_sextractor, running SExtractor with
+          BACK_TYPE MANUAL and BACK_VALUE 0.0 if BKG-SUB==T(rue) and
+          skipping the additional function get_back.
     
   * (2) determine reason for stalls that Danielle encounters
 
@@ -295,7 +261,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
   * (8) filter out transients that correspond to a negative spot in the
         new or ref image
 
-  * (9) go to python 3.7 on chopper; update singularity image
+  * (9) go to latest python (now 3.8) on chopper; update singularity image
 
     (11) replace clipped_stats with more robust sigma_clipped_stats in
          zogy.py and blackbox.py; N.B.: sigma_clipped_stats returns
@@ -336,15 +302,19 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
     (18) replace string '+' concatenations with formats
     
-  * (21) force orientation in thumbnail images to be North up East left
+  * (21) force orientation in thumbnail images to be approximately
+         North up East left
 
   * (26) determine image zeropoints per channel, and try fitting a
          polynomial surface to the zeropoint values across the frame.
-         Or by averaging stars' zeropoints over boxes and then
-         interpolating them, similar to how background map is
-         determined. The zeropoints are determined in zogy, so if they
-         are needed in BlackBOX, then need to save an ascii file with
-         the zeropoint info that can be used by BlackBOX.
+         This is now done, where coefficients of polynomial fit
+         are recorded in the header.
+
+         Alternatively, by averaging stars' zeropoints over boxes and
+         then interpolating them, similar to how background map is
+         determined. This latter method turns out to be not working
+         too well as often not that many calibration sources are
+         available.
 
   * (28) flatfields regularly show a gradient diagonally across the image,
          increasing from lower left to top right, and these flats are
@@ -369,6 +339,13 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          float32
 
     (35) if tmp folders are kept, fpack them as well
+
+  * (37) add switch, or use the existing "redo" switch of zogy, to
+         force redoing the zogy part even if the reduced image already
+         exists in the reduced folder. So that a reduced image can be
+         altered and run through zogy again.
+
+         --> this is now possible with the implementation of (53)
 
     (38) PaulG noticed that something went wrong in scheduling
          observations (ascii2schedule.py?) with dithering pattern at
@@ -409,12 +386,45 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
   * (45) add/keep dome azimuth header keyword DOMEAZ
 
+    (48) add mode such that all input files are considered new images,
+         i.e. no reference images are created, nor is the comparison
+         between new and ref done. This is to speed up the processing
+         of a large number of files to be used for the reference
+         building routine. Once the reference images are built, the
+         files will need to be processed again, but without any steps
+         that can be skipped - see also item #37.
+
+         --> this is now possible with the implementation of (53)
+
     (50) change jpg scaling to zscale
 
   * (52) perform background subtraction per channel for ML/BG, i.e.
          boxsize needs to fit integer times in channel and median
          filtering is done within channels, not across channel
          borders.
+
+  * (53) split processing into 3 steps that can be executed
+         independently using switches in blackbox settings file:
+
+         1) image reduction
+         2) catalog extraction and calibration
+         3) transient detection
+
+         This allows more flexibility for different purposes. E.g.
+         step 3 could be skipped in preparation of the reference image
+         building (step 2 still required for that for the image QC and
+         some required header keywords). Or allows to re-run just
+         steps 2+3.
+
+         Related to this is to force to redo a step if it was already
+         done, i.e. the output products are already present - see also
+         item (37). Maybe each of these step switches should be
+         accompanied by a force switch?
+
+         See also item (48).
+
+    (58) Danielle noticed that tmp folders are not always deleted
+         when blackbox_reduce does not reach its end and fixed this
 
     """
     
@@ -1081,7 +1091,7 @@ def blackbox_reduce (filename):
     # UT date (yyyymmdd) and time (hhmmss)
     utdate, uttime = get_date_time(header)
 
-    # if output file already exists, do not bother to redo it
+    # define paths of different image types
     path = {'bias': bias_path, 
             'dark': dark_path, 
             'flat': flat_path, 
@@ -1156,15 +1166,7 @@ def blackbox_reduce (filename):
                 return
 
 
-    if already_exists (fits_out):
-        q.put(logger.warning ('corresponding reduced {} image {} already exist; '
-                              'skipping'.format(imgtype, fits_out.split('/')[-1])))
-        return
-
-    
-    q.put(logger.info('\nprocessing {}'.format(filename)))
-    #q.put(logger.info('-'*(len(filename)+11)))
-
+            
     if imgtype == 'object':
         # prepare directory to store temporary files related to this
         # OBJECT image.  This is set to the tmp directory defined by
@@ -1174,433 +1176,474 @@ def blackbox_reduce (filename):
                                   fits_out.split('/')[-1].replace('.fits',''))
         make_dir (tmp_path, empty=True)
         
-        
-    # now that output filename is known, create a logger that will
-    # append the log commands to [logfile]
-    if imgtype != 'object':
-        # for biases, darks and flats
-        logfile = fits_out.replace('.fits','.log')
-    else:
         # for object files, prepare the logfile in [tmp_path]
         logfile = '{}/{}'.format(tmp_path, fits_out.split('/')[-1]
                                  .replace('.fits','.log'))
-    global log
-    log = create_log (logfile)
-
-    # immediately write some info to the log
-    log.info('processing {}'.format(filename))
-    log.info('image type: {}, filter: {}, exptime: {:.1f}s'
-             .format(imgtype, filt, exptime))
-
-    log.info('write_path: {}'.format(write_path))
-    log.info('bias_path: {}'.format(bias_path))
-    log.info('dark_path: {}'.format(dark_path))
-    log.info('flat_path: {}'.format(flat_path))
-    if imgtype == 'object':
-        log.info('tmp_path: {}'.format(tmp_path))
-        log.info('ref_path: {}'.format(ref_path))
-
-                                  
-    # general log file
-    header['LOG'] = (genlogfile.split('/')[-1], 'name general logfile')
-    # image log file
-    header['LOG-IMA'] = (logfile.split('/')[-1], 'name image logfile')
-    # reduced filename
-    
-    # now also read in the data
-    data = read_hdulist(filename, dtype='float32')   
-
-    # determine number of pixels with infinite/nan values
-    mask_infnan = ~np.isfinite(data)
-    n_infnan = np.sum(mask_infnan)
-    header['N-INFNAN'] = (n_infnan, 'number of pixels with infinite/nan values')
-    if n_infnan > 0:
-        log.info('warning: {} pixels with infinite/nan values; replacing with zero'
-                 .format(n_infnan))
-        data[mask_infnan] = 0
         
-    
-    #snapshot1 = tracemalloc.take_snapshot()
-
-    # gain correction
-    #################
-    try:
-        log.info('correcting for the gain')
-        gain_processed = False
-        data = gain_corr(data, header, tel=tel, log=log)
-    except Exception as e:
-        #q.put(logger.info(traceback.format_exc()))
-        #q.put(logger.error('exception was raised during [gain_corr]: {}'.format(e)))
-        log.info(traceback.format_exc())
-        log.error('exception was raised during [gain_corr]: {}'.format(e))
     else:
-        gain_processed = True
-    finally:
-        header['GAIN'] = (1, '[e-/ADU] effective gain all channels')
-        header['GAIN-P'] = (gain_processed, 'corrected for gain?')
-
-        
-    #snapshot2 = tracemalloc.take_snapshot()
-    #top_stats = snapshot2.compare_to(snapshot1, 'lineno')
-    #print("[ Top 10 differences ]")
-    #for stat in top_stats[:10]:
-    #    print(stat)
-
-    if get_par(set_zogy.display,tel):
-        ds9_arrays(gain_cor=data)
-
-    
-    # crosstalk correction
-    ######################
-    if imgtype == 'object':
-        # not needed for biases, darks or flats
-        try: 
-            log.info('correcting for the crosstalk')
-            xtalk_processed = False
-            crosstalk_file = get_par(set_bb.crosstalk_file,tel)
-            data = xtalk_corr (data, crosstalk_file)
-        except Exception as e:
-            q.put(logger.info(traceback.format_exc()))
-            q.put(logger.error('exception was raised during [xtalk_corr]: {}'
-                               .format(e)))
-            log.info(traceback.format_exc())
-            log.error('exception was raised during [xtalk_corr]: {}'.format(e))
-        else:
-            xtalk_processed = True
-        finally:
-            header['XTALK-P'] = (xtalk_processed, 'corrected for crosstalk?')
-            header['XTALK-F'] = (crosstalk_file.split('/')[-1],
-                                 'name crosstalk coefficients file')
-            
-
-        if get_par(set_zogy.display,tel):
-            ds9_arrays(Xtalk_cor=data)
-            
-
-    # overscan correction
-    #####################
-    try: 
-        log.info('correcting for the overscan')
-        os_processed = False
-        data = os_corr(data, header, imgtype, tel=tel, log=log)
-    except Exception as e:
-        q.put(logger.info(traceback.format_exc()))
-        q.put(logger.error('exception was raised during [os_corr]: {}'.format(e)))
-        log.info(traceback.format_exc())
-        log.error('exception was raised during [os_corr]: {}'.format(e))
-    else:
-        os_processed = True
-    finally:
-        header['OS-P'] = (os_processed, 'corrected for overscan?')
-        
-
-    if get_par(set_zogy.display,tel):
-        ds9_arrays(os_cor=data)
+        # for biases, darks and flats
+        logfile = fits_out.replace('.fits','.log')
 
 
-    # non-linearity correction
-    ##########################
-    nonlin_corr_processed = False
-    header['NONLIN-P'] = (nonlin_corr_processed, 'corrected for non-linearity?')
-    header['NONLIN-F'] = ('None', 'name non-linearity correction file')
-    
-    if imgtype != 'bias' and get_par(set_bb.correct_nonlin,tel):
-
-        try:
-            log.info('correcting for the non-linearity')
-            nonlin_corr_file = get_par(set_bb.nonlin_corr_file,tel)
-            data = nonlin_corr(data, nonlin_corr_file, log=log)
-            header['NONLIN-F'] = (nonlin_corr_file.split('/')[-1],
-                                  'name non-linearity correction file')
-        except Exception as e:
-            #q.put(logger.info(traceback.format_exc()))
-            #q.put(logger.error('exception was raised during [nonlin_corr]: '
-            #                   '{}'.format(e)))
-            log.info(traceback.format_exc())
-            log.error('exception was raised during [nonlin_corr]: {}'
-                      .format(e))
-        else:
-            nonlin_corr_processed = True
-        finally:
-            header['NONLIN-P'] = nonlin_corr_processed
-
-
-    # if IMAGETYP=bias or dark, write [data] to fits and return
-    if imgtype == 'bias' or imgtype == 'dark':
-        # call [run_qc_check] to update header with any QC flags
-        run_qc_check (header, tel, log=log)
-        header['DATEFILE'] = (Time.now().isot, 'UTC date of writing file')
-        fits.writeto(fits_out, data.astype('float32'), header, overwrite=True)
-        return
-    
-    
-    # master bias creation
-    ######################
-    try:
-        # put an multi-processing lock on this block so that only 1
-        # process at a time can create the master bias
-        lock.acquire()
-
-        # prepare or point to the master bias
-        fits_mbias = master_prep (np.shape(data), bias_path, date_eve, 'bias', 
-                                  log=log)
-
-    except Exception as e:
-        q.put(logger.info(traceback.format_exc()))
-        q.put(logger.error('exception was raised in bias [master_prep]: {}'.format(e)))
-        log.info(traceback.format_exc())
-        log.error('exception was raised during bias [master_prep]: {}'.format(e))
-
-    finally:
-        lock.release()
-
-
-    # master bias subtraction
-    #########################
-    mbias_processed = False
-    header['MBIAS-P'] = (mbias_processed, 'corrected for master bias?')
-    header['MBIAS-F'] = ('None', 'name of master bias applied')
-
-    # check if mbias needs to be subtracted
-    if fits_mbias is not None and get_par(set_bb.subtract_mbias,tel):
-
-        try:
-            # and subtract it from the flat or object image
-            log.info('subtracting the master bias')
-            data_mbias, header_mbias = read_hdulist(fits_mbias, get_header=True)
-            data -= data_mbias
-            header['MBIAS-F'] = fits_mbias.split('/')[-1].split('.fits')[0]
-
-            # for object image, add number of days separating image and master bias
-            if imgtype == 'object':
-                mjd_obs = header['MJD-OBS']
-                mjd_obs_mb = header_mbias['MJD-OBS']
-                header['MB-NDAYS'] = (
-                    np.abs(mjd_obs-mjd_obs_mb), 
-                    '[days] time between image and master bias used')
-
-        except Exception as e:
-            q.put(logger.info(traceback.format_exc()))
-            q.put(logger.error('exception was raised during master bias subtraction: {}'
-                               .format(e)))
-            log.info(traceback.format_exc())
-            log.error('exception was raised during master bias subtraction: {}'.format(e))
-        else:
-            mbias_processed = True
-        finally:
-            header['MBIAS-P'] = mbias_processed
-
-
-    # display
-    if get_par(set_zogy.display,tel):
-        ds9_arrays(bias_sub=data)
-        
-
-    # create initial mask array
-    ###########################
-    if imgtype == 'object':
-        try:
-            log.info('preparing the initial mask')
-            mask_processed = False
-            data_mask, header_mask = mask_init (data, header)
-        except Exception as e:
-            q.put(logger.info(traceback.format_exc()))
-            q.put(logger.error('exception was raised during [mask_init]: {}'.format(e)))
-            log.info(traceback.format_exc())
-            log.error('exception was raised during [mask_init]: {}'.format(e))
-        else:
-            mask_processed = True
-        finally:
-            header['MASK-P'] = (mask_processed, 'mask image created?')
-
-
-        if get_par(set_zogy.display,tel):
-            ds9_arrays(mask=data_mask)
-
-
-        # set edge pixel values to zero
-        data[data_mask==get_par(set_zogy.mask_value['edge'],tel)] = 0
-
-
-    # if IMAGETYP=flat, write [data] to fits and return
-    if imgtype == 'flat':
-        # first add some statistics to header
-        if os_processed:
-            get_flatstats (data, header, imgtype)
-        # call [run_qc_check] to update header with any QC flags
-        run_qc_check (header, tel, log=log)
-        # write to fits
-        header['DATEFILE'] = (Time.now().isot, 'UTC date of writing file')
-        fits.writeto(fits_out, data.astype('float32'), header, overwrite=True)
-        return
-
-
-    # master flat creation
-    ######################
-    try:
-        # put an multi-processing lock on this block so that only 1
-        # process at a time can create the master flat
-        lock.acquire()
-
-        # prepare or point to the master flat
-        fits_mflat = master_prep(np.shape(data), flat_path, date_eve, 'flat',
-                                 filt=filt, log=log)
-
-    except Exception as e:
-        q.put(logger.info(traceback.format_exc()))
-        q.put(logger.error('exception was raised during flat [master_prep]: {}'.format(e)))
-        log.info(traceback.format_exc())
-        log.error('exception was raised during flat [master_prep]: {}'.format(e))
-
-    finally:
-        lock.release()
-
-        
-    # master flat division
-    ######################
-    mflat_processed = False
-    header['MFLAT-F'] = ('None', 'name of master flat applied')
-
-    if fits_mflat is not None:
-        try:
-            # and divide the object image by the master flat
-            log.info('dividing by the master flat')
-            data_mflat, header_mflat = read_hdulist(fits_mflat, get_header=True)
-            data /= data_mflat
-            header['MFLAT-F'] = (fits_mflat.split('/')[-1].split('.fits')[0],
-                                 'name of master flat applied')
-            # for object image, add number of days separating image and master bias
-            if imgtype == 'object':
-                mjd_obs = header['MJD-OBS']
-                mjd_obs_mf = header_mflat['MJD-OBS']
-                header['MF-NDAYS'] = (
-                    np.abs(mjd_obs-mjd_obs_mf), 
-                    '[days] time between image and master flat used')
-
-        except Exception as e:
-            q.put(logger.info(traceback.format_exc()))
-            q.put(logger.error('exception was raised during master flat division: {}'
-                               .format(e)))
-            log.info(traceback.format_exc())
-            log.error('exception was raised during master flat division: {}'.format(e))
-        else:
-            mflat_processed = True
-        finally:
-            header['MFLAT-P'] = (mflat_processed, 'corrected for master flat?')
-
-
-
-    # PMV 2018/12/20: fringe correction is not yet done, but
-    # still add these keywords to the header
-    header['MFRING-P'] = (False, 'corrected for master fringe map?')
-    header['MFRING-F'] = ('None', 'name of master fringe map applied')
-
-
-    if get_par(set_zogy.display,tel):
-        ds9_arrays(flat_cor=data)
-        data_precosmics = np.copy(data)
-
-
-    # cosmic ray detection and correction
-    #####################################
-    try:
-        log.info('detecting cosmic rays')
-        cosmics_processed = False
-        data, data_mask = cosmics_corr(data, header, data_mask, header_mask)
-    except Exception as e:
-        header['NCOSMICS'] = ('None', '[/s] number of cosmic rays identified')
-        q.put(logger.info(traceback.format_exc()))
-        q.put(logger.error('exception was raised during [cosmics_corr]: {}'.format(e)))
-        log.info(traceback.format_exc())
-        log.error('exception was raised during [cosmics_corr]: {}'.format(e))
-    else:
-        cosmics_processed = True
-    finally:
-        header['COSMIC-P'] = (cosmics_processed, 'corrected for cosmic rays?')
-
-    
-    if get_par(set_zogy.display,tel):
-        ds9_arrays(data=data_precosmics, cosmic_cor=data, mask=data_mask)
-        print (header['NCOSMICS'])
-        
-
-    # satellite trail detection
-    ###########################
-    try: 
-        sat_processed = False
-        if get_par(set_bb.detect_sats,tel):
-            log.info('detecting satellite trails')
-            data_mask = sat_detect(data, header, data_mask, header_mask,
-                                   tmp_path)
-    except Exception as e:
-        header['NSATS'] = ('None', 'number of satellite trails identified')
-        q.put(logger.info(traceback.format_exc()))
-        q.put(logger.error('exception was raised during [sat_detect]: {}'.format(e)))
-        log.info(traceback.format_exc())
-        log.error('exception was raised during [sat_detect]: {}'.format(e))
-    else:
-        if get_par(set_bb.detect_sats,tel):
-            sat_processed = True
-    finally:
-        header['SAT-P'] = (sat_processed, 'processed for satellite trails?')
-
-
-    # add some more info to mask header
-    result = mask_header(data_mask, header_mask)
-
-    if get_par(set_zogy.display,tel):
-        ds9_arrays(mask=data_mask)
-        print (header['NSATS'])
 
     # output images and catalogs to refer to [tmp] directory
     new_fits = '{}/{}'.format(tmp_path, fits_out.split('/')[-1])
     new_fits_mask = new_fits.replace('_red.fits', '_mask.fits')
     fits_tmp_cat = new_fits.replace('.fits', '_cat.fits')
     fits_tmp_trans = new_fits.replace('.fits', '_trans.fits')
-
+    # these are for copying files
     tmp_base = new_fits.split('_red.fits')[0]
     new_base = fits_out.split('_red.fits')[0]
 
+    # make log defined below global
+    global log
+    
+    # check if reduction steps could be skipped
+    if (already_exists (fits_out) and
+        not (get_par(set_bb.im_reduce) and get_par(set_bb.force_reproc_new))):
+        
+        q.put(logger.warning ('corresponding reduced {} image {} already exist'
+                              '; skipping the reduction'
+                              .format(imgtype, fits_out.split('/')[-1])))
+        # read reduced data and header
+        data, header = read_hdulist(fits_out, get_header=True)
+        # copy relevant files to tmp folder
+        result = copy_files2keep(new_base, tmp_base, ['_red.fits', '_mask.fits',
+                                                      '_red.log'], move=False)
+        # create a logger that will append the log commands to [logfile]
+        log = create_log (logfile)
+        
+    else:
+        
+        # go through various reduction steps
 
-    # write data and mask to output images in [tmp_path] and
-    # add name of reduced image and corresponding mask in header just
-    # before writing it
-    log.info('writing reduced image and mask to {}'.format(tmp_path))
-    redfile = fits_out.split('/')[-1].split('.fits')[0]
-    header['REDFILE'] = (redfile, 'BlackBOX reduced image name')
-    header['MASKFILE'] = (redfile.replace('_red', '_mask'), 
-                          'BlackBOX mask image name')
-    header['DATEFILE'] = (Time.now().isot, 'UTC date of writing file')
-    fits.writeto(new_fits, data.astype('float32'), header, overwrite=True)
-    header_mask['DATEFILE'] = (Time.now().isot, 'UTC date of writing file')
-    fits.writeto(new_fits_mask, data_mask.astype('uint8'), header_mask,
-                 overwrite=True)
+        q.put(logger.info('\nprocessing {}'.format(filename)))
+        #q.put(logger.info('-'*(len(filename)+11)))
+    
+        # create a logger that will append the log commands to [logfile]
+        log = create_log (logfile)
+
+        # immediately write some info to the log
+        log.info('processing {}'.format(filename))
+        log.info('image type: {}, filter: {}, exptime: {:.1f}s'
+                 .format(imgtype, filt, exptime))
+
+        log.info('write_path: {}'.format(write_path))
+        log.info('bias_path: {}'.format(bias_path))
+        log.info('dark_path: {}'.format(dark_path))
+        log.info('flat_path: {}'.format(flat_path))
+        if imgtype == 'object':
+            log.info('tmp_path: {}'.format(tmp_path))
+            log.info('ref_path: {}'.format(ref_path))
+
+                                  
+        # general log file
+        header['LOG'] = (genlogfile.split('/')[-1], 'name general logfile')
+        # image log file
+        header['LOG-IMA'] = (logfile.split('/')[-1], 'name image logfile')
+    
+        # now also read in the raw image data
+        data = read_hdulist(filename, dtype='float32')
+
+        # determine number of pixels with infinite/nan values
+        mask_infnan = ~np.isfinite(data)
+        n_infnan = np.sum(mask_infnan)
+        header['N-INFNAN'] = (n_infnan, 'number of pixels with infinite/nan values')
+        if n_infnan > 0:
+            log.info('warning: {} pixels with infinite/nan values; replacing with zero'
+                     .format(n_infnan))
+            data[mask_infnan] = 0
+        
+    
+        #snapshot1 = tracemalloc.take_snapshot()
+
+        
+        # gain correction
+        #################
+        try:
+            log.info('correcting for the gain')
+            gain_processed = False
+            data = gain_corr(data, header, tel=tel, log=log)
+        except Exception as e:
+            #q.put(logger.info(traceback.format_exc()))
+            #q.put(logger.error('exception was raised during [gain_corr]: {}'.format(e)))
+            log.info(traceback.format_exc())
+            log.error('exception was raised during [gain_corr]: {}'.format(e))
+        else:
+            gain_processed = True
+        finally:
+            header['GAIN'] = (1, '[e-/ADU] effective gain all channels')
+            header['GAIN-P'] = (gain_processed, 'corrected for gain?')
+
+        
+        #snapshot2 = tracemalloc.take_snapshot()
+        #top_stats = snapshot2.compare_to(snapshot1, 'lineno')
+        #print("[ Top 10 differences ]")
+        #for stat in top_stats[:10]:
+        #    print(stat)
+        
+        if get_par(set_zogy.display,tel):
+            ds9_arrays(gain_cor=data)
+
+    
+        # crosstalk correction
+        ######################
+        if imgtype == 'object':
+            # not needed for biases, darks or flats
+            try: 
+                log.info('correcting for the crosstalk')
+                xtalk_processed = False
+                crosstalk_file = get_par(set_bb.crosstalk_file,tel)
+                data = xtalk_corr (data, crosstalk_file)
+            except Exception as e:
+                q.put(logger.info(traceback.format_exc()))
+                q.put(logger.error('exception was raised during [xtalk_corr]: {}'
+                                   .format(e)))
+                log.info(traceback.format_exc())
+                log.error('exception was raised during [xtalk_corr]: {}'.format(e))
+            else:
+                xtalk_processed = True
+            finally:
+                header['XTALK-P'] = (xtalk_processed, 'corrected for crosstalk?')
+                header['XTALK-F'] = (crosstalk_file.split('/')[-1],
+                                     'name crosstalk coefficients file')
+            
+
+            if get_par(set_zogy.display,tel):
+                ds9_arrays(Xtalk_cor=data)
+            
+
+        # overscan correction
+        #####################
+        try: 
+            log.info('correcting for the overscan')
+            os_processed = False
+            data = os_corr(data, header, imgtype, tel=tel, log=log)
+        except Exception as e:
+            q.put(logger.info(traceback.format_exc()))
+            q.put(logger.error('exception was raised during [os_corr]: {}'.format(e)))
+            log.info(traceback.format_exc())
+            log.error('exception was raised during [os_corr]: {}'.format(e))
+        else:
+            os_processed = True
+        finally:
+            header['OS-P'] = (os_processed, 'corrected for overscan?')
+        
+            
+        if get_par(set_zogy.display,tel):
+            ds9_arrays(os_cor=data)
 
 
-    # if header of object image contains a red flag, create dummy
-    # binary fits catalogs (both 'new' and 'trans') and return,
-    # skipping zogy's [optimal subtraction] below
-    qc_flag = run_qc_check (header, tel, log=log)
-    if qc_flag=='red':
-        log.error('red QC flag in image {}; making dummy catalogs and returning'
-                  .format(fits_out))
-        run_qc_check (header, tel, 'new', fits_tmp_cat, log=log)
-        run_qc_check (header, tel, 'trans', fits_tmp_trans, log=log)
+        # non-linearity correction
+        ##########################
+        nonlin_corr_processed = False
+        header['NONLIN-P'] = (nonlin_corr_processed, 'corrected for non-linearity?')
+        header['NONLIN-F'] = ('None', 'name non-linearity correction file')
+    
+        if imgtype != 'bias' and get_par(set_bb.correct_nonlin,tel):
 
-        # update header with qc-flags
-        with fits.open(new_fits, 'update') as hdulist:
-            for key in header:
-                if 'QC' in key:
-                    hdulist[-1].header[key] = (header[key], header.comments[key])
+            try:
+                log.info('correcting for the non-linearity')
+                nonlin_corr_file = get_par(set_bb.nonlin_corr_file,tel)
+                data = nonlin_corr(data, nonlin_corr_file, log=log)
+                header['NONLIN-F'] = (nonlin_corr_file.split('/')[-1],
+                                      'name non-linearity correction file')
+            except Exception as e:
+                #q.put(logger.info(traceback.format_exc()))
+                #q.put(logger.error('exception was raised during [nonlin_corr]: '
+                #                   '{}'.format(e)))
+                log.info(traceback.format_exc())
+                log.error('exception was raised during [nonlin_corr]: {}'
+                          .format(e))
+            else:
+                nonlin_corr_processed = True
+            finally:
+                header['NONLIN-P'] = nonlin_corr_processed
 
-        # copy selected output files to new directory and remove tmp folder
-        # corresponding to the object image
-        result = copy_files2keep(tmp_base, new_base, get_par(set_bb.all_2keep,tel),
-                                 move=False, log=log)
-        clean_tmp(tmp_base)
 
+        # if IMAGETYP=bias or dark, write [data] to fits and return
+        if imgtype == 'bias' or imgtype == 'dark':
+            # call [run_qc_check] to update header with any QC flags
+            run_qc_check (header, tel, log=log)
+            header['DATEFILE'] = (Time.now().isot, 'UTC date of writing file')
+            fits.writeto(fits_out, data.astype('float32'), header, overwrite=True)
+            return
+    
+    
+        # master bias creation
+        ######################
+        try:
+            # put an multi-processing lock on this block so that only 1
+            # process at a time can create the master bias
+            lock.acquire()
+
+            # prepare or point to the master bias
+            fits_mbias = master_prep (np.shape(data), bias_path, date_eve, 'bias', 
+                                      log=log)
+
+        except Exception as e:
+            q.put(logger.info(traceback.format_exc()))
+            q.put(logger.error('exception was raised in bias [master_prep]: {}'.format(e)))
+            log.info(traceback.format_exc())
+            log.error('exception was raised during bias [master_prep]: {}'.format(e))
+
+        finally:
+            lock.release()
+
+
+        # master bias subtraction
+        #########################
+        mbias_processed = False
+        header['MBIAS-P'] = (mbias_processed, 'corrected for master bias?')
+        header['MBIAS-F'] = ('None', 'name of master bias applied')
+
+        # check if mbias needs to be subtracted
+        if fits_mbias is not None and get_par(set_bb.subtract_mbias,tel):
+
+            try:
+                # and subtract it from the flat or object image
+                log.info('subtracting the master bias')
+                data_mbias, header_mbias = read_hdulist(fits_mbias, get_header=True)
+                data -= data_mbias
+                header['MBIAS-F'] = fits_mbias.split('/')[-1].split('.fits')[0]
+
+                # for object image, add number of days separating image and master bias
+                if imgtype == 'object':
+                    mjd_obs = header['MJD-OBS']
+                    mjd_obs_mb = header_mbias['MJD-OBS']
+                    header['MB-NDAYS'] = (
+                        np.abs(mjd_obs-mjd_obs_mb), 
+                        '[days] time between image and master bias used')
+
+            except Exception as e:
+                q.put(logger.info(traceback.format_exc()))
+                q.put(logger.error('exception was raised during master bias subtraction: {}'
+                                   .format(e)))
+                log.info(traceback.format_exc())
+                log.error('exception was raised during master bias subtraction: {}'
+                          .format(e))
+            else:
+                mbias_processed = True
+            finally:
+                header['MBIAS-P'] = mbias_processed
+
+
+        # display
+        if get_par(set_zogy.display,tel):
+            ds9_arrays(bias_sub=data)
+        
+
+        # create initial mask array
+        ###########################
+        if imgtype == 'object':
+            try:
+                log.info('preparing the initial mask')
+                mask_processed = False
+                data_mask, header_mask = mask_init (data, header)
+            except Exception as e:
+                q.put(logger.info(traceback.format_exc()))
+                q.put(logger.error('exception was raised during [mask_init]: {}'.format(e)))
+                log.info(traceback.format_exc())
+                log.error('exception was raised during [mask_init]: {}'.format(e))
+            else:
+                mask_processed = True
+            finally:
+                header['MASK-P'] = (mask_processed, 'mask image created?')
+
+
+            if get_par(set_zogy.display,tel):
+                ds9_arrays(mask=data_mask)
+
+
+            # set edge pixel values to zero
+            data[data_mask==get_par(set_zogy.mask_value['edge'],tel)] = 0
+
+
+        # if IMAGETYP=flat, write [data] to fits and return
+        if imgtype == 'flat':
+            # first add some statistics to header
+            if os_processed:
+                get_flatstats (data, header, imgtype)
+            # call [run_qc_check] to update header with any QC flags
+            run_qc_check (header, tel, log=log)
+            # write to fits
+            header['DATEFILE'] = (Time.now().isot, 'UTC date of writing file')
+            fits.writeto(fits_out, data.astype('float32'), header, overwrite=True)
+            return
+
+
+        # master flat creation
+        ######################
+        try:
+            # put an multi-processing lock on this block so that only 1
+            # process at a time can create the master flat
+            lock.acquire()
+
+            # prepare or point to the master flat
+            fits_mflat = master_prep(np.shape(data), flat_path, date_eve, 'flat',
+                                     filt=filt, log=log)
+
+        except Exception as e:
+            q.put(logger.info(traceback.format_exc()))
+            q.put(logger.error('exception was raised during flat [master_prep]: {}'
+                               .format(e)))
+            log.info(traceback.format_exc())
+            log.error('exception was raised during flat [master_prep]: {}'.format(e))
+
+        finally:
+            lock.release()
+
+        
+        # master flat division
+        ######################
+        mflat_processed = False
+        header['MFLAT-F'] = ('None', 'name of master flat applied')
+
+        if fits_mflat is not None:
+            try:
+                # and divide the object image by the master flat
+                log.info('dividing by the master flat')
+                data_mflat, header_mflat = read_hdulist(fits_mflat, get_header=True)
+                data /= data_mflat
+                header['MFLAT-F'] = (fits_mflat.split('/')[-1].split('.fits')[0],
+                                     'name of master flat applied')
+                # for object image, add number of days separating image and master bias
+                if imgtype == 'object':
+                    mjd_obs = header['MJD-OBS']
+                    mjd_obs_mf = header_mflat['MJD-OBS']
+                    header['MF-NDAYS'] = (
+                        np.abs(mjd_obs-mjd_obs_mf), 
+                        '[days] time between image and master flat used')
+
+            except Exception as e:
+                q.put(logger.info(traceback.format_exc()))
+                q.put(logger.error('exception was raised during master flat division: {}'
+                                   .format(e)))
+                log.info(traceback.format_exc())
+                log.error('exception was raised during master flat division: {}'.format(e))
+            else:
+                mflat_processed = True
+            finally:
+                header['MFLAT-P'] = (mflat_processed, 'corrected for master flat?')
+
+
+
+        # PMV 2018/12/20: fringe correction is not yet done, but
+        # still add these keywords to the header
+        header['MFRING-P'] = (False, 'corrected for master fringe map?')
+        header['MFRING-F'] = ('None', 'name of master fringe map applied')
+
+
+        if get_par(set_zogy.display,tel):
+            ds9_arrays(flat_cor=data)
+            data_precosmics = np.copy(data)
+
+
+        # cosmic ray detection and correction
+        #####################################
+        try:
+            log.info('detecting cosmic rays')
+            cosmics_processed = False
+            data, data_mask = cosmics_corr(data, header, data_mask, header_mask)
+        except Exception as e:
+            header['NCOSMICS'] = ('None', '[/s] number of cosmic rays identified')
+            q.put(logger.info(traceback.format_exc()))
+            q.put(logger.error('exception was raised during [cosmics_corr]: {}'.format(e)))
+            log.info(traceback.format_exc())
+            log.error('exception was raised during [cosmics_corr]: {}'.format(e))
+        else:
+            cosmics_processed = True
+        finally:
+            header['COSMIC-P'] = (cosmics_processed, 'corrected for cosmic rays?')
+
+    
+        if get_par(set_zogy.display,tel):
+            ds9_arrays(data=data_precosmics, cosmic_cor=data, mask=data_mask)
+            print (header['NCOSMICS'])
+        
+
+        # satellite trail detection
+        ###########################
+        try: 
+            sat_processed = False
+            if get_par(set_bb.detect_sats,tel):
+                log.info('detecting satellite trails')
+                data_mask = sat_detect(data, header, data_mask, header_mask,
+                                       tmp_path)
+        except Exception as e:
+            header['NSATS'] = ('None', 'number of satellite trails identified')
+            q.put(logger.info(traceback.format_exc()))
+            q.put(logger.error('exception was raised during [sat_detect]: {}'.format(e)))
+            log.info(traceback.format_exc())
+            log.error('exception was raised during [sat_detect]: {}'.format(e))
+        else:
+            if get_par(set_bb.detect_sats,tel):
+                sat_processed = True
+        finally:
+            header['SAT-P'] = (sat_processed, 'processed for satellite trails?')
+
+
+        # add some more info to mask header
+        result = mask_header(data_mask, header_mask)
+
+
+        
+        # write data and mask to output images in [tmp_path] and
+        # add name of reduced image and corresponding mask in header just
+        # before writing it
+        log.info('writing reduced image and mask to {}'.format(tmp_path))
+        redfile = fits_out.split('/')[-1].split('.fits')[0]
+        header['REDFILE'] = (redfile, 'BlackBOX reduced image name')
+        header['MASKFILE'] = (redfile.replace('_red', '_mask'), 
+                              'BlackBOX mask image name')
+        header['DATEFILE'] = (Time.now().isot, 'UTC date of writing file')
+        fits.writeto(new_fits, data.astype('float32'), header, overwrite=True)
+        header_mask['DATEFILE'] = (Time.now().isot, 'UTC date of writing file')
+        fits.writeto(new_fits_mask, data_mask.astype('uint8'), header_mask,
+                     overwrite=True)
+
+
+        # if header of object image contains a red flag, create dummy
+        # binary fits catalogs (both 'new' and 'trans') and return,
+        # skipping zogy's [optimal subtraction] below
+        qc_flag = run_qc_check (header, tel, log=log)
+        if qc_flag=='red':
+            log.error('red QC flag in image {}; making dummy catalogs and returning'
+                      .format(fits_out))
+            run_qc_check (header, tel, 'new', fits_tmp_cat, log=log)
+            run_qc_check (header, tel, 'trans', fits_tmp_trans, log=log)
+
+            # update header with qc-flags
+            with fits.open(new_fits, 'update') as hdulist:
+                for key in header:
+                    if 'QC' in key:
+                        hdulist[-1].header[key] = (header[key], header.comments[key])
+
+            # copy selected output files to new directory and remove tmp folder
+            # corresponding to the object image
+            result = copy_files2keep(tmp_base, new_base, get_par(set_bb.all_2keep,tel),
+                                     move=False, log=log)
+            clean_tmp(tmp_base)
+
+            return
+
+
+    # end of reduction steps if they were needed
+
+    # if both catalog and transient extraction are switched off, then
+    # no need to execute [optimal_subtraction]
+    if (not get_par(set_bb.cat_extract,tel) and
+        not get_par(set_bb.trans_extract,tel)):
         return
 
+    elif not get_par(set_bb.cat_extract,tel):
+
+        # if cat_extract=False but trans_extract=True, copy
+        # cat_extract products to tmp folder and continue
+        result = copy_files2keep(new_base, tmp_base, ['_cat.fits', '_mini.fits',
+                                                      '_psf.fits', '_psfex.cat'],
+                                 move=False, log=log)
+    
 
     # run zogy's [optimal_subtraction]
     ##################################
@@ -1647,7 +1690,70 @@ def blackbox_reduce (filename):
     log.info('has reference image: {} been made already?: {}'
              .format(ref_fits_out, ref_present))
                          
-    if not ref_present:
+
+    # in case transient extraction step is switched off
+    if not get_par(set_bb.trans_extract,tel):
+
+        log.info('set_bb.trans_extract={}; processing new image only, '
+                 'without comparison to ref image'
+                 .format(get_par(set_bb.trans_extract,tel)))
+        log.info('new_fits: {}'.format(new_fits))
+        log.info('new_fits_mask: {}'.format(new_fits_mask))
+
+        try:
+            zogy_processed = False
+            header_optsub = optimal_subtraction(
+                new_fits=new_fits, new_fits_mask=new_fits_mask, 
+                set_file='set_zogy', log=log, verbose=None,
+                nthread=get_par(set_bb.nthread,tel), telescope=tel)
+        except Exception as e:
+            log.info(traceback.format_exc())
+            log.error('exception was raised during reference [optimal_subtraction]: {}'
+                      .format(e))
+        else:
+            zogy_processed = True
+        finally:
+            if not zogy_processed:
+                log.error('due to exception: returning without copying new-only files')
+
+                # copy selected output files to red directory and remove tmp folder
+                # corresponding to the image
+                #result = copy_files2keep(tmp_base, new_base, get_par(set_bb.all_2keep,tel),
+                #                         move=False, log=log)
+                clean_tmp(tmp_base)
+
+                return
+            else:
+                # feed [header_optsub] to [run_qc_check], and make
+                # dummy catalogs if there is a red flag
+                qc_flag = run_qc_check (header_optsub, tel, log=log)
+                if qc_flag=='red':
+                    log.error('red QC flag in [header_optsub] returned by new-only '
+                              '[optimal_subtraction]; making dummy catalogs')
+                    run_qc_check (header_optsub, tel, 'new', fits_tmp_cat, log=log)
+                    #run_qc_check (header_optsub, tel, 'trans', fits_tmp_trans, log=log)
+
+                else:
+                    # update catalog header with latest qc-flags
+                    with fits.open(fits_tmp_cat, 'update') as hdulist:
+                        for key in header_optsub:
+                            if 'QC' in key:
+                                hdulist[-1].header[key] = (
+                                    header_optsub[key], header_optsub.comments[key])
+
+
+        # update reduced image header with extended header from ZOGY [header_optsub]
+        with fits.open(new_fits, 'update') as hdulist:
+            hdulist[0].header = header_optsub
+
+        # copy the set of files [all_2keep] to the reduced directory
+        result = copy_files2keep(tmp_base, new_base, 
+                                 get_par(set_bb.all_2keep,tel), move=False,
+                                 log=log)
+        clean_tmp(tmp_base)
+
+
+    elif not ref_present:
         # update [ref_ID_filt] queue with a tuple with this OBJECT
         # and FILTER combination
         ref_ID_filt.put((obj, filt))
@@ -1665,7 +1771,7 @@ def blackbox_reduce (filename):
                 nthread=get_par(set_bb.nthread,tel), telescope=tel)
         except Exception as e:
             log.info(traceback.format_exc())
-            log.error('exception was raised during reference [optimal_subtraction]: {}'
+            log.error('exception was raised during new-only [optimal_subtraction]: {}'
                       .format(e))
         else:
             zogy_processed = True
@@ -1705,10 +1811,6 @@ def blackbox_reduce (filename):
             hdulist[0].header = header_optsub
 
             
-        if get_par(set_zogy.timing,tel):
-            log_timing_memory (t0=t_blackbox_reduce, label='blackbox_reduce',
-                               log=log)
-                
         # copy the set of files [all_2keep] to the reduced
         # directory for future building of new reference image
         result = copy_files2keep(tmp_base, new_base, 
@@ -1811,17 +1913,19 @@ def blackbox_reduce (filename):
             hdulist[0].header = header_optsub
         
                     
-        if get_par(set_zogy.timing,tel):
-            log_timing_memory (t0=t_blackbox_reduce, label='blackbox_reduce', log=log)
-
         # copy selected output files to new directory
         result = copy_files2keep(tmp_base, new_base,
                                  get_par(set_bb.new_2keep,tel),
                                  move=False, log=log)
         clean_tmp(tmp_base)
 
+
+
+    if get_par(set_zogy.timing,tel):
+        log_timing_memory (t0=t_blackbox_reduce, label='blackbox_reduce', log=log)
+
     log.info('reached the end of function blackbox_reduce')
-    
+
     return
 
 
