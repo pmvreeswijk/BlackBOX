@@ -2055,7 +2055,7 @@ def blackbox_reduce (filename):
 
 ################################################################################
 
-def get_flatstats (data, header, imgtype, nsubs_side=6):
+def get_flatstats (data, header, imgtype):
     
     # add some header keywords with the statistics
     sec_temp = get_par(set_bb.flat_norm_sec,tel)
@@ -2105,16 +2105,16 @@ def get_flatstats (data, header, imgtype, nsubs_side=6):
             'channel {} relative sigma (STD) flat'.format(i_chan+1))
         
 
-    # split image in 6x6 subimages and calculate a few additional
-    # statistics
-    
-    # determine boxsize
+    # split image in 8x8 subimages and calculate a few additional
+    # statistics; size of subimages is taken to be the same as the
+    # ZOGY subimages
     ysize, xsize = data.shape
-    boxsize = int(ysize / nsubs_side)
+    subsize = get_par(set_zogy.subimage_size,tel)
+    nsubs_side = int(ysize/subsize)
     
     # reshape
     data_reshaped = data.reshape(
-        nsubs_side,boxsize,-1,boxsize).swapaxes(1,2).reshape(
+        nsubs_side,subsize,-1,subsize).swapaxes(1,2).reshape(
             nsubs_side,nsubs_side,-1)
     
     # get clipped statistics
