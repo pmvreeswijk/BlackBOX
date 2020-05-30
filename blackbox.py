@@ -453,18 +453,29 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
                                        Time.now().strftime('%Y%m%d_%H%M%S'))
     logger = create_log (genlogfile)
 
-    # leave slack logging for now
-    #log_stream = StringIO() #create log stream for upload to slack
-    #streamhandler_slack = logging.StreamHandler(log_stream) #add log stream to logger
-    #streamhandler_slack.setFormatter(formatter) #add format to log stream
-    #genlog.addHandler(streamhandler_slack) #link logger to log stream
-    #logger = MyLogger(genlog,mode,log_stream,slack) #load logger handler
+    q.put(logger.info('processing mode:      {}'.format(mode)))
+    q.put(logger.info('log file:             {}'.format(genlogfile)))
+    q.put(logger.info('number of processes:  {}'
+                      .format(get_par(set_bb.nproc,tel))))
+    q.put(logger.info('number of threads:    {}'
+                      .format(get_par(set_bb.nthread,tel))))
 
+    q.put(logger.info('switch img_reduce:    {}'
+                      .format(get_par(set_bb.img_reduce,tel))))
+    q.put(logger.info('switch cat_extract:   {}'
+                      .format(get_par(set_bb.cat_extract,tel))))
+    q.put(logger.info('switch trans_extract: {}'
+                      .format(get_par(set_bb.trans_extract,tel))))
 
-    q.put(logger.info('processing in {} mode'.format(mode)))
-    q.put(logger.info('log file: {}'.format(genlogfile)))
-    q.put(logger.info('number of processes: {}'.format(get_par(set_bb.nproc,tel))))
-    q.put(logger.info('number of threads: {}'.format(get_par(set_bb.nthread,tel))))
+    # leave right away if none of the main processing switches are on
+    if (not get_par(set_bb.img_reduce,tel) and
+        not get_par(set_bb.cat_extract,tel) and
+        not get_par(set_bb.trans_extract,tel)):
+    
+        q.put(logger.info('main processing switches img_reduce, cat_extract '
+                          'and trans_extract all False, nothing left to do'))
+        logging.shutdown()
+        return
 
 
     # create master bias and/or flat if [master_date] is specified
@@ -646,7 +657,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
         # was created yet; this is not done with pool of processes,
         # because it is not time-critical and takes 10GB of memory for
         # each set of 10 biases or flats
-        q.put(logger.info('looking for and preparing missing master frames'))
+        q.put(logger.info('preparing missing master frames'))
         create_masters ('bias')
         for filt in get_par(set_zogy.zp_default,tel).keys():
             create_masters ('flat', filt=filt)
@@ -894,13 +905,8 @@ def create_jpg (filename):
         
         image_jpg = '{}.jpg'.format(filename.split('.fits')[0])
 
-        if os.path.isfile(image_jpg):
+        if not os.path.isfile(image_jpg):
             
-            q.put(logger.info('{} already exists; skipping {}'
-                              .format(image_jpg, filename)))
-
-        else:
-
             q.put(logger.info('saving {} to {}'.format(filename, image_jpg)))
               
             # read input image
@@ -1154,8 +1160,9 @@ def blackbox_reduce (filename):
         make_dir (ref_path)
         ref_fits_out = '{}/{}_{}_red.fits'.format(ref_path, tel, filt)
         
-        exists, ref_fits_temp = already_exists (ref_fits_out, get_filename=True)
-        if exists:
+        ref_present, ref_fits_temp = already_exists (ref_fits_out,
+                                                     get_filename=True)
+        if ref_present:
             header_ref = read_hdulist(ref_fits_temp, get_data=False,
                                       get_header=True)
             utdate_ref, uttime_ref = get_date_time(header_ref)
@@ -1195,30 +1202,61 @@ def blackbox_reduce (filename):
     tmp_base = new_fits.split('_red.fits')[0]
     new_base = fits_out.split('_red.fits')[0]
 
+
     # make log defined below global
     global log
     
+
     # check if reduction steps could be skipped
-    if (already_exists (fits_out) and
-        not (get_par(set_bb.im_reduce) and get_par(set_bb.force_reproc_new))):
+    file_present = already_exists (fits_out)
+    if imgtype == 'object':
+        mask_present = already_exists (fits_out_mask)
+    else:
+        # for non-object images, there is no mask
+        mask_present = True
+
+    # if reduced file (and possible mask), and both img_reduce and
+    # force_reproc_new flags are not both set to True, reduction can
+    # be skipped
+    if (file_present and mask_present and
+        not (get_par(set_bb.img_reduce,tel) and
+             get_par(set_bb.force_reproc_new,tel))):
         
-        q.put(logger.warning ('corresponding reduced {} image {} already exist'
-                              '; skipping the reduction'
+        q.put(logger.warning ('corresponding reduced {} image {} already exists; '
+                              'skipping its reduction'
                               .format(imgtype, fits_out.split('/')[-1])))
-        # read reduced data and header
-        data, header = read_hdulist(fits_out, get_header=True)
+
         # copy relevant files to tmp folder
-        result = copy_files2keep(new_base, tmp_base, ['_red.fits', '_mask.fits',
-                                                      '_red.log'], move=False)
+        result = copy_files2keep(new_base, tmp_base,
+                                 get_par(set_bb.img_reduce_exts,tel), move=False)
         # create a logger that will append the log commands to [logfile]
         log = create_log (logfile)
-        
+
+        do_reduction = False
+
     else:
         
         # go through various reduction steps
+        do_reduction = True
+        
+        if file_present:
+            # reduced file is already present, so this is a forced
+            # re-reduction (force_reproc_new=True)
+            q.put(logger.info('\nre-processing {}'.format(filename)))
 
-        q.put(logger.info('\nprocessing {}'.format(filename)))
-        #q.put(logger.info('-'*(len(filename)+11)))
+            # delete all corresponding files in reduced folder as they
+            # will become obsolete with this re-reduction
+            files_2remove = glob.glob('{}*'.format(new_base))
+            lock.acquire()
+            for file_2remove in files_2remove:
+                q.put(logger.info('removing existing {}'.format(file_2remove)))
+                os.remove(file_2remove)
+
+            lock.release()
+
+        else:
+            q.put(logger.info('\nprocessing {}'.format(filename)))
+            #q.put(logger.info('-'*(len(filename)+11)))
     
         # create a logger that will append the log commands to [logfile]
         log = create_log (logfile)
@@ -1587,7 +1625,6 @@ def blackbox_reduce (filename):
         result = mask_header(data_mask, header_mask)
 
 
-        
         # write data and mask to output images in [tmp_path] and
         # add name of reduced image and corresponding mask in header just
         # before writing it
@@ -1603,21 +1640,23 @@ def blackbox_reduce (filename):
                      overwrite=True)
 
 
+        # check quality control
+        qc_flag = run_qc_check (header, tel, log=log)
+
+        # update header with qc-flags
+        with fits.open(new_fits, 'update') as hdulist:
+            for key in header:
+                if 'QC' in key:
+                    hdulist[-1].header[key] = (header[key], header.comments[key])
+
         # if header of object image contains a red flag, create dummy
         # binary fits catalogs (both 'new' and 'trans') and return,
         # skipping zogy's [optimal subtraction] below
-        qc_flag = run_qc_check (header, tel, log=log)
         if qc_flag=='red':
             log.error('red QC flag in image {}; making dummy catalogs and returning'
                       .format(fits_out))
             run_qc_check (header, tel, 'new', fits_tmp_cat, log=log)
             run_qc_check (header, tel, 'trans', fits_tmp_trans, log=log)
-
-            # update header with qc-flags
-            with fits.open(new_fits, 'update') as hdulist:
-                for key in header:
-                    if 'QC' in key:
-                        hdulist[-1].header[key] = (header[key], header.comments[key])
 
             # copy selected output files to new directory and remove tmp folder
             # corresponding to the object image
@@ -1628,22 +1667,107 @@ def blackbox_reduce (filename):
             return
 
 
-    # end of reduction steps if they were needed
+    # end of if block with reduction steps
 
+
+    # block dealing with main processing switches
+    #############################################
+    
     # if both catalog and transient extraction are switched off, then
     # no need to execute [optimal_subtraction]
     if (not get_par(set_bb.cat_extract,tel) and
         not get_par(set_bb.trans_extract,tel)):
+
+        if do_reduction:
+            # if reduction steps were performed, copy selected output
+            # files to new directory and clean up tmp folder if needed
+            result = copy_files2keep(tmp_base, new_base,
+                                     get_par(set_bb.img_reduce_exts,tel),
+                                     move=False, log=log)
+            clean_tmp(tmp_base)
+            
+
+        q.put(logger.info('main processing switches cat_extract and '
+                          'trans_extract are off, nothing left to do for {}'
+                          .format(filename)))
         return
 
-    elif not get_par(set_bb.cat_extract,tel):
 
-        # if cat_extract=False but trans_extract=True, copy
-        # cat_extract products to tmp folder and continue
-        result = copy_files2keep(new_base, tmp_base, ['_cat.fits', '_mini.fits',
-                                                      '_psf.fits', '_psfex.cat'],
-                                 move=False, log=log)
-    
+    elif not get_par(set_bb.force_reproc_new,tel):
+
+        # stop processing here if cat_extract and/or trans_extract
+        # products exist in reduced folder
+        new_list = glob.glob('{}*'.format(new_base))
+        ext_list = []
+
+        if get_par(set_bb.cat_extract,tel):
+            ext_list += get_par(set_bb.cat_extract_exts,tel)
+            text = 'cat_extract'
+            
+        if get_par(set_bb.trans_extract,tel):
+            ext_list += get_par(set_bb.trans_extract_exts,tel)
+            if get_par(set_bb.cat_extract,tel):
+                text += 'and trans_extract'
+            else:
+                text = 'trans_extract'
+                
+        present = (np.array([ext in fn for ext in ext_list for fn in new_list])
+                   .reshape(len(ext_list),-1).sum(axis=1))
+
+        if np.all(present):
+            q.put(logger.info('all {} data products already present in reduced '
+                              'folder, nothing left to do for {}'
+                              .format(text, filename)))
+            return
+        
+        else:
+            
+            # otherwise, copy cat_extract products and trans_extract
+            # to tmp folder and continue
+            result = copy_files2keep(new_base, tmp_base, ext_list, move=False,
+                                     log=log)
+        
+
+    elif get_par(set_bb.force_reproc_new,tel):
+
+        # if [force_reproc_new]=True, then depending on exact
+        # switches, remove relevant files from reduced folder and copy
+        # files to the tmp folder
+        new_list = glob.glob('{}*'.format(new_base))
+        ext_list = []
+
+        # if cat_extract=True then remove all cat and trans products
+        if get_par(set_bb.cat_extract,tel):
+            ext_list += get_par(set_bb.cat_extract_exts,tel)
+            ext_list += get_par(set_bb.trans_extract_exts,tel)
+
+        elif get_par(set_bb.trans_extract,tel):
+            # only remove trans_extract products
+            ext_list += get_par(set_bb.trans_extract_exts,tel)
+
+            # but at the same time, copy the cat_extract products
+            # to the tmp folder, as the cat_extract can be skipped
+            result = copy_files2keep(new_base, tmp_base,
+                                     get_par(set_bb.cat_extract_exts,tel),
+                                     move=False, log=log)
+
+        # now files in reduced folder can be removed
+        files_2remove = [fn for fn in new_list for ext in ext_list if ext in fn]
+        lock.acquire()
+        for file_2remove in files_2remove:
+            q.put(logger.info('removing existing {}'.format(file_2remove)))
+            os.remove(file_2remove)
+                
+        lock.release()
+
+
+    # before continuing, zipped files in tmp folder need to be
+    # unzipped/funpacked for optimal_subtraction to process them
+    tmp_files = glob.glob('{}*.fz'.format(tmp_base))
+    for tmp_file in tmp_files:
+        # and funpack/unzip if necessary
+        tmp_file = unzip(tmp_file)
+
 
     # run zogy's [optimal_subtraction]
     ##################################
@@ -1851,7 +1975,7 @@ def blackbox_reduce (filename):
             ref_file = unzip(ref_file)
             # and create symbolic link
             os.symlink(ref_file, '{}/{}'.format(tmp_path, ref_file.split('/')[-1]))
-                
+
         ref_fits = '{}/{}'.format(tmp_path, ref_fits_out.split('/')[-1])
         ref_fits_mask = ref_fits.replace('_red.fits', '_mask.fits')
         
@@ -2109,7 +2233,7 @@ def create_log (logfile):
                                      '%Y-%m-%dT%H:%M:%S')
     logging.Formatter.converter = time.gmtime #convert time in logger to UTC
 
-    fileHandler = logging.FileHandler(logfile, 'w+')
+    fileHandler = logging.FileHandler(logfile, 'a')
     fileHandler.setFormatter(logFormatter)
     fileHandler.setLevel(logging.INFO)
     log.addHandler(fileHandler)
@@ -2124,25 +2248,15 @@ def create_log (logfile):
 
 ################################################################################
 
-def make_dir(path, empty=False):
+def make_dir (path, empty=False, put_lock=True):
 
-    """Wrapper function to lock make_dir_nolock so that it's only used by
-       1 process. """
-
-    lock.acquire()
-    make_dir_nolock (path, empty)
-    lock.release()
-
-    return
-
-
-################################################################################
-
-def make_dir_nolock(path, empty=False):
-
-    """Function to make directory. If [empty] is True and the directory 
-       already exists, it will first be removed.
+    """Function to make directory. If [empty] is True and the directory
+       already exists, it will first be removed. Multiprocessing lock
+       will be applied depending on the value of [put_lock].
     """
+
+    if put_lock:
+        lock.acquire()
 
     # if already exists but needs to be empty, remove it first
     if os.path.isdir(path) and empty:
@@ -2150,6 +2264,9 @@ def make_dir_nolock(path, empty=False):
     if not os.path.isdir(path):
         os.makedirs(path)
 
+    if put_lock:
+        lock.release()
+        
     return
 
 
@@ -2176,37 +2293,53 @@ def clean_tmp(temp_base):
 
 ################################################################################
 
-def copy_files2keep (tmp_base, dest_base, ext2keep, move=True, log=None):
+def copy_files2keep (src_base, dest_base, ext2keep, move=True,
+                     remove_fpacked=True, log=None):
 
-    """Function to copy/move files with base name [tmp_base] and
+    """Function to copy/move files with base name [src_base] and
     extensions [ext2keep] to files with base name [dest_base] with the
     same extensions. The base names should include the full path.
     """
     
-    # list of all files starting with [tmp_base]
-    tmpfiles = glob.glob('{}*'.format(tmp_base))
+    # list of all files starting with [src_base]
+    src_files = glob.glob('{}*'.format(src_base))
     # loop this list
-    for tmpfile in tmpfiles:
-        # determine extension of file 
-        tmp_ext = tmpfile.split(tmp_base)[-1]
-        # check if the extension is present in [ext2keep]
+    for src_file in src_files:
+        # determine file string following [src_base] 
+        src_ext = src_file.split(src_base)[-1]
+        # check if this matches entry in [ext2keep]
         for ext in ext2keep:
-            if ext == tmpfile[-len(ext):]:
-                destfile = '{}{}'.format(dest_base, tmp_ext)
+            if ext in src_ext:
+                dest_file = '{}{}'.format(dest_base, src_ext)
                 # if so, and the source and destination names are not
                 # identical, go ahead and copy
-                if tmpfile != destfile:
+                if src_file != dest_file:
+
+                    if remove_fpacked:
+                        # remove the corresponding f/unpacked files
+                        # already present in the destination folder
+                        if '.fz' in dest_file:
+                            file_2remove = dest_file.split('.fz')[0]
+                        else:
+                            file_2remove = '{}.fz'.format(dest_file)
+
+                        if os.path.isfile(file_2remove):
+                            log.info('removing existing {}'.format(file_2remove))
+                            os.remove(file_2remove)
+                            
+                    # move or copy file
                     if not move:
                         if log is not None:
                             log.info('copying {} to {}'.
-                                     format(tmpfile, destfile))
-                        shutil.copyfile(tmpfile, destfile)
+                                     format(src_file, dest_file))
+                        shutil.copyfile(src_file, dest_file)
                     else:
                         if log is not None:
                             log.info('moving {} to {}'
-                                     .format(tmpfile, destfile))
-                        shutil.move(tmpfile, destfile)
-
+                                     .format(src_file, dest_file))
+                        shutil.move(src_file, dest_file)
+                    
+                        
                         
     return
 
@@ -2796,7 +2929,7 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
             # call [run_qc_check] to update master header with any QC flags
             run_qc_check (header_master, tel, log=log)
             # make dir for output file if it doesn't exist yet
-            make_dir_nolock (os.path.split(fits_master)[0])
+            make_dir (os.path.split(fits_master)[0], put_lock=False)
             # write to output file
             header_master['DATEFILE'] = (Time.now().isot, 'UTC date of writing file')
             fits.writeto(fits_master, master_median.astype('float32'), header_master,

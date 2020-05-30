@@ -15,13 +15,13 @@ nthread = 2
 # Reduction steps
 #===============================================================================
 
-# switch on/off different steps
-im_reduce = True 
+# switch on/off different parts
+img_reduce = True
 cat_extract = True
 trans_extract = True
 
 # force re-processing of new image only for steps that are switched on
-force_reproc_new = True
+force_reproc_new = False
 
 # subtract master bias
 subtract_mbias = False
@@ -69,10 +69,12 @@ for tel in ['ML1', 'BG2', 'BG3', 'BG4']:
     tmp_dir[tel] = '{}/{}/tmp'.format(tmp_dir_base, tel)
 
 # name endings of files to keep for the reference and new images
-all_2keep = ['_red.fits', '_mask.fits', '_cat.fits', '_mini.fits', '_red.log',
-             '_psf.fits', '_psfex.cat']
+img_reduce_exts = ['_red.fits', '_mask.fits', '_red.log']
+cat_extract_exts = ['_cat.fits', '_mini.fits', '_psf.fits', '_psfex.cat']
+trans_extract_exts = ['_D.fits', '_Scorr.fits', '_trans_limmag.fits', '_trans.fits']
+all_2keep = img_reduce_exts + cat_extract_exts
 ref_2keep = ['_ldac.fits', '_weights.fits'] + all_2keep
-new_2keep = ['_D.fits', '_Scorr.fits', '_trans_limmag.fits', '_trans.fits'] + all_2keep
+new_2keep = trans_extract_exts + all_2keep
 
 #===============================================================================
 # Calibration files
