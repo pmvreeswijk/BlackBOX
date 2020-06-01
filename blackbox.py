@@ -129,22 +129,6 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          obeying S/N constraints, such that ldac catalog has reasonable
          size - see (16)
 
-    (23) header of output catalog is much more complete than header of
-         reduced image; need to update the latter
-
-         related: qc-flags in reduced images not consistent with those
-         of catalog files, i.e. reduced images can have more severe flag
-         than catalog file; why? - is because qc-flags in catalog headers
-         were not updated after zogy run, so they still had the qc-flags
-         from at the start of zogy.
-
-    (24) airmass of combined reference image is off (and therefore
-         also the zeropoint) because zogy is calculating it using DATE-OBS
-         and RA,DEC, but DATE-OBS is an average time for the combined
-         reference; maybe AIRMASS keyword can be updated with average
-         airmass? Or .. since flux was scaled to airmass 1 (true?),
-         airmass keywords can be updated to that value?
-
     (25) does nproc decrease when running pool_func a 2nd time?
 
     (27) number of initials SExtractor detections (S-NOBJ) not the same
@@ -153,26 +137,6 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
     (29) need way to avoid running SExtractor on edges of images; for 
          MeerLICHT, edges are zeroed in BlackBOX
-
-    (30) if mask is provided, but saturation is not included (e.g. in case
-         only a bad pixel mask is provided), the saturated and 
-         saturated-connected pixels should be added to the mask
-    
-    (31) when processing WHT/ACAM image, important WCS calibration
-         header keywords such as CRVAL?, CRPIX?, CD_??, are not
-         overwritten by the new WCS solution. Why not? Maybe easiest
-         solution is to delete these header keywords when new WCS is
-         needed.
-
-    (32) add sensor header keywords to reduced data, even if they don't 
-         exist yet in the raw image header, such as keywords from Cryostat 
-         and CompactRIO.
-
-    (33) check out new source-extractor; new capabilities or
-         signficiant improvements? Different parameters (cf. J2000 ->
-         ICRS)? On mac os and macports, it is not possible anymore to
-         install the old version 2.19.5, as it is considered obsolete; how
-         about Ubuntu?
 
     (36) check if background STD image produced by source-extractor is
          reasonably close to the improved background STD image made in
@@ -199,19 +163,17 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
   * (49) creating master flats can/should be multiprocessed
 
-    (51) check what is done when no master flat is found
-
     (54) get rid of repeated lines in the log once and for all!
-
-    (55) Paul's suggestion: instead of mix of 11x11 and 6x6 subimages
-         for different purposes, why not go to 8x8 where entire
-         subimage is contained within the channel?
 
   * (56) fpack/jpgs at end of blackbox does not work when single image
          is provided with --image option, which will be used in Google
          Cloud
 
     (57) save header as separate fits file
+
+    (59) also look at ELONGATION in same way as FWHM_IMAGE (see item
+         46), i.e. use it to filter transients with very different
+         value than image average ELONGATION.
 
     Done:
     -----
@@ -305,6 +267,22 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
   * (21) force orientation in thumbnail images to be approximately
          North up East left
 
+    (23) header of output catalog is much more complete than header of
+         reduced image; need to update the latter
+
+         related: qc-flags in reduced images not consistent with those
+         of catalog files, i.e. reduced images can have more severe flag
+         than catalog file; why? - is because qc-flags in catalog headers
+         were not updated after zogy run, so they still had the qc-flags
+         from at the start of zogy.
+
+    (24) airmass of combined reference image is off (and therefore
+         also the zeropoint) because zogy is calculating it using DATE-OBS
+         and RA,DEC, but DATE-OBS is an average time for the combined
+         reference; maybe AIRMASS keyword can be updated with average
+         airmass? Or .. since flux was scaled to airmass 1 (true?),
+         airmass keywords can be updated to that value?
+
   * (26) determine image zeropoints per channel, and try fitting a
          polynomial surface to the zeropoint values across the frame.
          This is now done, where coefficients of polynomial fit
@@ -333,6 +311,34 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          reduced image header: ST-MRDIF and ST-MRDEV with which all of
          the flats with gradients can be discarded and most of the
          condensation spots as well.
+
+    (30) if mask is provided, but saturation is not included (e.g. in case
+         only a bad pixel mask is provided), the saturated and 
+         saturated-connected pixels should be added to the mask
+    
+    (31) when processing WHT/ACAM image, important WCS calibration
+         header keywords such as CRVAL?, CRPIX?, CD_??, are not
+         overwritten by the new WCS solution. Why not? Maybe easiest
+         solution is to delete these header keywords when new WCS is
+         needed.
+
+    (32) add sensor header keywords to reduced data, even if they don't 
+         exist yet in the raw image header, such as keywords from Cryostat 
+         and CompactRIO.
+
+    (33) check out new source-extractor; new capabilities or
+         signficiant improvements? Different parameters (cf. J2000 ->
+         ICRS)? On mac os and macports, it is not possible anymore to
+         install the old version 2.19.5, as it is considered obsolete; how
+         about Ubuntu? 
+         --> new source-extractor appears to be largely the same as before
+         --> Steven attended a talk by Bertin: the code is now slower
+             but a team is working on it to improve things; current
+             version installed on mac-os is 2.25 (2019-10-24), but 
+             documentation on www.astromatic.net and also 
+             GitHub (https://github.com/astromatic/sextractor)
+             appear old
+         --> changed call in zogy.py to "source-extractor"
 
     (34) bkg and bkg_std images in tmp dir are float64; check
          precision in get_back so that these are not bigger than
@@ -398,6 +404,11 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
     (50) change jpg scaling to zscale
 
+    (51) check what is done when no master flat is found
+         --> blackbox then still continues with processing steps like
+             cosmic rays and satellite detection, but image will get
+             flagged red by QC check at end of reduction steps
+
   * (52) perform background subtraction per channel for ML/BG, i.e.
          boxsize needs to fit integer times in channel and median
          filtering is done within channels, not across channel
@@ -422,6 +433,10 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          accompanied by a force switch?
 
          See also item (48).
+
+    (55) Paul's suggestion: instead of mix of 11x11 and 6x6 subimages
+         for different purposes, why not go to 8x8 where entire
+         subimage is contained within the channel?
 
     (58) Danielle noticed that tmp folders are not always deleted
          when blackbox_reduce does not reach its end and fixed this
@@ -492,7 +507,8 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
             else:
                 mfilts = re.sub(',|-|\.|\/', '', filters)
             for filt in mfilts:
-                create_masters ('flat', filt=filt, mdate=master_date)
+                create_masters ('flat', filt=filt, mdate=master_date, fpack=True)
+
         logging.shutdown()
         return
             
@@ -581,15 +597,18 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
             # if only 1 process is requested, or [image] input
             # parameter is not None, run it witout multiprocessing;
             # this will allow images to be shown on the fly if
-            # [set_zogy.display] is set to True. In multiprocessing
-            # mode this is not allowed (at least not on a macbook).
+            # [set_zogy.display] is set to True; something that is not
+            # allowed (at least not on a macbook) when
+            # multiprocessing.
             print ('running with single processor')
+            filenames_reduced = []
             for filename in filenames:
-                result = blackbox_reduce(filename)
-
+                filename_reduced = blackbox_reduce(filename)
+                filenames_reduced.append(filename_reduced)
+                
         else:
             # use [pool_func] to process list of files
-            result = pool_func (try_blackbox_reduce, filenames)
+            results = pool_func (try_blackbox_reduce, filenames)
 
 
         #snapshot2 = tracemalloc.take_snapshot()
@@ -646,7 +665,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
         log_timing_memory (t0=t_run_blackbox, label='run_blackbox before fpacking', log=logger)
         
 
-    # do not execute rest of [run_blackbox] if single image was
+    # do not prepare remaining master files if single image was
     # specified to be processed with [image]
     if image is None:
 
@@ -661,31 +680,50 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
         create_masters ('bias')
         for filt in get_par(set_zogy.zp_default,tel).keys():
             create_masters ('flat', filt=filt)
-        
 
-        # fpack remaining fits images
-        # ---------------------------       
-        q.put(logger.info('fpacking fits images'))
-        # now that all files have been processed, fpack!
-        # create list of files to fpack
-        list_2pack = prep_packlist (date)
-        #print ('list_2pack', list_2pack)
+
+
+    # for both fpack and jpg creation: define basename of reduced
+    # image (return value from function blackbox_reduce) in case input
+    # parameter "image" is defined, so fpack and jpg creation can be
+    # done only on the relevant files instead of entire folder
+    if image is not None:
+        basename = filenames_reduced[0].split('_red.fits')[0]
+    else:
+        basename = None
+
+
+    # fpack remaining fits images
+    # ---------------------------       
+    q.put(logger.info('fpacking fits images'))
+    # now that all files have been processed, fpack!
+    # create list of files to fpack
+    list_2pack = prep_packlist (date, basename)
+    #print ('list_2pack', list_2pack)
+    # use [pool_func] to process the list
+    if image is not None:
+        results = pool_func (fpack, list_2pack)
+    else:
+        for file_2pack in list_2pack:
+            fpack (file_2pack)
+
+
+    # create jpg images for all reduced frames
+    # ----------------------------------------
+    q.put(logger.info('creating jpg images'))
+    # create list of files to jpg
+    list_2jpg = prep_jpglist (date, basename)
+    if image is not None:
         # use [pool_func] to process the list
-        result = pool_func (fpack, list_2pack)
+        results = pool_func (create_jpg, list_2jpg)
+    else:
+        for file_2jpg in list_2jpg:
+            create_jpg (file_2jpg)
 
 
-        # create jpg images for all reduced frames
-        # ----------------------------------------
-        q.put(logger.info('creating jpg images'))
-        # create list of files to jpg
-        list_2jpg = prep_jpglist (date)
-        # use [pool_func] to process the list
-        result = pool_func (create_jpg, list_2jpg)
-
-
-        if get_par(set_zogy.timing,tel):
-            log_timing_memory (t0=t_run_blackbox, label='run_blackbox after fpacking', 
-                               log=logger)
+    if get_par(set_zogy.timing,tel):
+        log_timing_memory (t0=t_run_blackbox, label='run_blackbox after fpacking '
+                           'and creating jpgs', log=logger)
 
 
     logging.shutdown()
@@ -694,7 +732,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
 ################################################################################
 
-def create_masters (imtype, filt=None, mdate=None):
+def create_masters (imtype, filt=None, mdate=None, fpack=False):
     # prepare list of all red/yyyy/mm/dd/bias and flat directories
     red_dir = get_par(set_bb.red_dir,tel)
     # if mdate is not specified, loop all available [imtype]
@@ -731,8 +769,11 @@ def create_masters (imtype, filt=None, mdate=None):
 
         # if not, prepare it
         if not master_present:
-            __ = master_prep (data_shape, path, date_eve, imtype, filt=filt)
-                
+            master_prep (data_shape, path, date_eve, imtype, filt=filt)
+
+        if fpack:
+            fpack (fits_master)
+            
 
     return
 
@@ -781,14 +822,19 @@ def pool_func (func, filelist, *args):
         q.put(logger.error('exception was raised during [pool.apply_async({})]: {}'
                            .format(func, e)))
         raise SystemExit
-        
+
+    return results
+    
 
 ################################################################################
 
-def prep_packlist (date):
+def prep_packlist (date, basename):
     
     list_2pack = []
-    if date is not None:
+    if basename is not None:
+        list_2pack.append(glob.glob('{}*.fits'.format(basename)))
+
+    elif date is not None:
         # add files in [read_path]
         read_path, __ = get_path(date, 'read')
         list_2pack.append(glob.glob('{}/*.fits'.format(read_path)))
@@ -798,6 +844,7 @@ def prep_packlist (date):
         # add fits files in bias and flat directories
         list_2pack.append(glob.glob('{}/bias/*.fits'.format(write_path)))
         list_2pack.append(glob.glob('{}/flat/*.fits'.format(write_path)))
+
     else:
         # just add all fits files in [set_bb.raw_dir]/*/*/*/*.fits
         raw_dir = get_par(set_bb.raw_dir,tel)
@@ -866,10 +913,16 @@ def fpack (filename):
 
 ################################################################################
 
-def prep_jpglist (date):
+def prep_jpglist (date, basename):
     
     list_2jpg = []
-    if date is not None:
+    if basename is not None:
+        if 'bias' in basename or 'flat' in basename:
+            list_2pack.append(glob.glob('{}*.fits.fz'.format(basename)))
+        else:
+            list_2pack.append(glob.glob('{}*_red.fits.fz'.format(basename)))
+
+    elif date is not None:
         # add files in [write_path]
         write_path, __ = get_path(date, 'write')
         list_2jpg.append(glob.glob('{}/*_red.fits.fz'.format(write_path)))
@@ -972,10 +1025,13 @@ def try_blackbox_reduce (filename):
     """
 
     try:
-        blackbox_reduce (filename)
+        filename_reduced = blackbox_reduce (filename)
     except:
+        filename_reduced = None
         raise WrapException()
-        
+
+    return filename_reduced
+
     
 ################################################################################
     
@@ -1002,15 +1058,15 @@ def blackbox_reduce (filename):
         q.put(logger.error('exception was raised in read_hdulist at top of '
                            '[blackbox_reduce]: {}'.format(e)))
         q.put(logger.error('not processing {}'.format(filename)))    
-        return
+        return None
 
      
     # first header check using function [check_header1]
     header_ok = check_header1 (header, filename)
     if not header_ok:
-        return
-   
-    
+        return None
+
+
     # determine the raw data path
     raw_path, __ = get_path(header['DATE-OBS'], 'read')
 
@@ -1037,13 +1093,13 @@ def blackbox_reduce (filename):
     if qc_flag=='no_object':
         q.put(logger.error('keyword OBJECT not in header of object image; '
                            ' skipping image'))
-        return
+        return None
 
     
     if qc_flag=='red':
         q.put(logger.error('red QC flag in image {}; returning without making '
                            ' dummy catalogs'.format(filename)))
-        return
+        return None
     
 
     # if 'IMAGETYP' keyword not one of those specified in input parameter
@@ -1058,9 +1114,9 @@ def blackbox_reduce (filename):
         q.put(logger.warning('image type ({}) not in [imgtypes] ({}); '
                              'not processing {}'
                              .format(imgtype, imgtypes2process, filename)))
-        return
-    
-    
+        return None
+
+
     # extend the header with some useful/required keywords
     try: 
         header = set_header(header, filename)
@@ -1068,15 +1124,15 @@ def blackbox_reduce (filename):
         q.put(logger.info(traceback.format_exc()))
         q.put(logger.error('exception was raised during [set_header]: {}'.format(e)))
         q.put(logger.error('returning without making dummy catalogs'))
-        return
+        return None
     
     
     # 2nd header check using function [check_header2]
     header_ok = check_header2 (header, filename)
     if not header_ok:
-        return
+        return None
     
-    
+
     # add additional header keywords
     header['PYTHON-V'] = (platform.python_version(), 'Python version used')
     header['BB-V'] = (__version__, 'BlackBOX version used')
@@ -1111,10 +1167,10 @@ def blackbox_reduce (filename):
         if 'IMAGETYP' in header and (header['IMAGETYP'].lower()=='object'
             and int(exptime)==0):
             q.put(logger.error('science image with EXPTIME of zero; skipping image'))
-            return
+            return None
     else:
         q.put(logger.warning('keyword EXPTIME not in header; skipping image'))
-        return
+        return None
 
 
     # if [only_filt] is specified, skip image if not relevant
@@ -1123,8 +1179,8 @@ def blackbox_reduce (filename):
             q.put(logger.warning('image filter ({}) not in [only_filters] ({}); '
                                  'not processing {}'
                                  .format(filt, filts, filename)))
-            return
-            
+            return None
+
     fits_out = '{}/{}_{}_{}.fits'.format(path[imgtype], tel, utdate, uttime)
 
     if imgtype == 'bias':
@@ -1170,7 +1226,7 @@ def blackbox_reduce (filename):
                 q.put(logger.info ('this image {} is the current reference image '
                                    'of field {}; skipping'
                                    .format(fits_out.split('/')[-1], obj)))
-                return
+                return None
 
 
             
@@ -1405,7 +1461,7 @@ def blackbox_reduce (filename):
             run_qc_check (header, tel, log=log)
             header['DATEFILE'] = (Time.now().isot, 'UTC date of writing file')
             fits.writeto(fits_out, data.astype('float32'), header, overwrite=True)
-            return
+            return fits_out
     
     
         # master bias creation
@@ -1507,7 +1563,7 @@ def blackbox_reduce (filename):
             # write to fits
             header['DATEFILE'] = (Time.now().isot, 'UTC date of writing file')
             fits.writeto(fits_out, data.astype('float32'), header, overwrite=True)
-            return
+            return fits_out
 
 
         # master flat creation
@@ -1664,7 +1720,7 @@ def blackbox_reduce (filename):
                                      move=False, log=log)
             clean_tmp(tmp_base)
 
-            return
+            return fits_out
 
 
     # end of if block with reduction steps
@@ -1678,6 +1734,10 @@ def blackbox_reduce (filename):
     if (not get_par(set_bb.cat_extract,tel) and
         not get_par(set_bb.trans_extract,tel)):
 
+        q.put(logger.info('main processing switches cat_extract and '
+                          'trans_extract are off, nothing left to do for {}'
+                          .format(filename)))
+
         if do_reduction:
             # if reduction steps were performed, copy selected output
             # files to new directory and clean up tmp folder if needed
@@ -1685,12 +1745,10 @@ def blackbox_reduce (filename):
                                      get_par(set_bb.img_reduce_exts,tel),
                                      move=False, log=log)
             clean_tmp(tmp_base)
-            
+            return fits_out
 
-        q.put(logger.info('main processing switches cat_extract and '
-                          'trans_extract are off, nothing left to do for {}'
-                          .format(filename)))
-        return
+        else:
+            return None
 
 
     elif not get_par(set_bb.force_reproc_new,tel):
@@ -1718,15 +1776,18 @@ def blackbox_reduce (filename):
             q.put(logger.info('all {} data products already present in reduced '
                               'folder, nothing left to do for {}'
                               .format(text, filename)))
-            return
-        
+            if do_reduction:
+                return fits_out
+            else:
+                return None
+
         else:
-            
+
             # otherwise, copy cat_extract products and trans_extract
             # to tmp folder and continue
             result = copy_files2keep(new_base, tmp_base, ext_list, move=False,
                                      log=log)
-        
+
 
     elif get_par(set_bb.force_reproc_new,tel):
 
@@ -1845,8 +1906,8 @@ def blackbox_reduce (filename):
                 #result = copy_files2keep(tmp_base, new_base, get_par(set_bb.all_2keep,tel),
                 #                         move=False, log=log)
                 clean_tmp(tmp_base)
+                return None
 
-                return
             else:
                 # feed [header_optsub] to [run_qc_check], and make
                 # dummy catalogs if there is a red flag
@@ -1908,8 +1969,8 @@ def blackbox_reduce (filename):
                 #result = copy_files2keep(tmp_base, new_base, get_par(set_bb.all_2keep,tel),
                 #                         move=False, log=log)
                 clean_tmp(tmp_base)
+                return None
 
-                return
             else:
                 # feed [header_optsub] to [run_qc_check], and make
                 # dummy catalogs if there is a red flag
@@ -2005,8 +2066,8 @@ def blackbox_reduce (filename):
                 #result = copy_files2keep(tmp_base, new_base, get_par(set_bb.all_2keep,tel),
                 #                         move=False, log=log)
                 clean_tmp(tmp_base)
+                return None
 
-                return
             else:
                 # feed [header_optsub] to [run_qc_check], and if there
                 # is a red flag make output dummy catalog and return
@@ -2050,7 +2111,7 @@ def blackbox_reduce (filename):
 
     log.info('reached the end of function blackbox_reduce')
 
-    return
+    return fits_out
 
 
 ################################################################################
@@ -4291,14 +4352,14 @@ def action(queue):
 
             if process:
                 # if fits file was read fine, process it
-                try_blackbox_reduce (filename)
+                filename_reduced = try_blackbox_reduce (filename)
                     
             else:
                 q.put(logger.info('wait time for file {} exceeded {}s; '
                                   'bailing out with final exception: {}'
                                   .format(filename, wait_max, e)))
 
-    return
+    return filename_reduced
 
 
 ################################################################################
