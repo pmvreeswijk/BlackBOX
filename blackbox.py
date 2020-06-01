@@ -165,10 +165,6 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
     (54) get rid of repeated lines in the log once and for all!
 
-  * (56) fpack/jpgs at end of blackbox does not work when single image
-         is provided with --image option, which will be used in Google
-         Cloud
-
     (57) save header as separate fits file
 
     (59) also look at ELONGATION in same way as FWHM_IMAGE (see item
@@ -438,6 +434,10 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          for different purposes, why not go to 8x8 where entire
          subimage is contained within the channel?
 
+  * (56) fpack/jpgs at end of blackbox does not work when single image
+         is provided with --image option, which will be used in Google
+         Cloud
+
     (58) Danielle noticed that tmp folders are not always deleted
          when blackbox_reduce does not reach its end and fixed this
 
@@ -580,9 +580,10 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
             f = open(image_list, 'r')
             filenames = [name.strip() for name in f]
             f.close()
-            
-            
+
+
     # split into 'day' or 'night' mode
+    filename_reduced = None
     if mode == 'day':
 
         if len(filenames)==0:
@@ -653,7 +654,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
         # night has finished, but finish queue if not empty yet
         while not queue.empty:
-            time.sleep(1)
+            time.sleep(60)
 
         # all done!
         q.put(logger.info('stopping time reached, exiting night mode'))
@@ -683,27 +684,17 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
 
 
-    # for both fpack and jpg creation: define basename of reduced
-    # image (return value from function blackbox_reduce) in case input
-    # parameter "image" is defined, so fpack and jpg creation can be
-    # done only on the relevant files instead of entire folder
-    if image is not None:
-        basename = filenames_reduced[0].split('_red.fits')[0]
-    else:
-        basename = None
-
-
     # fpack remaining fits images
     # ---------------------------       
     q.put(logger.info('fpacking fits images'))
     # now that all files have been processed, fpack!
     # create list of files to fpack
-    list_2pack = prep_packlist (date, basename)
-    #print ('list_2pack', list_2pack)
-    # use [pool_func] to process the list
-    if image is not None:
+    list_2pack = prep_packlist (date, image, filename_reduced)
+    if image is None:
+        # use [pool_func] to process the list
         results = pool_func (fpack, list_2pack)
     else:
+        # process list one by one
         for file_2pack in list_2pack:
             fpack (file_2pack)
 
@@ -712,11 +703,12 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     # ----------------------------------------
     q.put(logger.info('creating jpg images'))
     # create list of files to jpg
-    list_2jpg = prep_jpglist (date, basename)
-    if image is not None:
+    list_2jpg = prep_jpglist (date, image, filename_reduced)
+    if image is None:
         # use [pool_func] to process the list
         results = pool_func (create_jpg, list_2jpg)
     else:
+        # process list one by one
         for file_2jpg in list_2jpg:
             create_jpg (file_2jpg)
 
@@ -828,11 +820,13 @@ def pool_func (func, filelist, *args):
 
 ################################################################################
 
-def prep_packlist (date, basename):
+def prep_packlist (date, image, filename):
     
     list_2pack = []
-    if basename is not None:
-        list_2pack.append(glob.glob('{}*.fits'.format(basename)))
+    if image is not None:
+        if filename is not None:
+            basename = filename.split('_red.fits')[0]
+            list_2pack.append(glob.glob('{}*.fits'.format(basename)))
 
     elif date is not None:
         # add files in [read_path]
@@ -913,14 +907,13 @@ def fpack (filename):
 
 ################################################################################
 
-def prep_jpglist (date, basename):
+def prep_jpglist (date, image, filename):
     
     list_2jpg = []
-    if basename is not None:
-        if 'bias' in basename or 'flat' in basename:
-            list_2pack.append(glob.glob('{}*.fits.fz'.format(basename)))
-        else:
-            list_2pack.append(glob.glob('{}*_red.fits.fz'.format(basename)))
+    if image is not None:
+        if filename is not None:
+            # only create jpg of the reduced file
+            list_2jpg.append('{}.fz'.format(filename))
 
     elif date is not None:
         # add files in [write_path]
@@ -929,6 +922,7 @@ def prep_jpglist (date, basename):
         # add fits files in bias and flat directories
         list_2jpg.append(glob.glob('{}/bias/*.fits.fz'.format(write_path)))
         list_2jpg.append(glob.glob('{}/flat/*.fits.fz'.format(write_path)))
+
     else:
         # just add all fits files in [telescope]/red/*/*/*/*.fits
         # (could do it more specifically by going through raw fits
@@ -4277,9 +4271,11 @@ def copying(file):
 ################################################################################
 
 def action(queue):
-    '''Action to take during night mode of pipeline.
 
-    For new events, continues if it is a fits file. '''
+    """Action to take during night mode of pipeline."""
+
+    # record reduced files in filenames_reduced
+    filenames_reduced = []
 
     while True:
 
@@ -4353,13 +4349,14 @@ def action(queue):
             if process:
                 # if fits file was read fine, process it
                 filename_reduced = try_blackbox_reduce (filename)
-                    
+                filenames_reduced.append(filename_reduced)
+                
             else:
                 q.put(logger.info('wait time for file {} exceeded {}s; '
                                   'bailing out with final exception: {}'
                                   .format(filename, wait_max, e)))
 
-    return filename_reduced
+    return filenames_reduced
 
 
 ################################################################################
