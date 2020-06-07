@@ -92,12 +92,6 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
         blackbox and zogy - needs to be done on chopper or mlcontrol
         machine at Radboud, as laptop has too little memory
 
-    (5) improve processing speed of background subtraction and other
-        parts in the code where for-loops can be avoided
-
-      --> why is updated function get_back so much slower on mlcontrol
-          machine vs. macbook?
-
     (10) check if SExtractor background is manual or global and 
          has any influence on detections
 
@@ -153,23 +147,23 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
   * (43) determine which background box size to use
 
-  * (46) filter cosmic rays not detected by astroscrappy from output
-         catalog with condition object: FWHM_obj < f * FWHM_ima, where
-         f needs to be determined (~0.1-0.5). Or using error estimate
-         on image FWHM: FWHM_obj < FWHM_ima * nsigma * err_FWHM_ima
-    
   * (47) improve astroscrappy cosmic-ray rejection parameters; too
          many cosmics go undetected
 
   * (49) creating master flats can/should be multiprocessed
 
-    (54) get rid of repeated lines in the log once and for all!
+    (54) get rid of repeated lines in the log once and for all!  Also
+         turn off screen logging, as logfile is saved anyway, and
+         could be monitored with "tail -f" if needed.
 
     (57) save header as separate fits file
 
-    (59) also look at ELONGATION in same way as FWHM_IMAGE (see item
-         46), i.e. use it to filter transients with very different
-         value than image average ELONGATION.
+  * (60) add column to transient catalog with real/bogus probability,
+         e.g. ML_PROB_REAL.
+
+    (61) interpolation done in function mini2back should not cross
+         ML/BG channel edges
+
 
     Done:
     -----
@@ -204,6 +198,12 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
   * (4) in night mode, issue that only images already present are
         processed
+
+    (5) improve processing speed of background subtraction and other
+        parts in the code where for-loops can be avoided
+
+      --> why is updated function get_back so much slower on mlcontrol
+          machine vs. macbook?
 
     (6) change output catalog column names from ALPHAWIN_J2000 and
         DELTAWIN_J2000 to simply RA and DEC - this has been
@@ -388,6 +388,11 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
   * (45) add/keep dome azimuth header keyword DOMEAZ
 
+  * (46) filter cosmic rays not detected by astroscrappy from output
+         catalog with condition object: FWHM_obj < f * FWHM_ima, where
+         f needs to be determined (~0.1-0.5). Or using error estimate
+         on image FWHM: FWHM_obj < FWHM_ima * nsigma * err_FWHM_ima
+
     (48) add mode such that all input files are considered new images,
          i.e. no reference images are created, nor is the comparison
          between new and ref done. This is to speed up the processing
@@ -440,6 +445,12 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
     (58) Danielle noticed that tmp folders are not always deleted
          when blackbox_reduce does not reach its end and fixed this
+
+    (59) also look at ELONGATION in same way as FWHM_IMAGE (see item
+         46), i.e. use it to filter transients with very different
+         value than image average ELONGATION. 
+         --> seems too dangerous to do, as point source on top of
+             galaxy can lead to high elongation
 
     """
     
@@ -1236,21 +1247,20 @@ def blackbox_reduce (filename):
         # for object files, prepare the logfile in [tmp_path]
         logfile = '{}/{}'.format(tmp_path, fits_out.split('/')[-1]
                                  .replace('.fits','.log'))
-        
+
+        # output images and catalogs to refer to [tmp] directory
+        new_fits = '{}/{}'.format(tmp_path, fits_out.split('/')[-1])
+        new_fits_mask = new_fits.replace('_red.fits', '_mask.fits')
+        fits_tmp_cat = new_fits.replace('.fits', '_cat.fits')
+        fits_tmp_trans = new_fits.replace('.fits', '_trans.fits')
+        # these are for copying files
+        tmp_base = new_fits.split('_red.fits')[0]
+        new_base = fits_out.split('_red.fits')[0]
+
     else:
         # for biases, darks and flats
         logfile = fits_out.replace('.fits','.log')
 
-
-
-    # output images and catalogs to refer to [tmp] directory
-    new_fits = '{}/{}'.format(tmp_path, fits_out.split('/')[-1])
-    new_fits_mask = new_fits.replace('_red.fits', '_mask.fits')
-    fits_tmp_cat = new_fits.replace('.fits', '_cat.fits')
-    fits_tmp_trans = new_fits.replace('.fits', '_trans.fits')
-    # these are for copying files
-    tmp_base = new_fits.split('_red.fits')[0]
-    new_base = fits_out.split('_red.fits')[0]
 
 
     # make log defined below global
@@ -1276,9 +1286,12 @@ def blackbox_reduce (filename):
                               'skipping its reduction'
                               .format(imgtype, fits_out.split('/')[-1])))
 
-        # copy relevant files to tmp folder
-        result = copy_files2keep(new_base, tmp_base,
-                                 get_par(set_bb.img_reduce_exts,tel), move=False)
+        # copy relevant files to tmp folder for object images
+        if imgtype == 'object':
+            result = copy_files2keep(new_base, tmp_base,
+                                     get_par(set_bb.img_reduce_exts,tel),
+                                     move=False)
+
         # create a logger that will append the log commands to [logfile]
         log = create_log (logfile)
 
@@ -1296,7 +1309,12 @@ def blackbox_reduce (filename):
 
             # delete all corresponding files in reduced folder as they
             # will become obsolete with this re-reduction
-            files_2remove = glob.glob('{}*'.format(new_base))
+            if imgtype == 'object':
+                files_2remove = glob.glob('{}*'.format(new_base))
+            else:
+                # for biases and flats, just reduced file itself and the log
+                files_2remove = [fits_out, logfile]
+
             lock.acquire()
             for file_2remove in files_2remove:
                 q.put(logger.info('removing existing {}'.format(file_2remove)))
@@ -1646,8 +1664,12 @@ def blackbox_reduce (filename):
 
     
         if get_par(set_zogy.display,tel):
-            ds9_arrays(data=data_precosmics, cosmic_cor=data, mask=data_mask)
-            print (header['NCOSMICS'])
+            val_temp = get_par(set_zogy.mask_value['cosmic ray'],tel)
+            data_mask_cosmics = (data_mask & val_temp == val_temp).astype('uint8')
+            data_mask_cosmics *= val_temp
+            ds9_arrays(data=data_precosmics, cosmic_cor=data, mask=data_mask,
+                       mask_cosmics=data_mask_cosmics)
+            log.info ('number of cosmics per second: {}'.format(header['NCOSMICS']))
         
 
         # satellite trail detection
@@ -1722,6 +1744,11 @@ def blackbox_reduce (filename):
 
     # block dealing with main processing switches
     #############################################
+
+    # for non-object images, leave function; if reduction steps would
+    # not have been skipped, this would have happened before
+    if imgtype != 'object':
+        return fits_out
     
     # if both catalog and transient extraction are switched off, then
     # no need to execute [optimal_subtraction]
@@ -2016,6 +2043,7 @@ def blackbox_reduce (filename):
         if qc_flag != 'red':
             log.info('finished making reference image: {}'.format(ref_fits_out))
         else:
+            print (header)
             log.info('encountered red flag; not using image: {} (original name: {}) '
                      'as reference'.format(header['REDFILE'], header['ORIGFILE']))
             
@@ -2024,12 +2052,26 @@ def blackbox_reduce (filename):
         # make symbolic links to all files in the reference
         # directory with the same filter
         ref_files = glob.glob('{}/{}_{}_*'.format(ref_path, tel, filt))
+
+        # instead of symbolic links, just copy the reference files
+        # over to tmp_path to avoid editing them (at least the header
+        # is updated by zogy in function prep_optimal_subtraction)
+        make_symlink = False
         for ref_file in ref_files:
-            # and funpack/unzip if necessary (before symbolic link
-            # to avoid unpacking multiple times during the same night)
-            ref_file = unzip(ref_file)
-            # and create symbolic link
-            os.symlink(ref_file, '{}/{}'.format(tmp_path, ref_file.split('/')[-1]))
+            
+            if make_symlink:
+                # and funpack/unzip if necessary (before symbolic link
+                # to avoid unpacking multiple times during the same night)
+                ref_file = unzip(ref_file)
+                # create symbolic link
+                os.symlink(ref_file, '{}/{}'.format(tmp_path,
+                                                    ref_file.split('/')[-1]))
+            else:
+                # alternatively, copy the file to tmp_path
+                ref_file_tmp = shutil.copy2 (ref_file, tmp_path)
+                # and unzip if needed
+                unzip(ref_file_tmp)
+
 
         ref_fits = '{}/{}'.format(tmp_path, ref_fits_out.split('/')[-1])
         ref_fits_mask = ref_fits.replace('_red.fits', '_mask.fits')
@@ -3447,6 +3489,20 @@ def set_header(header, filename):
     edit_head(header, 'INSTRUME', value='None', dtype=str, comments='Instrument name')
     edit_head(header, 'FOCUSPOS', value='None', dtype=int, comments='[micron] Focuser position')
 
+    if tel=='ML1':
+        origin = 'MeerLICHT-1, Sutherland'
+        mpc_code = 'L66'
+        telescop = 'MeerLICHT-1'
+    if tel[0:2]=='BG':
+        origin = 'BlackGEM, La Silla, ESO'
+        mpc_code = '809'
+        telescop = 'BlackGEM-{}'.format(tel[2:])
+
+    edit_head(header, 'ORIGIN', value=origin, comments='Origin of data')
+    edit_head(header, 'MPC-CODE', value=mpc_code, comments='MPC Observatory code')
+    edit_head(header, 'TELESCOP', value=telescop, comments='Telescope ID')
+
+
     edit_head(header, 'IMAGETYP', dtype=str, comments='Image type')
     edit_head(header, 'OBJECT',   dtype=str, comments='Name of object observed (field ID)')
 
@@ -3457,14 +3513,6 @@ def set_header(header, filename):
             obj = header['OBJECT']
         edit_head(header, 'OBJECT', value='{:0>5}'.format(obj), comments='Name of object observed (field ID)')
 
-    if tel=='ML1':
-        origin = 'SAAO-Sutherland (K94)'
-        telescop = 'MeerLICHT-{}'.format(tel[2:])
-    if tel[0:2]=='BG':
-        origin = 'ESO-LaSilla (809)'
-        telescop = 'BlackGEM-{}'.format(tel[2:])
-    edit_head(header, 'ORIGIN', value=origin, comments='Origin of data (MPEC Observatory code)')
-    edit_head(header, 'TELESCOP', value=telescop, comments='Telescope ID')
     
     # do not add ARCFILE name for the moment
     #arcfile = '{}.{}'.format(tel, date_obs_str)
@@ -3506,7 +3554,7 @@ def set_header(header, filename):
                  'SITELAT', 'SITELONG', 'ELEVATIO', 'AIRMASS',
                  'SET-TEMP', 'CCD-TEMP', 'CCD-ID', 'CONTROLL', 'DETSPEED', 
                  'CCD-NW', 'CCD-NH', 'FOCUSPOS',
-                 'ORIGIN', 'TELESCOP', 'INSTRUME', 
+                 'ORIGIN', 'MPC-CODE', 'TELESCOP', 'INSTRUME', 
                  'OBSERVER', 'ABOTVER', 'PROGNAME', 'PROGID', 'ORIGFILE',
                  'GUIDERST', 'GUIDERFQ', 'TRAKTIME', 'ADCX', 'ADCY',
                  'CL-BASE', 'RH-MAST', 'RH-DOME', 'RH-AIRCO', 'RH-PIER',
@@ -4290,14 +4338,18 @@ def action(queue):
             filename = str(event.src_path)
             filetype = 'new'
             
-        except AttributeError:
+        except AttributeError as e:
             # instead of event, queue entry is a filename added in
             # [run_blackbox]
             filename = event
             filetype = 'pre-existing'
+            print ('Error: {}'.format(e))
+
             
         q.put(logger.info('detected a {} file: {}'.format(filetype, filename)))
-            
+        q.put(logger.info('type(filename): {}'.format(type(filename))))
+
+        
         # only continue if a fits file
         if 'fits' not in filename:
 
