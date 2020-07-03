@@ -4,7 +4,7 @@
 #===============================================================================
 
 # number of processes to run in parallel
-nproc = 2
+nproc = 8
 # maximum number of threads for each process (this parameter
 # cannot be made telescope dependent through a dictionary!)
 nthread = 1
@@ -42,24 +42,21 @@ combine_type = 'clipped'
 masktype_discard = 49 # i.e. discard bad (1) + satellite (16) + edge (32)
 
 # centering method; options: 'grid', 'first', 'last', 'mean', 'median'
-center_type = 'grid'
+center_type = 'mean'
 
 # background subtraction method; options: 'blackbox', 'auto',
 # 'manual', 'constant', 'none'
-back_type = 'blackbox'
+back_type = 'new'
 
-# background mesh size (pixels) used in case back_type is set to 'auto'
-back_size = 120
-
-# size (in background meshes) of the background-filtering mask
-back_filtersize = 3
+# N.B.: the background boxsize and filtersize are taken from the ZOGY
+# settings file!
 
 #===============================================================================
 # Select subset to combine in case of many images of the same field/filter
 #===============================================================================
 
 # maximum number of images to combine
-subset_nmax = 10
+subset_nmax = 20
 # header keyword on which to sort if number of images exceeds
 # [subset_max]; N.B.: keyword value needs to be an integer or float in
 # order to be able to sort

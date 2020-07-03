@@ -9,19 +9,20 @@ from astropy.table import vstack
 
 # trouble installing fitsio in singularity container so create
 # fallback on astropy.io.fits (imported in zogy import above)
-try:
-    import fitsio
-    use_fitsio = True
-except:
-    use_fitsio = False
-
+#try:
+#    import fitsio
+#    use_fitsio = True
+#except:
+#    use_fitsio = False
+use_fitsio = False
+    
 from multiprocessing import Pool, Manager, Lock, Queue, Array
 
 import aplpy
 
 from blackbox import date2mjd, str2bool, unzip
 from blackbox import get_par, already_exists, copy_files2keep
-from blackbox import create_log, define_sections, fpack
+from blackbox import create_log, define_sections, fpack, make_dir
 from qc import qc_check, run_qc_check
 
 import set_zogy
@@ -29,7 +30,7 @@ import set_buildref as set_br
 import set_blackbox as set_bb
 
 
-__version__ = '0.4'
+__version__ = '0.5'
 
 
 ################################################################################
@@ -68,6 +69,7 @@ def buildref (telescope=None, date_start=None, date_end=None, field_ID=None,
          images, as the background box size with which a mini image was 
          made may not be the same as the currently set value in the 
          settings file.
+        
 
     Done:
     -----
@@ -382,6 +384,8 @@ def buildref (telescope=None, date_start=None, date_end=None, field_ID=None,
         for filt in filts_uniq:
             mask = ((table['OBJECT'] == obj) & (table['FILTER'] == filt))
             ntrue = np.sum(mask)
+            q.put(genlog.info('number of files left in filter {}: {}'
+                              .format(filt, ntrue)))
             if ntrue > 1:
                 nmax = get_par(set_br.subset_nmax,tel)
                 if ntrue > nmax:
@@ -465,7 +469,7 @@ def buildref (telescope=None, date_start=None, date_end=None, field_ID=None,
     list_2pack = []
     for field_ID in objs_uniq:
         ref_path = '{}/{:05}'.format(ref_dir, field_ID)
-        ref_path = '{}_alt'.format(ref_path)
+        ref_path = '{}_alt3'.format(ref_path)
         list_2pack.append(glob.glob('{}/*.fits'.format(ref_path)))
 
     # unnest nested list_2pack
@@ -583,15 +587,20 @@ def header2table (filenames):
         # check if filename exists, fpacked or not
         exists, filename = already_exists (filename, get_filename=True)
         if exists:
-            if use_fitsio:
-                # read header; use fitsio as it is faster than
-                # astropy.io.fits on when not using solid state disk
-                with fitsio.FITS(filename) as hdulist:
-                    h = hdulist[-1].read_header()
-            else:
-                with fits.open(filename) as hdulist:
-                    h = hdulist[-1].read_header()
-                    
+            try:
+                if use_fitsio:
+                    # read header; use fitsio as it is faster than
+                    # astropy.io.fits on when not using solid state disk
+                    with fitsio.FITS(filename) as hdulist:
+                        h = hdulist[-1].read_header()
+                else:
+                    with fits.open(filename) as hdulist:
+                        h = hdulist[-1].header
+            except Exception as e:
+                q.put (genlog.warning('trouble reading header; skipping image {}'
+                                      .format(filename)))
+                continue
+                        
         else:
             q.put(genlog.warning('file does not exist; skipping image {}'
                                  .format(filename)))
@@ -607,7 +616,7 @@ def header2table (filenames):
                 append = False
                 break
 
-        if False:
+        if True:
             # up to v0.9.2, it was possible for the reduced image
             # header not to contain a red flag, while the catalog file
             # did contain it - this happened when zogy was not
@@ -630,14 +639,15 @@ def header2table (filenames):
                     h_cat = hdulist[-1].read_header()
             else:
                 with fits.open(catname) as hdulist:
-                    h_cat = hdulist[-1].read_header()
+                    h_cat = hdulist[-1].header
 
-            # if a dummycats were created, copy the qc-flag to the reduced
-            # image header
-            if h_cat['DUMMYCAT']:
-                key = 'QC-FLAG'
-                h[key] = h_cat[key]
-                    
+            # if dummycats were created, copy the qc-flag to the
+            # reduced image header
+            if 'DUMMYCAT' in h_cat:
+                if h_cat['DUMMYCAT']:
+                    key = 'QC-FLAG'
+                    h[key] = h_cat[key]
+
                 
         if append:
             # prepare row of filename and header values
@@ -675,7 +685,7 @@ def prep_colfig (field_ID, filters):
     ref_path = '{}/{:05}'.format(get_par(set_bb.ref_dir,tel), field_ID)
     # for the moment, add _alt to this path to separate it from
     # existing reference images
-    ref_path = '{}_alt'.format(ref_path)
+    ref_path = '{}_alt3'.format(ref_path)
 
     # header keyword to use for scaling (e.g. PC-ZP or LIMMAG)
     key = 'LIMMAG'
@@ -744,9 +754,9 @@ def prep_ref (imagelist, field_ID, filt):
     ref_path = '{}/{:05}'.format(get_par(set_bb.ref_dir,tel), field_ID)
     # for the moment, add _alt to this path to separate it from
     # existing reference images
-    ref_path = '{}_alt'.format(ref_path)
+    ref_path = '{}_alt3'.format(ref_path)
     
-    make_dir (ref_path)
+    make_dir (ref_path, lock=lock)
     ref_fits_out = '{}/{}_{}_red.fits'.format(ref_path, tel, filt)
     
     
@@ -783,13 +793,13 @@ def prep_ref (imagelist, field_ID, filt):
             return
 
         
-    # prepare temporary folder
-    # for the moment, add _alt to this path to separate it from
-    # existing reference images
-    tmp_path = '{}/{:05}_alt/{}'.format(get_par(set_bb.tmp_dir,tel), field_ID,
-                                    ref_fits_out.split('/')[-1].replace('.fits',''))
-    make_dir (tmp_path, empty=True)
-    
+    # prepare temporary folder; for the moment, add _alt to this path
+    # to separate it from existing reference images.
+    tmp_path = ('{}/{:05}_alt3/{}'
+                .format(get_par(set_bb.tmp_dir,tel), field_ID,
+                        ref_fits_out.split('/')[-1].replace('.fits','')))
+    make_dir (tmp_path, empty=True, lock=lock)
+
     # names of output fits and its mask
     ref_fits = '{}/{}'.format(tmp_path, ref_fits_out.split('/')[-1])
     ref_fits_mask = ref_fits.replace('red.fits','mask.fits')
@@ -811,8 +821,8 @@ def prep_ref (imagelist, field_ID, filt):
                    tempdir = tmp_path,
                    center_type = get_par(set_br.center_type,tel),
                    back_type = get_par(set_br.back_type,tel),
-                   back_size = get_par(set_br.back_size,tel),
-                   back_filtersize = get_par(set_br.back_filtersize,tel),
+                   back_size = get_par(set_zogy.bkg_boxsize,tel),
+                   back_filtersize = get_par(set_zogy.bkg_filtersize,tel),
                    swarp_cfg = get_par(set_zogy.swarp_cfg,tel),
                    nthreads = get_par(set_br.nthread,tel),
                    log=log)
@@ -864,7 +874,7 @@ def prep_ref (imagelist, field_ID, filt):
     else:
         # or move them to an Old folder instead
         old_path = '{}/Old/'.format(ref_path)
-        make_dir (old_path)
+        make_dir (old_path, lock=lock)
         for f in oldfiles:
             f_dst = '{}/{}'.format(old_path,f.split('/')[-1])
             shutil.move (f, f_dst)
@@ -881,7 +891,7 @@ def prep_ref (imagelist, field_ID, filt):
     # comparison; name these ...._whatever_red.fits, so that they do
     # get copied over to the reference folder below (which uses the
     # file extensions defined in blackbox settings file)
-    if True:
+    if False:
         center_type = get_par(set_br.center_type,tel)
         masktype_discard = get_par(set_br.masktype_discard,tel)
         
@@ -896,6 +906,7 @@ def prep_ref (imagelist, field_ID, filt):
                                               back_default)
             elif back_type == 'constant':
                 ext = '_{}_{}_clipmed.fits'.format(combine_type, back_type)
+
             else:
                 ext = '_{}_{}.fits'.format(combine_type, back_type)
 
@@ -959,37 +970,6 @@ def prep_ref (imagelist, field_ID, filt):
                      .format(ref_fits))
             
         
-################################################################################
-            
-def make_dir(path, empty=False):
-
-    """Wrapper function to lock make_dir_nolock so that it's only used by
-       1 process. """
-
-    lock.acquire()
-    make_dir_nolock (path, empty)
-    lock.release()
-
-    return
-
-
-################################################################################
-
-def make_dir_nolock(path, empty=False):
-
-    """Function to make directory. If [empty] is True and the directory
-       already exists, it will first be removed.
-    """
-
-    # if already exists but needs to be empty, remove it first
-    if os.path.isdir(path) and empty:
-        shutil.rmtree(path)
-    if not os.path.isdir(path):
-        os.makedirs(path)
-
-    return
-
-
 ################################################################################
 
 def tune_gain (data, header):
@@ -1171,41 +1151,11 @@ def imcombine (field_ID, imagelist, outputfile, combine_type, overwrite=True,
         # read input image data and header
         data, header = read_hdulist(image, get_header=True)
 
-        # if set_br.tune_gain switch is set to True, apply gain
-        # correction factors inferred from master flat - switched
-        # this off as the images have already been corrected
-        # for this additional gain factor by flatfielding
-        #if get_par(set_br.tune_gain,tel):
-        #    data = tune_gain (data, header)
-            
         # read corresponding mask image
         image_mask = image.replace('red.fits', 'mask.fits')
         data_mask, header_mask = read_hdulist(image_mask, get_header=True,
                                               dtype='uint8')
 
-        # read corresponding mini background image
-        image_bkg_mini = image.replace('red.fits', 'red_bkg_mini.fits')
-        data_bkg_mini, header_bkg_mini = read_hdulist(image_bkg_mini,
-                                                      get_header=True,
-                                                      dtype='float32')
-        # convert mini to full background image
-        bkg_boxsize = header_bkg_mini['BKG_SIZE']
-        data_bkg = mini2back (data_bkg_mini, data.shape, log,
-                              order_interp=2,
-                              bkg_boxsize=bkg_boxsize, timing=False)
-
-        # read mini background standard deviation image
-        image_bkg_std_mini = image.replace('red.fits', 'red_bkg_std_mini.fits')
-        data_bkg_std_mini, header_bkg_std_mini = read_hdulist(image_bkg_std_mini,
-                                                              get_header=True,
-                                                              dtype='float32')
-
-        # convert mini to full background standard deviation image
-        bkg_boxsize = header_bkg_std_mini['BKG_SIZE']
-        data_bkg_std = mini2back (data_bkg_std_mini, data.shape, log,
-                                  order_interp=1,
-                                  bkg_boxsize=bkg_boxsize, timing=False)
-        
         # read relevant header keywords
         keywords = ['naxis1', 'naxis2', 'ra', 'dec', 'pc-zp', 'pc-zpstd',
                     'airmass', 'pc-extco', 'gain', 'rdnoise', 'saturate',
@@ -1218,6 +1168,86 @@ def imcombine (field_ID, imagelist, outputfile, combine_type, overwrite=True,
             log.warning('exception was raised when reading header of image {}\n'
                         'not using it in image combination'.format(image, e))
             continue
+
+
+        bkg_corr = False
+        if 'BKG-CORR' in header:
+            if header['BKG-CORR']:
+                bkg_corr = True
+
+                
+        if back_type != 'new' or bkg_corr:
+            # read corresponding mini background image
+            image_bkg_mini = image.replace('red.fits', 'red_bkg_mini.fits')
+            data_bkg_mini, header_bkg_mini = read_hdulist(image_bkg_mini,
+                                                          get_header=True,
+                                                          dtype='float32')
+            # convert mini to full background image
+            bkg_boxsize = header_bkg_mini['BKG_SIZE']
+            data_bkg = mini2back (data_bkg_mini, data.shape, 
+                                  order_interp=3,
+                                  bkg_boxsize=bkg_boxsize, timing=False,
+                                  log=log, tel=tel, set_zogy=set_zogy)
+
+            # read mini background standard deviation image
+            image_bkg_std_mini = image.replace('red.fits', 'red_bkg_std_mini.fits')
+            data_bkg_std_mini, header_bkg_std_mini = read_hdulist(image_bkg_std_mini,
+                                                                  get_header=True,
+                                                                  dtype='float32')
+
+            # convert mini to full background standard deviation image
+            bkg_boxsize = header_bkg_std_mini['BKG_SIZE']
+            data_bkg_std = mini2back (data_bkg_std_mini, data.shape,
+                                      order_interp=3,
+                                      bkg_boxsize=bkg_boxsize, timing=False,
+                                      log=log, tel=tel, set_zogy=set_zogy)
+
+
+        else:
+
+            # redo background determination with parameter settings as
+            # defined in set_zogy and running source-extractor to get
+            # object mask needed for proper background subtraction
+
+            # copy image and mask to temp folder
+            shutil.copy2 (image, tempdir)
+            shutil.copy2 (image_mask, tempdir)
+            # unzip if needed
+            image_temp = '{}/{}'.format(tempdir, image.split('/')[-1])
+            image_mask_temp = image_temp.replace('red.fits', 'mask.fits')
+            image_temp = unzip(image_temp, put_lock=False)
+            image_mask_temp = unzip(image_mask_temp, put_lock=False)
+
+            # run source-extractor
+            base = image_temp.split('.fits')[0]
+            sexcat = '{}_ldac.fits'.format(base)
+            pixscale = header['A-PSCALE']
+            fwhm = header['S-FWHM']
+            imtype = 'new'
+            try:
+                result = run_sextractor(
+                    image_temp, sexcat, get_par(set_zogy.sex_cfg,tel),
+                    get_par(set_zogy.sex_par,tel), pixscale, log, header,
+                    fit_psf=False, return_fwhm_elong=False, fraction=1.0,
+                    fwhm=fwhm, save_bkg=True, update_vignet=False,
+                    imtype=imtype, fits_mask=image_mask_temp,
+                    npasses=get_par(set_zogy.bkg_npasses,tel), tel=tel,
+                    set_zogy=set_zogy)
+                
+            except Exception as e:
+                log.info(traceback.format_exc())
+                log.error('exception was raised during [run_sextractor]: {}'
+                          .format(e))
+
+            # read background image created in [run_sextractor]
+            image_temp_bkg = '{}_bkg.fits'.format(base)
+            data_bkg = read_hdulist (image_temp_bkg, dtype='float32')
+            image_temp_bkg_std = '{}_bkg_std.fits'.format(base)
+            data_bkg_std = read_hdulist (image_temp_bkg_std, dtype='float32')
+
+            # read source-extractor output image data and header
+            data, header = read_hdulist(image_temp, get_header=True)
+            
 
         
         # determine weights image (1/variance) 
@@ -1256,8 +1286,8 @@ def imcombine (field_ID, imagelist, outputfile, combine_type, overwrite=True,
         data_weights[mask_weights] = 0
 
         # fix pixels
-        data = fixpix (data, data_bkg, log, satlevel=saturate,
-                       data_mask=data_mask, mask_value=mask_value)
+        data = fixpix (data, log, satlevel=saturate, data_mask=data_mask,
+                       imtype='new', mask_value=mask_value)
         
         # fill arrays with header info
         xsizes[nimage] = xsize
@@ -1316,7 +1346,7 @@ def imcombine (field_ID, imagelist, outputfile, combine_type, overwrite=True,
 
         # save image in temp folder; first subtract background if
         # background option 'blackbox' is selected
-        if back_type == 'blackbox':
+        if back_type == 'blackbox' or back_type == 'new':
             data -= data_bkg
             # set edge pixel values of image to zero, otherwise those
             # pixels will be negative and will/may end up in the edge
@@ -1330,7 +1360,8 @@ def imcombine (field_ID, imagelist, outputfile, combine_type, overwrite=True,
             # make sure edge pixels are zero
             data[data_mask==mask_value['edge']] = 0
 
-            
+
+
         image_temp = tempdir+'/'+image.split('/')[-1].replace('.fz','')
         fits.writeto(image_temp, data, header=header, overwrite=True)
         # add to array of names
@@ -1402,12 +1433,13 @@ def imcombine (field_ID, imagelist, outputfile, combine_type, overwrite=True,
 
     # set background settings in SWarp; if input background option was
     # 'blackbox', the background was already subtracted from the image
-    if back_type == 'blackbox' or back_type == 'constant' or back_type == 'none':
-        subtract_back_SWarp = 'N'
-        back_type_SWarp = 'manual'
-    else:
+    if back_type == 'auto':
         subtract_back_SWarp = 'Y'
         back_type_SWarp = back_type
+    else:
+        subtract_back_SWarp = 'N'
+        back_type_SWarp = 'manual'
+
 
     # keywords to copy from original image to reference
     keys2copy = ['BUNIT', 'XBINNING', 'YBINNING',
@@ -1571,14 +1603,16 @@ def imcombine (field_ID, imagelist, outputfile, combine_type, overwrite=True,
     fits.writeto(output_bkg_std, data_bkg_std.astype('float32'), header_weights,
                  overwrite=True)
 
-    # if background was subtracted, write zero-valued background image
-    # for use in zogy
-    if bkg_sub:
-        output_bkg = outputfile.replace('.fits', '_bkg.fits')
-        data_bkg = np.zeros(data_bkg_std.shape, dtype='float32')
-        fits.writeto(output_bkg, data_bkg, overwrite=True)
 
-        
+    # not needed anymore
+    if False:
+        # if background was subtracted, write zero-valued background image
+        # for use in zogy
+        if bkg_sub:
+            output_bkg = outputfile.replace('.fits', '_bkg.fits')
+            data_bkg = np.zeros(data_bkg_std.shape, dtype='float32')
+            fits.writeto(output_bkg, data_bkg, overwrite=True)
+
     
     if remap_each:
         # median image weight
@@ -1686,7 +1720,7 @@ def imcombine (field_ID, imagelist, outputfile, combine_type, overwrite=True,
                     data_mask_remap_alt = ndimage.geometric_transform(data_mask, trans_func)
 
                     # write to image
-                    fits.writeto(image_mask.replace('.fits','_alt'+remap_suffix),
+                    fits.writeto(image_mask.replace('.fits','_alt3'+remap_suffix),
                                  data_mask_remap_alt)
                     
                     log.info ('wall-time spent in remapping alt mask: {}'
