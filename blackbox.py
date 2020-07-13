@@ -493,6 +493,8 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          objects, so that limit on fraction can be set rather than
          absolute number - see also item (15)
 
+    (71) do not consider images with FIELD_ID or OBJECT="00000"
+
     """
     
     
@@ -1250,19 +1252,10 @@ def blackbox_reduce (filename):
         fits_out = fits_out.replace('.fits', '_{}.fits'.format(filt))
 
     elif imgtype == 'object':
-        # if 'FIELD_ID' keyword is present in the header, use it instead of OBJECT
-        # as is the case for the test data
-        if 'FIELD_ID' in header:
-            obj = header['FIELD_ID']
-        else:
-            obj = header['OBJECT']
 
-        # remove all non-alphanumeric characters from [obj] except for
-        # '-' and '_'
-        #obj = ''.join(e for e in obj if e.isalnum() or e=='-' or e=='_')
-        # now assuming field_id or object is ML/BG field number 
-        # pad with zeros
-        obj = '{:0>5}'.format(obj)
+        # OBJECT is ML/BG field number padded with zeros (checked in
+        # set_header)
+        obj = header['OBJECT']
                 
         fits_out = fits_out.replace('.fits', '_red.fits')
         fits_out_mask = fits_out.replace('_red.fits', '_mask.fits')
@@ -3172,8 +3165,8 @@ def check_header1 (header, filename):
     imgtype = header['IMAGETYP'].lower()
 
     
-    # for early ML data, header keyword FIELD_ID rather than OBJECT
-    # was used for the field identification 
+    # for early ML data, header keyword FIELD_ID instead of OBJECT was
+    # used for the field identification
     if 'FIELD_ID' in header:
         obj = header['FIELD_ID']
     elif 'OBJECT' in header:
@@ -3232,8 +3225,9 @@ def check_header2 (header, filename):
     imgtype = header['IMAGETYP'].lower()
     if imgtype=='object':
         obj = header['OBJECT']
-        if int(obj)!=0 and int(obj)<=20000:
-            
+        if int(obj)==0 or int(obj)>=20000:
+            header_ok = False
+        else:
             if 'RA-REF' in header and 'DEC-REF' in header:
                 ra_deg = Angle(header['RA-REF'], unit=u.hour).degree
                 dec_deg = Angle(header['DEC-REF'], unit=u.deg).degree
@@ -3294,7 +3288,7 @@ def set_header(header, filename):
                            .format(key, header[key], value))
                     header[key] = value
             else:
-                header[key] = value                    
+                header[key] = value
         # update comments
         if comments is not None:
             if key in header:
@@ -3576,7 +3570,7 @@ def set_header(header, filename):
             obj = header['OBJECT']
         edit_head(header, 'OBJECT', value='{:0>5}'.format(obj), comments='Name of object observed (field ID)')
 
-    
+
     # do not add ARCFILE name for the moment
     #arcfile = '{}.{}'.format(tel, date_obs_str)
     #edit_head(header, 'ARCFILE', value=arcfile, comments='Archive filename')
@@ -4071,7 +4065,7 @@ def gain_corr(data, header, tel=None, log=None):
     nchans = np.shape(chan_sec)[0]
     for i_chan in range(nchans):
         data[chan_sec[i_chan]] *= gain[i_chan]
-        header['GAIN{}'.format(i_chan+1)] = (gain[i_chan], 'gain applied to '
+        header['GAIN{}'.format(i_chan+1)] = (gain[i_chan], '[e-/ADU] gain applied to '
                                              'channel {}'.format(i_chan+1))
 
     if log is not None:
