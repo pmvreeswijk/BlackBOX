@@ -61,8 +61,8 @@ tnow = Time.now()
 tnow.ut1  
 
 
-__version__ = '0.9.2'
-keywords_version = '0.9.2'
+__version__ = '0.10.0'
+keywords_version = '0.10.0'
 
 #def init(l):
 #    global lock
@@ -145,24 +145,34 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
   * (41) go through headers of all images again and check if ranges
          set in set_qc are still appropriate.
 
-  * (43) determine which background box size to use
-
   * (47) improve astroscrappy cosmic-ray rejection parameters; too
          many cosmics go undetected
 
   * (49) creating master flats can/should be multiprocessed
 
-    (54) get rid of repeated lines in the log once and for all!  Also
-         turn off screen logging, as logfile is saved anyway, and
-         could be monitored with "tail -f" if needed.
-
     (57) save header as separate fits file
 
-  * (60) add column to transient catalog with real/bogus probability,
-         e.g. ML_PROB_REAL.
+    (62) apply_zp to transients takes average image airmass instead of
+         individual airmasses of transients; improve this
 
-    (61) interpolation done in function mini2back should not cross
-         ML/BG channel edges
+    (63) remove full-source objects with bad pixels in IMAFLAGS_ISO??
+
+    (64) after subtraction of a background with a gradient, the
+         standard deviation must be different; find a good way to
+         improve the STD estimate
+
+    (65) Exception while adding S-FWHM to the image header: 
+         "ValueError: Floating point nan values are not allowed in FITS headers"
+         - 
+
+    (67) check if things go ok if one of the images do not contain
+         valid pixel values, e.g. on the edge - at least half of the
+         object (2/3?) should be present in both images
+
+  * (68) include MeerCRAB into BlackBOX - see also item (60)
+
+    (70) find out reason for correlation between low background and
+         very poor S-SEESTD estimate in many u-band images
 
 
     Done:
@@ -333,7 +343,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
              version installed on mac-os is 2.25 (2019-10-24), but 
              documentation on www.astromatic.net and also 
              GitHub (https://github.com/astromatic/sextractor)
-             appear old
+             appears old
          --> changed call in zogy.py to "source-extractor"
 
     (34) bkg and bkg_std images in tmp dir are float64; check
@@ -383,6 +393,19 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
   * (42) add jpg of reduced new/ref images to output, in similar
          fashion to fpacking of images at the end of blackbox
+
+  * (43) determine which background box size to use; this item ended
+         up taking a couple of weeks to investigate how to best
+         subtract the background, with the main idea of using a
+         combination of background boxes. In the end, the best results
+         are provided by a combination of a small background box with
+         a polynomial 2D fit up to order 2, where the minimum is taken
+         between the two. This results in faint emission not being
+         subtracted, as the polynomial fit tends to be lower. Included
+         in the polynomial fit are the channel correction factors,
+         presumably due to a non-linearity at low count levels. This
+         has now been implemented in zogy, with 2-3 additional
+         set_zogy settings file parameters.
 
     (44) keep BlackBOX en ZOGY in separate directories when installing
 
@@ -435,6 +458,12 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
          See also item (48).
 
+    (54) get rid of repeated lines in the log once and for all!  Also
+         turn off screen logging, as logfile is saved anyway, and
+         could be monitored with "tail -f" if needed
+         --> this seems to have been solved by switching off stream
+             handler in create_log function
+
     (55) Paul's suggestion: instead of mix of 11x11 and 6x6 subimages
          for different purposes, why not go to 8x8 where entire
          subimage is contained within the channel?
@@ -451,6 +480,18 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          value than image average ELONGATION. 
          --> seems too dangerous to do, as point source on top of
              galaxy can lead to high elongation
+
+  * (60) add column to transient catalog with real/bogus probability,
+         e.g. ML_PROB_REAL, even if not yet calculated
+
+  * (61) interpolation done in function mini2back should not cross
+         ML/BG channel edges
+
+    (66) update zogy.py so that reduced images are background subtracted
+
+    (69) add number of transients normalized by total number of
+         objects, so that limit on fraction can be set rather than
+         absolute number - see also item (15)
 
     """
     
@@ -531,7 +572,8 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     if read_path is None:
         if date is not None:
             read_path, __ = get_path(date, 'read')
-            q.put(logger.info('processing files from directory: {}'.format(read_path)))
+            q.put(logger.info('processing files from directory: {}'
+                              .format(read_path)))
         elif image is not None:
             pass
         elif image_list is not None:
@@ -674,7 +716,8 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
 
     if get_par(set_zogy.timing,tel):
-        log_timing_memory (t0=t_run_blackbox, label='run_blackbox before fpacking', log=logger)
+        log_timing_memory (t0=t_run_blackbox, label='run_blackbox before fpacking',
+                           log=logger)
         
 
     # do not prepare remaining master files if single image was
@@ -908,6 +951,14 @@ def fpack (filename):
                     else:
                         quant = 16
                     cmd = ['fpack', '-q', str(quant), '-D', '-Y', '-v', filename]
+
+                # if fpacked file already exists, delete it first
+                #filename_packed = '{}.fz'.format(filename)
+                #if os.path.exists(filename_packed):
+                #    print ('warning: deleting already existing file: {}'
+                #           .format(filename_packed))
+                #    os.remove(filename_packed)
+
                 subprocess.call(cmd)
 
     except Exception as e:
@@ -1082,7 +1133,7 @@ def blackbox_reduce (filename):
     if already_exists (dest):
         q.put(logger.warning('{} already exists; not copying/moving file'.format(dest)))
     else:
-        make_dir (raw_path)
+        make_dir (raw_path, lock=lock)
         # moving:
         #shutil.move(src, dest)
         # copying:
@@ -1150,7 +1201,7 @@ def blackbox_reduce (filename):
     
     # define [write_path] using the header DATE-OBS
     write_path, date_eve = get_path(header['DATE-OBS'], 'write')
-    make_dir (write_path)
+    make_dir (write_path, lock=lock)
     bias_path = '{}/bias'.format(write_path)
     dark_path = '{}/dark'.format(write_path)
     flat_path = '{}/flat'.format(write_path)
@@ -1189,13 +1240,13 @@ def blackbox_reduce (filename):
     fits_out = '{}/{}_{}_{}.fits'.format(path[imgtype], tel, utdate, uttime)
 
     if imgtype == 'bias':
-        make_dir (bias_path)
+        make_dir (bias_path, lock=lock)
 
     elif imgtype == 'dark':
-        make_dir (dark_path)
+        make_dir (dark_path, lock=lock)
         
     elif imgtype == 'flat':
-        make_dir (flat_path)
+        make_dir (flat_path, lock=lock)
         fits_out = fits_out.replace('.fits', '_{}.fits'.format(filt))
 
     elif imgtype == 'object':
@@ -1218,7 +1269,7 @@ def blackbox_reduce (filename):
         
         # and reference image
         ref_path = '{}/{}'.format(get_par(set_bb.ref_dir,tel), obj)
-        make_dir (ref_path)
+        make_dir (ref_path, lock=lock)
         ref_fits_out = '{}/{}_{}_red.fits'.format(ref_path, tel, filt)
         
         ref_present, ref_fits_temp = already_exists (ref_fits_out,
@@ -1242,7 +1293,7 @@ def blackbox_reduce (filename):
         # image without the .fits extension.
         tmp_path = '{}/{}'.format(get_par(set_bb.tmp_dir,tel),
                                   fits_out.split('/')[-1].replace('.fits',''))
-        make_dir (tmp_path, empty=True)
+        make_dir (tmp_path, empty=True, lock=lock)
         
         # for object files, prepare the logfile in [tmp_path]
         logfile = '{}/{}'.format(tmp_path, fits_out.split('/')[-1]
@@ -1268,7 +1319,7 @@ def blackbox_reduce (filename):
     
 
     # check if reduction steps could be skipped
-    file_present = already_exists (fits_out)
+    file_present, fits_out_present = already_exists (fits_out, get_filename=True)
     if imgtype == 'object':
         mask_present = already_exists (fits_out_mask)
     else:
@@ -1284,7 +1335,7 @@ def blackbox_reduce (filename):
         
         q.put(logger.warning ('corresponding reduced {} image {} already exists; '
                               'skipping its reduction'
-                              .format(imgtype, fits_out.split('/')[-1])))
+                              .format(imgtype, fits_out_present.split('/')[-1])))
 
         # copy relevant files to tmp folder for object images
         if imgtype == 'object':
@@ -1312,15 +1363,15 @@ def blackbox_reduce (filename):
             if imgtype == 'object':
                 files_2remove = glob.glob('{}*'.format(new_base))
             else:
-                # for biases and flats, just reduced file itself and the log
-                files_2remove = [fits_out, logfile]
-
-            lock.acquire()
+                # for biases and flats, just the reduced file itself,
+                # its log and jpg
+                jpgfile = '{}.jpg'.format(new_base)
+                files_2remove = [fits_out_present, logfile, jpgfile]
+                # master bias and/or flat are removed inside [master_prep]
+                
             for file_2remove in files_2remove:
                 q.put(logger.info('removing existing {}'.format(file_2remove)))
                 os.remove(file_2remove)
-
-            lock.release()
 
         else:
             q.put(logger.info('\nprocessing {}'.format(filename)))
@@ -2325,9 +2376,9 @@ def create_log (logfile):
 
     log = logging.getLogger()
     log.setLevel(logging.INFO)
-    logFormatter = logging.Formatter('%(asctime)s.%(msecs)03d [%(levelname)s, %(process)s] '
-                                     '%(message)s [%(funcName)s, line %(lineno)d]',
-                                     '%Y-%m-%dT%H:%M:%S')
+    logFormatter = logging.Formatter('%(asctime)s.%(msecs)03d [%(levelname)s, '
+                                     '%(process)s] %(message)s [%(funcName)s, '
+                                     'line %(lineno)d]', '%Y-%m-%dT%H:%M:%S')
     logging.Formatter.converter = time.gmtime #convert time in logger to UTC
 
     fileHandler = logging.FileHandler(logfile, 'a')
@@ -2335,17 +2386,17 @@ def create_log (logfile):
     fileHandler.setLevel(logging.INFO)
     log.addHandler(fileHandler)
 
-    streamHandler = logging.StreamHandler()
-    streamHandler.setFormatter(logFormatter)
-    streamHandler.setLevel(logging.WARNING)
-    log.addHandler(streamHandler)
+    #streamHandler = logging.StreamHandler()
+    #streamHandler.setFormatter(logFormatter)
+    #streamHandler.setLevel(logging.WARNING)
+    #log.addHandler(streamHandler)
 
     return log
     
 
 ################################################################################
 
-def make_dir (path, empty=False, put_lock=True):
+def make_dir (path, empty=False, put_lock=True, lock=None):
 
     """Function to make directory. If [empty] is True and the directory
        already exists, it will first be removed. Multiprocessing lock
@@ -2693,6 +2744,14 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
     # point to fpacked file)
     master_present, fits_master = already_exists (fits_master, get_filename=True)
 
+    # if this is a forced re-reduction, delete the master
+    if get_par(set_bb.force_reproc_new,tel):
+        os.remove(fits_master)
+        os.remove('{}.jpg'.format(fits_master.split('.fits')[0]))
+        master_present = False
+        if '.fz' in fits_master:
+            fits_master = fits_master.replace('.fz','')
+        
     # check if master bias/flat does not contain any red flags:
     master_ok = True
     if master_present:
@@ -3284,9 +3343,13 @@ def set_header(header, filename):
 
     edit_head(header, 'ALTITUDE', comments='[deg] Telescope altitude')
     edit_head(header, 'AZIMUTH', comments='[deg] Telescope azimuth (N=0;E=90)')
-    edit_head(header, 'DOMEAZ', comments='[deg] Dome azimuth (N=0;E=90)')
     edit_head(header, 'RADESYS', value='ICRS', comments='Coordinate reference frame')
     edit_head(header, 'EPOCH', value=2015.5, comments='Coordinate reference epoch')
+
+    if 'DOMEAZ' in header:
+        edit_head(header, 'DOMEAZ', comments='[deg] Dome azimuth (N=0;E=90)')
+    else:
+        edit_head(header, 'DOMEAZ', value='None', comments='[deg] Dome azimuth (N=0;E=90)')
     
     # RA
     if 'RA' in header:
@@ -3367,7 +3430,7 @@ def set_header(header, filename):
     lon_temp = get_par(set_zogy.obs_lon,tel)
     lst = date_obs.sidereal_time('apparent', longitude=lon_temp)
     lst_deg = lst.deg
-    # in hh:mm:ss.ssss
+    # in hh:mm:ss.sss
     lst_str = lst.to_string(sep=':', precision=3)
     edit_head(header, 'LST', value=lst_str, comments='apparent LST (based on DATE-OBS)')
         
