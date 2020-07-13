@@ -3244,15 +3244,19 @@ def check_header2 (header, filename):
     imgtype = header['IMAGETYP'].lower()
     if imgtype=='object':
         obj = header['OBJECT']
-        try: 
+        # use REF coords:
+        if header['RA-REF'] != 'None' and header['DEC-REF'] != 'None':
+            key_ext = '-REF'
             ra_deg = Angle(header['RA-REF'], unit=u.hour).degree
             dec_deg = Angle(header['DEC-REF'], unit=u.deg).degree
-        except:
-            # use RA and DEC if RA-REF and DEC-REF keywords do not
-            # exist or their values are set to 'None' (done in
-            # set_header)
-            ra_deg = Angle(header['RA'], unit=u.hour).degree
-            dec_deg = Angle(header['DEC'], unit=u.deg).degree
+        else:
+            # if RA-REF and DEC-REF keywords set to 'None' (done in
+            # function set_header), use RA and DEC instead (already
+            # converted to decimal degrees in set_header)
+            key_ext = ''
+            ra_deg = header['RA']
+            dec_deg = header['DEC']
+
 
         # check if there is a match with the defined field IDs
         mask_match = (table_ID['ID']==int(obj))
@@ -3261,23 +3265,24 @@ def check_header2 (header, filename):
             header_ok = False
             q.put(logger.error('input header field ID not present in '
                                'definition of field IDs:\n{}\n'
-                               'header field ID: {}, RA-REF: {}, DEC-REF: {}\n'
+                               'header field ID: {}, RA{}: {:.4f}, DEC{}: {:.4f}\n'
                                'not processing {}'
-                               .format(mlbg_fieldIDs, obj, ra_deg, dec_deg, filename)))
+                               .format(mlbg_fieldIDs, obj, key_ext, ra_deg,
+                                       key_ext, dec_deg, filename)))
         else:
             i_ID = np.nonzero(mask_match)[0][0]
             if haversine(table_ID['RA'][i_ID], table_ID['DEC'][i_ID], 
                          ra_deg, dec_deg) > 10./60:
                 q.put(logger.error('input header field ID, RA and DEC combination '
                                    'is inconsistent (>10\') with definition of field IDs\n'
-                                   'header field ID: {}, RA-REF: {}, DEC-REF: {}\n'
-                                   'vs.    field ID: {}, RA:     {}, DEC:     {} '
+                                   'header field ID: {}, RA{:4s}: {:.4f}, DEC{:4s}: {:.4f}\n'
+                                   'vs.    field ID: {}, RA{:4s}: {:.4f}, DEC{:4s}: {:.4f} '
                                    'in {}\n'
                                    'not processing {}'
-                                   .format(obj, ra_deg, dec_deg, 
+                                   .format(obj, key_ext, ra_deg, key_ext, dec_deg,
                                            table_ID['ID'][i_ID], 
-                                           table_ID['RA'][i_ID],
-                                           table_ID['DEC'][i_ID], 
+                                           '', table_ID['RA'][i_ID],
+                                           '', table_ID['DEC'][i_ID],
                                            mlbg_fieldIDs, filename)))
                 header_ok = False
 
