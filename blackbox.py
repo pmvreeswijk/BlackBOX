@@ -174,6 +174,9 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     (70) find out reason for correlation between low background and
          very poor S-SEESTD estimate in many u-band images
 
+  * (72) remake bad pixel mask with edge pixels about 5 pixels wider,
+         to be more conservative
+
 
     Done:
     -----
@@ -493,7 +496,8 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          objects, so that limit on fraction can be set rather than
          absolute number - see also item (15)
 
-    (71) do not consider images with FIELD_ID or OBJECT="00000"
+    (71) do not consider images with FIELD_ID or OBJECT=00000 and
+         with test in name
 
     """
     
@@ -656,7 +660,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
             # [set_zogy.display] is set to True; something that is not
             # allowed (at least not on a macbook) when
             # multiprocessing.
-            print ('running with single processor')
+            q.put(logger.warning('running with single processor'))
             filenames_reduced = []
             for filename in filenames:
                 filename_reduced = blackbox_reduce(filename)
@@ -979,31 +983,33 @@ def prep_jpglist (date, image, filename):
             # only create jpg of the reduced file
             list_2jpg.append('{}.fz'.format(filename))
 
-    elif date is not None:
-        # add files in [write_path]
-        write_path, __ = get_path(date, 'write')
-        list_2jpg.append(glob.glob('{}/*_red.fits.fz'.format(write_path)))
-        # add fits files in bias and flat directories
-        list_2jpg.append(glob.glob('{}/bias/*.fits.fz'.format(write_path)))
-        list_2jpg.append(glob.glob('{}/flat/*.fits.fz'.format(write_path)))
-
     else:
-        # just add all fits files in [telescope]/red/*/*/*/*.fits
-        # (could do it more specifically by going through raw fits
-        # files and finding out where their reduced images are)
-        red_dir = get_par(set_bb.red_dir,tel)
-        list_2jpg.append(glob.glob('{}/*/*/*/*_red.fits.fz'.format(red_dir)))
-        # add fits files in bias and flat directories
-        list_2jpg.append(glob.glob('{}/*/*/*/bias/*.fits.fz'.format(red_dir)))
-        list_2jpg.append(glob.glob('{}/*/*/*/flat/*.fits.fz'.format(red_dir)))
 
-        
-    # flatten this list of files
-    list_2jpg = [item for sublist in list_2jpg for item in sublist]
-    # and get the unique items
-    list_2jpg = list(set(list_2jpg))
+        if date is not None:
+            # add files in [write_path]
+            write_path, __ = get_path(date, 'write')
+            list_2jpg.append(glob.glob('{}/*_red.fits.fz'.format(write_path)))
+            # add fits files in bias and flat directories
+            list_2jpg.append(glob.glob('{}/bias/*.fits.fz'.format(write_path)))
+            list_2jpg.append(glob.glob('{}/flat/*.fits.fz'.format(write_path)))
 
-    return list_2jpg
+        else:
+            # just add all fits files in [telescope]/red/*/*/*/*.fits
+            # (could do it more specifically by going through raw fits
+            # files and finding out where their reduced images are)
+            red_dir = get_par(set_bb.red_dir,tel)
+            list_2jpg.append(glob.glob('{}/*/*/*/*_red.fits.fz'.format(red_dir)))
+            # add fits files in bias and flat directories
+            list_2jpg.append(glob.glob('{}/*/*/*/bias/*.fits.fz'.format(red_dir)))
+            list_2jpg.append(glob.glob('{}/*/*/*/flat/*.fits.fz'.format(red_dir)))
+
+            
+        # flatten the list of files
+        list_2jpg = [item for sublist in list_2jpg for item in sublist]
+
+
+    # return the unique items
+    return list(set(list_2jpg))
     
 
 ################################################################################
@@ -1841,6 +1847,7 @@ def blackbox_reduce (filename):
             q.put(logger.info('all {} data products already present in reduced '
                               'folder, nothing left to do for {}'
                               .format(text, filename)))
+
             if do_reduction:
                 return fits_out
             else:
@@ -2613,7 +2620,7 @@ def cosmics_corr (data, header, data_mask, header_mask):
     header['NCOSMICS'] = (ncosmics_persec, '[/s] number of cosmic rays identified')
     # also add this to header of mask image
     header_mask['NCOSMICS'] = (ncosmics_persec, '[/s] number of cosmic rays identified')
-    log.info('Number of cosmic rays identified: {}'.format(ncosmics))
+    log.info('number of cosmic rays identified: {}'.format(ncosmics))
     
     
     if get_par(set_zogy.timing,tel):
@@ -3156,8 +3163,8 @@ def check_header1 (header, filename):
             q.put(logger.error('crucial keyword {} not present in header; '
                                'not processing {}'.format(key, filename)))
             header_ok = False
-            # return immediately in this case so that presence of 
-            # IMAGETYP does not need to be checked below
+            # return immediately in this case as keyword 'IMAGETYP' is
+            # used below which may not exist
             return header_ok
 
 
@@ -3175,7 +3182,7 @@ def check_header1 (header, filename):
         if imgtype=='object':
             # if neither FIELD_ID nor OBJECT present in header of an
             # object image, then also bail out
-            q.put(logger.error('FIELD_ID and OBJECT keywords not present in '
+            q.put(logger.error('FIELD_ID or OBJECT keyword not present in '
                                'header; not processing {}'.format(filename)))
             header_ok = False
             # return right away as otherwise [obj] not defined, which
@@ -3183,8 +3190,9 @@ def check_header1 (header, filename):
             return header_ok
             
 
-    # check if OBJECT keyword value contains digits only
     if imgtype=='object':
+
+        # check if OBJECT keyword value contains digits only
         try:
             int(obj)
         except Exception as e:
@@ -3192,21 +3200,32 @@ def check_header1 (header, filename):
                                'not contain digits only; not processing {}'
                                .format(filename)))
             header_ok = False
-            return header_ok
-                  
-    
-    # remaining important keywords; for biases, darks and flats, these
-    # keywords are not strictly necessary (although for flats they are
-    # used to check if they were dithered; if RA and DEC not present,
-    # any potential dithering will not be detected)
-    for keys in ['EXPTIME', 'RA', 'DEC']:
-        if imgtype=='object':
+
+        else:
+            # check if OBJECT keyword is in the right range 1-19999
+            if int(obj)==0 or int(obj)>=20000:
+                q.put(logger.warning('OBJECT (or FIELD_ID) not in range 1-19999; '
+                                     'not processing {}'.format(filename)))
+                header_ok = False
+   
+
+        # remaining important keywords; for biases, darks and flats, these
+        # keywords are not strictly necessary (although for flats they are
+        # used to check if they were dithered; if RA and DEC not present,
+        # any potential dithering will not be detected)
+        for keys in ['EXPTIME', 'RA', 'DEC']:
             if key not in header:
                 q.put(logger.error('crucial keyword {} not present in header; '
                                    'not processing {}'.format(key, filename)))
                 header_ok = False
-                return header_ok
-            
+
+
+    # check if filename contains 'test'
+    if 'test' in filename.lower():
+        q.put(logger.warning('filename contains string \'test\'; '
+                             'not processing {}'.format(filename)))
+        header_ok = False
+    
             
     return header_ok
 
@@ -3225,43 +3244,42 @@ def check_header2 (header, filename):
     imgtype = header['IMAGETYP'].lower()
     if imgtype=='object':
         obj = header['OBJECT']
-        if int(obj)==0 or int(obj)>=20000:
-            header_ok = False
-        else:
-            if 'RA-REF' in header and 'DEC-REF' in header:
-                ra_deg = Angle(header['RA-REF'], unit=u.hour).degree
-                dec_deg = Angle(header['DEC-REF'], unit=u.deg).degree
-            else:
-                # use RA and DEC instead
-                ra_deg = Angle(header['RA'], unit=u.hour).degree
-                dec_deg = Angle(header['DEC'], unit=u.deg).degree
+        try: 
+            ra_deg = Angle(header['RA-REF'], unit=u.hour).degree
+            dec_deg = Angle(header['DEC-REF'], unit=u.deg).degree
+        except:
+            # use RA and DEC if RA-REF and DEC-REF keywords do not
+            # exist or their values are set to 'None' (done in
+            # set_header)
+            ra_deg = Angle(header['RA'], unit=u.hour).degree
+            dec_deg = Angle(header['DEC'], unit=u.deg).degree
 
-            # check if there is a match with the defined field IDs
-            mask_match = (table_ID['ID']==int(obj))
-            if sum(mask_match) == 0:
-                # observed field is not present in definition of field IDs
-                header_ok = False
-                q.put(logger.error('input header field ID not present in '
-                                   'definition of field IDs:\n{}\n'
+        # check if there is a match with the defined field IDs
+        mask_match = (table_ID['ID']==int(obj))
+        if sum(mask_match) == 0:
+            # observed field is not present in definition of field IDs
+            header_ok = False
+            q.put(logger.error('input header field ID not present in '
+                               'definition of field IDs:\n{}\n'
+                               'header field ID: {}, RA-REF: {}, DEC-REF: {}\n'
+                               'not processing {}'
+                               .format(mlbg_fieldIDs, obj, ra_deg, dec_deg, filename)))
+        else:
+            i_ID = np.nonzero(mask_match)[0][0]
+            if haversine(table_ID['RA'][i_ID], table_ID['DEC'][i_ID], 
+                         ra_deg, dec_deg) > 10./60:
+                q.put(logger.error('input header field ID, RA and DEC combination '
+                                   'is inconsistent (>10\') with definition of field IDs\n'
                                    'header field ID: {}, RA-REF: {}, DEC-REF: {}\n'
+                                   'vs.    field ID: {}, RA:     {}, DEC:     {} '
+                                   'in {}\n'
                                    'not processing {}'
-                                   .format(mlbg_fieldIDs, obj, ra_deg, dec_deg, filename)))
-            else:
-                i_ID = np.nonzero(mask_match)[0][0]
-                if haversine(table_ID['RA'][i_ID], table_ID['DEC'][i_ID], 
-                             ra_deg, dec_deg) > 10./60:
-                    q.put(logger.error('input header field ID, RA and DEC combination '
-                                       'is inconsistent (>10\') with definition of field IDs\n'
-                                       'header field ID: {}, RA-REF: {}, DEC-REF: {}\n'
-                                       'vs.    field ID: {}, RA:     {}, DEC:     {} '
-                                       'in {}\n'
-                                       'not processing {}'
-                                       .format(obj, ra_deg, dec_deg, 
-                                               table_ID['ID'][i_ID], 
-                                               table_ID['RA'][i_ID],
-                                               table_ID['DEC'][i_ID], 
-                                               mlbg_fieldIDs, filename)))
-                    header_ok = False
+                                   .format(obj, ra_deg, dec_deg, 
+                                           table_ID['ID'][i_ID], 
+                                           table_ID['RA'][i_ID],
+                                           table_ID['DEC'][i_ID], 
+                                           mlbg_fieldIDs, filename)))
+                header_ok = False
 
 
     # if binning is not 1x1, also skip processing
