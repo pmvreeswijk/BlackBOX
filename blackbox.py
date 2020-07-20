@@ -146,9 +146,11 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          set in set_qc are still appropriate.
 
   * (47) improve astroscrappy cosmic-ray rejection parameters; too
-         many cosmics go undetected
-
-  * (49) creating master flats can/should be multiprocessed
+         many cosmics go undetected. Also: at low background levels,
+         number of cosmics is too high; increase READNOISE parameter?
+         Finally: check if using sepmed filter is still a problem for
+         fields with many saturated stars; could have been due to
+         satlevel set too low previously.
 
     (57) save header as separate fits file
 
@@ -167,7 +169,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
     (67) check if things go ok if one of the images do not contain
          valid pixel values, e.g. on the edge - at least half of the
-         object (2/3?) should be present in both images
+         object footprint (2/3?) should be present in both images
 
   * (68) include MeerCRAB into BlackBOX - see also item (60)
 
@@ -175,7 +177,8 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          very poor S-SEESTD estimate in many u-band images
 
   * (72) remake bad pixel mask with edge pixels about 5 pixels wider,
-         to be more conservative
+         to be more conservative, and check if bad pixels are similar
+         as before
 
 
     Done:
@@ -429,6 +432,8 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
          --> this is now possible with the implementation of (53)
 
+  * (49) creating master flats can/should be multiprocessed
+
     (50) change jpg scaling to zscale
 
     (51) check what is done when no master flat is found
@@ -499,6 +504,15 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     (71) do not consider images with FIELD_ID or OBJECT=00000 and
          with test in name
 
+    (73) check why A-DRA and A-DDEC increased around 15 November 2019;
+         probably to do with new singularity container and the
+         astrometry.net index files; 20258-?? starting from 15/11/2019
+         vs. 24278-?? before.
+         --> the new singularity container was using a tarfile with
+             old index files that were built from the initial Gaia DR2
+             download, which was improved in September 2018; this also
+             explains the slight offset
+
     """
     
     
@@ -553,24 +567,13 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
     # create master bias and/or flat if [master_date] is specified
     if master_date is not None:
-        if types is None:
-            mtypes = 'biasflat'
-        else:
-            mtypes = types
-        if 'bias' in mtypes:
-            create_masters ('bias', mdate=master_date)
-        if 'flat' in mtypes:
-            if filters is None:
-                mfilts = get_par(set_zogy.zp_default,tel).keys()
-            else:
-                mfilts = re.sub(',|-|\.|\/', '', filters)
-            for filt in mfilts:
-                create_masters ('flat', filt=filt, mdate=master_date, fpack=True)
+
+        create_masters (mdate=master_date, run_fpack=True)
 
         logging.shutdown()
         return
-            
-    
+
+
     # [read_path] is assumed to be the full path to the directory with
     # raw images to be processed; if not provided as input parameter,
     # it is defined using the input [date] with the function
@@ -726,23 +729,6 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
                            log=logger)
         
 
-    # do not prepare remaining master files if single image was
-    # specified to be processed with [image]
-    if image is None:
-
-        # remaining master files to prepare
-        # ---------------------------------
-        # using function [create_masters], make master bias and flat for
-        # directories where reduced images are available, but no master
-        # was created yet; this is not done with pool of processes,
-        # because it is not time-critical and takes 10GB of memory for
-        # each set of 10 biases or flats
-        q.put(logger.info('preparing missing master frames'))
-        create_masters ('bias')
-        for filt in get_par(set_zogy.zp_default,tel).keys():
-            create_masters ('flat', filt=filt)
-
-
 
     # fpack remaining fits images
     # ---------------------------       
@@ -784,7 +770,8 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
 ################################################################################
 
-def create_masters (imtype, filt=None, mdate=None, fpack=False):
+def create_masters (mdate=None, run_fpack=False):
+
     # prepare list of all red/yyyy/mm/dd/bias and flat directories
     red_dir = get_par(set_bb.red_dir,tel)
     # if mdate is not specified, loop all available [imtype]
@@ -800,32 +787,54 @@ def create_masters (imtype, filt=None, mdate=None, fpack=False):
                 month = mdate[4:6]
                 if len(mdate) >= 8:
                     day = mdate[6:8]
-                    
-    list_dirs = glob.glob('{}/{}/{}/{}/{}'.format(red_dir, year, month, day, imtype))
+
+
+    # list with all paths to process
+    list_path = glob.glob('{}/{}/{}/{}'
+                          .format(red_dir, year, month, day))
+    # corresponding list of evening dates
+    list_date_eve = [''.join(l.split('/')[-3:]) for l in list_path]
+
+
+    # filts is a global variable determined by the [filters] input
+    # to [run_blackbox]
+    if filts is None:
+        # if None set to all filters
+        filts_temp = get_par(set_zogy.zp_default,tel).keys()
+    else:
+        # extract filters from input
+        filts_temp = re.sub(',|-|\.|\/', '', filts)
+
+
+    # create list of master flats to process
+    list_masters = []
+    nfiles = len(list_path)
+    for i in range(nfiles):
+        # biases
+        if types is None or 'bias' in types:
+            list_masters.append('{}/bias/bias_{}.fits'
+                                .format(list_path[i], list_date_eve[i]))
+        # flats
+        if types is None or 'flat' in types:
+            for filt in filts_temp:
+                list_masters.append('{}/flat/flat_{}_{}.fits'
+                                    .format(list_path[i], list_date_eve[i], filt))
+
+
     # data shape is needed as input for [master_prep]
     data_shape = (get_par(set_bb.ny,tel) * get_par(set_bb.ysize_chan,tel), 
                   get_par(set_bb.nx,tel) * get_par(set_bb.xsize_chan,tel))
-    # loop directories
-    for path in list_dirs:
-        date_eve = ''.join(path.split('/')[-4:-1])
-        if imtype=='bias':
-            # name master bias
-            fits_master = '{}/{}_{}.fits'.format(path, imtype, date_eve)
-        elif imtype=='flat':
-            # name master flat
-            fits_master = '{}/{}_{}_{}.fits'.format(path, imtype, date_eve, filt)
 
-        # master bias/flat already present?
-        master_present = (os.path.isfile(fits_master) or
-                          os.path.isfile('{}.fz'.format(fits_master)))
 
-        # if not, prepare it
-        if not master_present:
-            master_prep (data_shape, path, date_eve, imtype, filt=filt)
+    # use [pool_func] to process list of masters
+    list_fits_master = pool_func (master_prep, list_masters, data_shape)
 
-        if fpack:
-            fpack (fits_master)
-            
+
+    # use [pool_func] to fpack masters just created
+    if run_fpack:
+        list_masters_existing = [f for f in list_masters if os.path.isfile(f)]
+        results = pool_func (fpack, list_masters_existing)
+
 
     return
 
@@ -863,6 +872,7 @@ def pool_func (func, filelist, *args):
             args_temp = [filename]
             for arg in args:
                 args_temp.append(arg)
+
             results.append(pool.apply_async(func, args_temp))
 
         pool.close()
@@ -1534,8 +1544,8 @@ def blackbox_reduce (filename):
             lock.acquire()
 
             # prepare or point to the master bias
-            fits_mbias = master_prep (np.shape(data), bias_path, date_eve, 'bias', 
-                                      log=log)
+            fits_master = '{}/bias_{}.fits'.format(bias_path, date_eve)
+            fits_mbias = master_prep (fits_master, data.shape, log=log)
 
         except Exception as e:
             q.put(logger.info(traceback.format_exc()))
@@ -1636,15 +1646,16 @@ def blackbox_reduce (filename):
             lock.acquire()
 
             # prepare or point to the master flat
-            fits_mflat = master_prep(np.shape(data), flat_path, date_eve, 'flat',
-                                     filt=filt, log=log)
+            fits_master = '{}/flat_{}_{}.fits'.format(flat_path, date_eve, filt)
+            fits_mflat = master_prep (fits_master, data.shape, log=log)
 
         except Exception as e:
             q.put(logger.info(traceback.format_exc()))
-            q.put(logger.error('exception was raised during flat [master_prep]: {}'
-                               .format(e)))
+            q.put(logger.error('exception was raised during flat [master_prep]: '
+                               '{}'.format(e)))
             log.info(traceback.format_exc())
-            log.error('exception was raised during flat [master_prep]: {}'.format(e))
+            log.error('exception was raised during flat [master_prep]: {}'
+                      .format(e))
 
         finally:
             lock.release()
@@ -1659,11 +1670,13 @@ def blackbox_reduce (filename):
             try:
                 # and divide the object image by the master flat
                 log.info('dividing by the master flat')
-                data_mflat, header_mflat = read_hdulist(fits_mflat, get_header=True)
+                data_mflat, header_mflat = read_hdulist(fits_mflat,
+                                                        get_header=True)
                 data /= data_mflat
                 header['MFLAT-F'] = (fits_mflat.split('/')[-1].split('.fits')[0],
                                      'name of master flat applied')
-                # for object image, add number of days separating image and master bias
+                # for object image, add number of days separating
+                # image and master bias
                 if imgtype == 'object':
                     mjd_obs = header['MJD-OBS']
                     mjd_obs_mf = header_mflat['MJD-OBS']
@@ -1673,10 +1686,11 @@ def blackbox_reduce (filename):
 
             except Exception as e:
                 q.put(logger.info(traceback.format_exc()))
-                q.put(logger.error('exception was raised during master flat division: {}'
-                                   .format(e)))
+                q.put(logger.error('exception was raised during master flat '
+                                   'division: {}'.format(e)))
                 log.info(traceback.format_exc())
-                log.error('exception was raised during master flat division: {}'.format(e))
+                log.error('exception was raised during master flat division: {}'
+                          .format(e))
             else:
                 mflat_processed = True
             finally:
@@ -1704,7 +1718,8 @@ def blackbox_reduce (filename):
         except Exception as e:
             header['NCOSMICS'] = ('None', '[/s] number of cosmic rays identified')
             q.put(logger.info(traceback.format_exc()))
-            q.put(logger.error('exception was raised during [cosmics_corr]: {}'.format(e)))
+            q.put(logger.error('exception was raised during [cosmics_corr]: {}'
+                               .format(e)))
             log.info(traceback.format_exc())
             log.error('exception was raised during [cosmics_corr]: {}'.format(e))
         else:
@@ -1719,8 +1734,9 @@ def blackbox_reduce (filename):
             data_mask_cosmics *= val_temp
             ds9_arrays(data=data_precosmics, cosmic_cor=data, mask=data_mask,
                        mask_cosmics=data_mask_cosmics)
-            log.info ('number of cosmics per second: {}'.format(header['NCOSMICS']))
-        
+            log.info ('number of cosmics per second: {}'
+                      .format(header['NCOSMICS']))
+
 
         # satellite trail detection
         ###########################
@@ -1733,7 +1749,8 @@ def blackbox_reduce (filename):
         except Exception as e:
             header['NSATS'] = ('None', 'number of satellite trails identified')
             q.put(logger.info(traceback.format_exc()))
-            q.put(logger.error('exception was raised during [sat_detect]: {}'.format(e)))
+            q.put(logger.error('exception was raised during [sat_detect]: {}'
+                               .format(e)))
             log.info(traceback.format_exc())
             log.error('exception was raised during [sat_detect]: {}'.format(e))
         else:
@@ -1775,15 +1792,16 @@ def blackbox_reduce (filename):
         # binary fits catalogs (both 'new' and 'trans') and return,
         # skipping zogy's [optimal subtraction] below
         if qc_flag=='red':
-            log.error('red QC flag in image {}; making dummy catalogs and returning'
-                      .format(fits_out))
+            log.error('red QC flag in image {}; making dummy catalogs and '
+                      'returning'.format(fits_out))
             run_qc_check (header, tel, 'new', fits_tmp_cat, log=log)
             run_qc_check (header, tel, 'trans', fits_tmp_trans, log=log)
 
             # copy selected output files to new directory and remove tmp folder
             # corresponding to the object image
-            result = copy_files2keep(tmp_base, new_base, get_par(set_bb.all_2keep,tel),
-                                     move=False, log=log)
+            result = copy_files2keep(tmp_base, new_base,
+                                     get_par(set_bb.all_2keep,tel), move=False,
+                                     log=log)
             clean_tmp(tmp_base)
 
             return fits_out
@@ -2730,28 +2748,36 @@ def mask_header(data_mask, header_mask):
     
 ################################################################################
 
-def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
+def master_prep (fits_master, data_shape, log=None):
 
     if get_par(set_zogy.timing,tel):
         t = time.time()
 
-    if imtype=='flat':
-        fits_master = '{}/{}_{}_{}.fits'.format(path, imtype, date_eve, filt)
-    elif imtype=='bias':
-        fits_master = '{}/{}_{}.fits'.format(path, imtype, date_eve)
+
+    # infer path, imtype, evening date and filter from input [fits_master]
+    path, filename = os.path.split(fits_master)
+    imtype, date_eve = filename.split('.fits')[0].split('_')[0:2]
+    if imtype == 'flat':
+        filt = filename.split('.fits')[0].split('_')[-1]
+
 
     # check if already present (if fpacked, fits_master below will
     # point to fpacked file)
     master_present, fits_master = already_exists (fits_master, get_filename=True)
 
-    # if this is a forced re-reduction, delete the master
-    if get_par(set_bb.force_reproc_new,tel):
+
+    # if this is a forced re-reduction, delete the master if it exists
+    if master_present and get_par(set_bb.force_reproc_new,tel):
         os.remove(fits_master)
-        os.remove('{}.jpg'.format(fits_master.split('.fits')[0]))
+        # also remove jpg if it exists
+        file_jpg = '{}.jpg'.format(fits_master.split('.fits')[0])
+        if os.path.isfile(file_jpg):
+            os.remove(file_jpg)
         master_present = False
         if '.fz' in fits_master:
             fits_master = fits_master.replace('.fz','')
-        
+
+
     # check if master bias/flat does not contain any red flags:
     master_ok = True
     if master_present:
@@ -2759,6 +2785,7 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
         qc_flag = run_qc_check (header_master, tel, log=log)
         if qc_flag=='red':
             master_ok = False
+
 
     if not (master_present and master_ok):
         # prepare master image from files in [path] +/- the specified
@@ -2783,6 +2810,7 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
                 file_list.append(sorted(
                     glob.glob('{}/{}_*.fits*'.format(path_temp, tel))))
 
+
         # clean up [file_list]
         file_list = [f for sublist in file_list for f in sublist]
 
@@ -2797,6 +2825,7 @@ def master_prep (data_shape, path, date_eve, imtype, filt=None, log=None):
 
         # initialize cube of images to be combined
         nfiles = len(file_list)
+
 
         # if master bias/flat contains a red flag, look for a nearby
         # master flat instead
