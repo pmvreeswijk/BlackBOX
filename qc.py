@@ -42,7 +42,7 @@ def qc_check (header, telescope='ML1', keywords=None, cat_dummy=None,
          3) 'sigma': (E, STD) such that abs(value-E) <= n*STD,
                      where n is a list of predefined factors
                      corresponding to the accepted ranges.
-                     currently: n_std = [2, 3, 7]
+                     currently: n_std = [2, 4, 7]
          4) 'exp_abs': (E, C) such that abs(value-E) <= C
          5) 'exp_frac': (E, f) such that abs((value-E)/E) <= f 
          6) 'skip': the keyword's val_range is not considered
@@ -59,7 +59,7 @@ def qc_check (header, telescope='ML1', keywords=None, cat_dummy=None,
 
        For the value type 'sigma' only the expected value (E) and a
        standard deviation can be provided, and these are expanded to
-       three ranges using: n_std = [2, 3, 7]. So if a keyword value is
+       three ranges using: n_std = [2, 4, 7]. So if a keyword value is
        within n_std * STD, its color flag will be 'green', 'yellow'
        and 'orange', respectively. If outside of this, it will be
        flagged 'red'.
@@ -111,7 +111,7 @@ def qc_check (header, telescope='ML1', keywords=None, cat_dummy=None,
     # For instance, values within n_std[0] are flagged green, values
     # between n_std[1] and n_std[2] will be flagged orange, and values
     # beyond n_std[2] are flagged red.
-    n_std = [2, 3, 7]
+    n_std = [2, 4, 7]
 
     # determine filter if available
     if 'FILTER' in header.keys():
