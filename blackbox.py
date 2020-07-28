@@ -75,6 +75,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
                   recursive=None, imgtypes=None, filters=None, image=None, 
                   image_list=None, master_date=None, slack=None):
     
+
     """Function that processes MeerLICHT or BlackGEM images, performs
     basic image reduction tasks such as overscan subtraction,
     flat-fielding and cosmic-ray rejection, and the feeds the image to
@@ -138,13 +139,6 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          run_sextractor still needs to be done even if the background
          was already subtracted from the new or ref image.
 
-  * (40) Paul mentonioned issue with astrometry for 47Tuc, especially
-         in the u-band; seems that the A-DRASTD and A-DDESTD are a bit
-         higher than allowed and many u-band images are flagged red.
-
-  * (41) go through headers of all images again and check if ranges
-         set in set_qc are still appropriate.
-
   * (47) improve astroscrappy cosmic-ray rejection parameters; too
          many cosmics go undetected. Also: at low background levels,
          number of cosmics is too high; increase READNOISE parameter?
@@ -165,20 +159,20 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
     (65) Exception while adding S-FWHM to the image header: 
          "ValueError: Floating point nan values are not allowed in FITS headers"
-         - 
 
     (67) check if things go ok if one of the images do not contain
          valid pixel values, e.g. on the edge - at least half of the
          object footprint (2/3?) should be present in both images
 
+         --> for full-source catalog: added input parameter to
+             set_zogy settings file: [source_minpixfrac]=0.67:
+             required fraction of good pixels in footprint for source
+             to be included in output catalog. This number was
+             previously hardcoded to be 0.5.
+
+         --> for transients: ...
+
   * (68) include MeerCRAB into BlackBOX - see also item (60)
-
-    (70) find out reason for correlation between low background and
-         very poor S-SEESTD estimate in many u-band images
-
-  * (72) remake bad pixel mask with edge pixels about 5 pixels wider,
-         to be more conservative, and check if bad pixels are similar
-         as before
 
 
     Done:
@@ -397,6 +391,17 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          Solution: deleted required installation of fitsio in setup.py 
                    file; also switched to singularity 3.5.2 
 
+  * (40) Paul mentonioned issue with astrometry for 47Tuc, especially
+         in the u-band; seems that the A-DRASTD and A-DDESTD are a bit
+         higher than allowed and many u-band images are flagged red.
+         --> these values are simply higher in many u-band images, so
+             the limits on these were made filter-dependent, with
+             higher limits for the u band; u-band cut-off is now
+             around 0.34 mag.
+    
+  * (41) go through headers of all images again and check if ranges
+         set in set_qc are still appropriate.
+
   * (42) add jpg of reduced new/ref images to output, in similar
          fashion to fpacking of images at the end of blackbox
 
@@ -501,8 +506,26 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          objects, so that limit on fraction can be set rather than
          absolute number - see also item (15)
 
+    (70) find out reason for correlation between low background and
+         very poor S-SEESTD estimate in many u-band images
+         --> at low background levels the scatter in SExtractor's
+             SEEING estimate is high, so not very reliable; better not
+             use S-SEESTD in data QC, and use PSF-FWHM rather than
+             S-SEEING for seeing estimate
+
     (71) do not consider images with FIELD_ID or OBJECT=00000 and
          with test in name
+
+  * (72) remake bad pixel mask with edge pixels about 5 pixels wider,
+         to be more conservative, and check if bad pixels are similar
+         as before
+         --> made new MeerLICHT bad pixel mask
+             (bpm_u_0p05_20200727.fits.fz) with 10 additional pixels
+             for the edge; the bad pixels (with value=1) were very
+             similar to the old mask and therefore the OR combination
+             of the old and new bad pixels (normalized level<0.05 or
+             >1.5) is used in the new mask
+
 
     (73) check why A-DRA and A-DDEC increased around 15 November 2019;
          probably to do with new singularity container and the
@@ -512,6 +535,12 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
              old index files that were built from the initial Gaia DR2
              download, which was improved in September 2018; this also
              explains the slight offset
+
+    (74) make sure edge pixels are really set to zero; doesn't seem to
+         be the case at the moment, possibly leading to fake transient
+         on the edges of either new or ref
+         --> in master flat, not all edge pixels are exactly 1, which
+             is probably due to rouding off error in fpacking
 
     """
     
@@ -1621,9 +1650,6 @@ def blackbox_reduce (filename):
                 ds9_arrays(mask=data_mask)
 
 
-            # set edge pixel values to zero
-            data[data_mask==get_par(set_zogy.mask_value['edge'],tel)] = 0
-
 
         # if IMAGETYP=flat, write [data] to fits and return
         if imgtype == 'flat':
@@ -1729,9 +1755,10 @@ def blackbox_reduce (filename):
 
     
         if get_par(set_zogy.display,tel):
-            val_temp = get_par(set_zogy.mask_value['cosmic ray'],tel)
-            data_mask_cosmics = (data_mask & val_temp == val_temp).astype('uint8')
-            data_mask_cosmics *= val_temp
+            value_cosmic = get_par(set_zogy.mask_value['cosmic ray'],tel)
+            mask_cosmics = (data_mask & value_cosmic == value_cosmic)
+            data_mask_cosmics = np.zeros_like (mask_cosmics, dtype='uint8')
+            data_mask_cosmics[mask_cosmics] = value_cosmic
             ds9_arrays(data=data_precosmics, cosmic_cor=data, mask=data_mask,
                        mask_cosmics=data_mask_cosmics)
             log.info ('number of cosmics per second: {}'
@@ -1763,6 +1790,10 @@ def blackbox_reduce (filename):
         # add some more info to mask header
         result = mask_header(data_mask, header_mask)
 
+        # set edge pixel values to zero
+        value_edge = get_par(set_zogy.mask_value['edge'],tel)
+        mask_edge = (data_mask & value_edge == value_edge)
+        data[mask_edge] = 0
 
         # write data and mask to output images in [tmp_path] and
         # add name of reduced image and corresponding mask in header just
@@ -2220,7 +2251,7 @@ def blackbox_reduce (filename):
 
 
 ################################################################################
-
+    
 def get_flatstats (data, header, imgtype):
     
     # add some header keywords with the statistics
@@ -2745,7 +2776,7 @@ def mask_header(data_mask, header_mask):
         
     return
 
-    
+
 ################################################################################
 
 def master_prep (fits_master, data_shape, log=None):
@@ -3011,10 +3042,12 @@ def master_prep (fits_master, data_shape, log=None):
                                     (master_median<=0))
                     master_median[mask_replace] = 1
                     
-                # now that master flat is produced, normalize the
-                # different channels such that the final image
-                # appears smooth without any jumps in levels 
-                # between the different channels
+
+                # now that master flat is produced, calculate (but do
+                # not apply) the different channels' normalization
+                # factors such that the resulting image would appear
+                # smooth without any jumps in levels between the
+                # different channels
 
                 __, __, __, __, data_sec_red = define_sections(data_shape, tel=tel)
                 nchans = np.shape(data_sec_red)[0]
