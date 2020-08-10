@@ -126,10 +126,6 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
     (25) does nproc decrease when running pool_func a 2nd time?
 
-    (27) number of initials SExtractor detections (S-NOBJ) not the same
-         as final number of objects in output catalog (5 sigma); maybe
-         add keyword that indicates the latter number
-
     (29) need way to avoid running SExtractor on edges of images; for 
          MeerLICHT, edges are zeroed in BlackBOX
 
@@ -138,13 +134,6 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          [get_back]; if not, then improved background determination in
          run_sextractor still needs to be done even if the background
          was already subtracted from the new or ref image.
-
-  * (47) improve astroscrappy cosmic-ray rejection parameters; too
-         many cosmics go undetected. Also: at low background levels,
-         number of cosmics is too high; increase READNOISE parameter?
-         Finally: check if using sepmed filter is still a problem for
-         fields with many saturated stars; could have been due to
-         satlevel set too low previously.
 
     (57) save header as separate fits file
 
@@ -160,19 +149,16 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     (65) Exception while adding S-FWHM to the image header: 
          "ValueError: Floating point nan values are not allowed in FITS headers"
 
-    (67) check if things go ok if one of the images do not contain
-         valid pixel values, e.g. on the edge - at least half of the
-         object footprint (2/3?) should be present in both images
-
-         --> for full-source catalog: added input parameter to
-             set_zogy settings file: [source_minpixfrac]=0.67:
-             required fraction of good pixels in footprint for source
-             to be included in output catalog. This number was
-             previously hardcoded to be 0.5.
-
-         --> for transients: ...
-
   * (68) include MeerCRAB into BlackBOX - see also item (60)
+
+    (76) currently the QC-FLAG relates to both the image/full-source
+         catalog header and the transient source catalog; we should
+         probably differentiate between them, i.e.  the flag of an
+         image and full-source catalog (QC-FLAGF?) need not be the
+         same as the flag of the transient catalog (QC-FLAGT?).
+
+    (77) make bad pixel maps filter-dependent with f_bad < 0.2 but
+         same edges??
 
 
     Done:
@@ -299,6 +285,12 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          determined. This latter method turns out to be not working
          too well as often not that many calibration sources are
          available.
+
+    (27) number of initials SExtractor detections (S-NOBJ) not the same
+         as final number of objects in output catalog (5 sigma); maybe
+         add keyword that indicates the latter number
+         --> added NOBJECTS keyword indicating the number of >=5 sigma
+             detections
 
   * (28) flatfields regularly show a gradient diagonally across the image,
          increasing from lower left to top right, and these flats are
@@ -427,6 +419,17 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          f needs to be determined (~0.1-0.5). Or using error estimate
          on image FWHM: FWHM_obj < FWHM_ima * nsigma * err_FWHM_ima
 
+  * (47) improve astroscrappy cosmic-ray rejection parameters; too
+         many cosmics go undetected. Also: at low background levels,
+         number of cosmics is too high; increase READNOISE parameter?
+         Finally: check if using sepmed filter is still a problem for
+         fields with many saturated stars; could have been due to
+         satlevel set too low previously.
+         --> after tests on several images, updated parameters
+             sigclip=8 (6), sigfrac=0.01 (0.3), objlim=1 (20),
+             sepmed=False (False)
+
+
     (48) add mode such that all input files are considered new images,
          i.e. no reference images are created, nor is the comparison
          between new and ref done. This is to speed up the processing
@@ -502,6 +505,23 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
     (66) update zogy.py so that reduced images are background subtracted
 
+    (67) check if things go ok if one of the images do not contain
+         valid pixel values, e.g. on the edge - at least half of the
+         object footprint (2/3?) should be present in both images
+
+         --> for full-source catalog: added input parameter to
+             set_zogy settings file: [source_minpixfrac]=0.67:
+             required fraction of good pixels in footprint for source
+             to be included in output catalog. This number was
+             previously hardcoded to be 0.5.
+
+         --> for transients: extracted transient regions will likely
+             not contain edge pixels because those will typically not
+             be significant. So implemented calculation of distance in
+             pixels between transient center and closest edge pixels
+             and require a mimimum of 10 pixels (hardcoded), using
+             function get_edge_coords.
+
     (69) add number of transients normalized by total number of
          objects, so that limit on fraction can be set rather than
          absolute number - see also item (15)
@@ -526,7 +546,6 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
              of the old and new bad pixels (normalized level<0.05 or
              >1.5) is used in the new mask
 
-
     (73) check why A-DRA and A-DDEC increased around 15 November 2019;
          probably to do with new singularity container and the
          astrometry.net index files; 20258-?? starting from 15/11/2019
@@ -541,6 +560,9 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          on the edges of either new or ref
          --> in master flat, not all edge pixels are exactly 1, which
              is probably due to rouding off error in fpacking
+
+    (75) use full background standard deviation image in get_trans
+         instead of image average
 
     """
     
@@ -1647,7 +1669,7 @@ def blackbox_reduce (filename):
 
 
             if get_par(set_zogy.display,tel):
-                ds9_arrays(mask=data_mask)
+                    ds9_arrays(mask=data_mask)
 
 
 
@@ -1731,8 +1753,9 @@ def blackbox_reduce (filename):
 
 
         if get_par(set_zogy.display,tel):
-            ds9_arrays(flat_cor=data)
+            #ds9_arrays(flat_cor=data)
             data_precosmics = np.copy(data)
+            data_mask_precosmics = np.copy(data_mask)
 
 
         # cosmic ray detection and correction
@@ -1759,10 +1782,11 @@ def blackbox_reduce (filename):
             mask_cosmics = (data_mask & value_cosmic == value_cosmic)
             data_mask_cosmics = np.zeros_like (mask_cosmics, dtype='uint8')
             data_mask_cosmics[mask_cosmics] = value_cosmic
-            ds9_arrays(data=data_precosmics, cosmic_cor=data, mask=data_mask,
-                       mask_cosmics=data_mask_cosmics)
             log.info ('number of cosmics per second: {}'
                       .format(header['NCOSMICS']))
+            ds9_arrays(data=data_precosmics,
+                       mask_cosmics=data_mask_cosmics,
+                       cosmic_cor=data)
 
 
         # satellite trail detection
@@ -2635,13 +2659,21 @@ def cosmics_corr (data, header, data_mask, header_mask):
     if get_par(set_zogy.timing,tel):
         t = time.time()
     
-    satlevel_electrons = (get_par(set_bb.satlevel,tel) *
-                          np.mean(get_par(set_bb.gain,tel)) - header['BIASMEAN'])
+    # set satlevel to infinite, as input [data_mask] already contains
+    # saturated and saturated-connected pixels that will not be considered
+    # in the cosmic-ray detection; in fact all masked pixels are excluded
+    #satlevel_electrons = (get_par(set_bb.satlevel,tel) *
+    #                      np.mean(get_par(set_bb.gain,tel)) - header['BIASMEAN'])
+    satlevel_electrons = np.inf
+    # boost average readnoise to avoid deviant/noisy pixels in
+    # low-background images to be picked up as cosmics
+    readnoise = 1.0 * header['RDNOISE']
     mask_cr, data = astroscrappy.detect_cosmics(
         data, inmask=(data_mask!=0), sigclip=get_par(set_bb.sigclip,tel),
         sigfrac=get_par(set_bb.sigfrac,tel), objlim=get_par(set_bb.objlim,tel),
-        niter=get_par(set_bb.niter,tel), readnoise=header['RDNOISE'],
+        niter=get_par(set_bb.niter,tel), readnoise=readnoise,
         satlevel=satlevel_electrons, cleantype='medmask', 
+        #fsmode='convolve', psfmodel='moffat', psffwhm=4, psfsize=13,
         sepmed=get_par(set_bb.sepmed,tel))
 
     # from astroscrappy 'manual': To reproduce the most similar
@@ -2790,7 +2822,8 @@ def master_prep (fits_master, data_shape, log=None):
     imtype, date_eve = filename.split('.fits')[0].split('_')[0:2]
     if imtype == 'flat':
         filt = filename.split('.fits')[0].split('_')[-1]
-
+    else:
+        filt = None
 
     # check if already present (if fpacked, fits_master below will
     # point to fpacked file)
