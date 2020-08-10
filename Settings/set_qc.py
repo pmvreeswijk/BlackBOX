@@ -223,7 +223,7 @@ qc_range = {
         # PSFEx
         'PSF-NOBJ': {'default':'None', 'val_type': 'min_max', 'val_range': [ (500,2e4), (100,5e4), (10,2e5) ],  'cat_type': 'all', 'comment': 'number of accepted PSF stars'},
         'PSF-CHI2': {'default':'None', 'val_type': 'sigma',   'val_range': [ (1, 0.1) ],                        'cat_type': 'all', 'comment': 'final reduced chi-squared PSFEx fit'},
-        'PSF-FWHM': {'default':'None', 'val_type': 'min_max', 'val_range': [ (2,4), (1,5), (0.5,8) ],           'cat_type': 'all', 'comment': '[arcsec] image FWHM inferred by PSFEx'},
+        'PSF-FWHM': {'default':'None', 'val_type': 'min_max', 'val_range': [ (1.5,4), (1,5), (0.5,8) ],         'cat_type': 'all', 'comment': '[arcsec] image FWHM inferred by PSFEx'},
 
         # photometric calibration (PC)
         'PC-CAT-F': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'cat_type': 'all', 'comment': 'photometric catalog'},
@@ -258,13 +258,21 @@ qc_range = {
 
         # N.B.: these limmags below are assuming 5 sigma, as set by source_nsigma in ZOGY settings file
         # if that 5 sigma changes, these number need updating with correction: -2.5*log10(nsigma/5)!
-        'LIMMAG'  : {'default':'None', 'val_type': 'sigma',   'val_range': {'u': [ (19.2, 0.15) ],
-                                                                            'g': [ (20.3, 0.15) ],
-                                                                            'q': [ (20.8, 0.15) ],
-                                                                            'r': [ (20.1, 0.15) ],
-                                                                            'i': [ (19.5, 0.15) ],
-                                                                            'z': [ (18.3, 0.15) ]},              'cat_type': 'all', 'comment': '[mag] full-frame 5-sigma limiting magnitude'},
+        'LIMMAG'  : {'default':'None', 'val_type': 'min_max', 'val_range': {'u': [ (18.9, 22.2), (18.6, 22.2), (18.2, 22.2) ],
+                                                                            'g': [ (20.0, 23.3), (19.7, 23.3), (19.3, 23.3) ],
+                                                                            'q': [ (20.5, 23.9), (20.2, 23.9), (19.8, 23.9) ],
+                                                                            'r': [ (19.8, 23.1), (19.5, 23.1), (19.1, 23.1) ],
+                                                                            'i': [ (19.2, 22.5), (18.9, 22.5), (18.5, 22.5) ],
+                                                                            'z': [ (18.0, 21.3), (17.7, 21.3), (17.3, 21.3) ]},              'cat_type': 'all', 'comment': '[mag] full-frame 5-sigma limiting magnitude'},
+        # previously using sigma method
+        #'LIMMAG'  : {'default':'None', 'val_type': 'sigma',   'val_range': {'u': [ (19.2, 0.15) ],
+        #                                                                    'g': [ (20.3, 0.15) ],
+        #                                                                    'q': [ (20.8, 0.15) ],
+        #                                                                    'r': [ (20.1, 0.15) ],
+        #                                                                    'i': [ (19.5, 0.15) ],
+        #                                                                    'z': [ (18.3, 0.15) ]},              'cat_type': 'all', 'comment': '[mag] full-frame 5-sigma limiting magnitude'},
 
+        
         # Transients
         'Z-DX'    : {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 0.04) ],                       'cat_type': 'trans', 'comment': '[pix] dx median offset full image'},
         'Z-DY'    : {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 0.04) ],                       'cat_type': 'trans', 'comment': '[pix] dy median offset full image'},
@@ -278,17 +286,28 @@ qc_range = {
                                                                             'i': [ (0.03, 0.03) ], 
                                                                             'z': [ (0.03, 0.03) ]},             'cat_type': 'trans', 'comment': 'sigma (STD) flux ratio (Fnew/Fref) full image'},
 
-        'Z-SCMED' : {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 0.1) ],                        'cat_type': 'trans', 'comment': 'median Scorr full image'},
-        'Z-SCSTD' : {'default':'None', 'val_type': 'sigma',   'val_range': [ (1, 0.1) ],                        'cat_type': 'trans', 'comment': 'sigma (STD) Scorr full image'},
+        'Z-SCMED' : {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 0.30) ],                       'cat_type': 'trans', 'comment': 'median Scorr full image'},
+        'Z-SCSTD' : {'default':'None', 'val_type': 'sigma',   'val_range': [ (1, 0.15) ],                       'cat_type': 'trans', 'comment': 'sigma (STD) Scorr full image'},
         'T-NTRANS': {'default':'None', 'val_type': 'skip',    'val_range': [ (100, 200) ],                      'cat_type': 'trans', 'comment': 'number of >= [T-NSIGMA]-sigma transients (pre-vetting)'},
         'T-FTRANS': {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 0.005) ],                      'cat_type': 'trans', 'comment': 'ntrans/nobject ratio: T-NTRANS / NOBJECTS in new image'},
-        'T-LMAG' :  {'default':'None', 'val_type': 'sigma',   'val_range': {'u': [ (19.0, 0.15) ],
-                                                                            'g': [ (20.1, 0.15) ],
-                                                                            'q': [ (20.6, 0.15) ],
-                                                                            'r': [ (19.9, 0.15) ],
-                                                                            'i': [ (19.3, 0.15) ],
-                                                                            'z': [ (18.2, 0.15) ]},              'cat_type': 'trans', 'comment': '[mag] full-frame transient [T-NSIGMA]-sigma limiting mag'},
-        #
+        
+        # N.B.: these limmags below are assuming 6 sigma, as set by transient_nsigma in ZOGY settings file        
+        # if that 6 sigma changes, these number need updating with correction: -2.5*log10(nsigma/6)!
+        'T-LMAG' :  {'default':'None', 'val_type': 'min_max', 'val_range': {'u': [ (18.7, 22.0), (18.4, 22.0), (18.0, 22.0) ],
+                                                                            'g': [ (19.8, 23.1), (19.5, 23.1), (19.1, 23.1) ],
+                                                                            'q': [ (20.3, 23.6), (20.0, 23.6), (19.6, 23.6) ],
+                                                                            'r': [ (19.6, 22.9), (19.3, 22.9), (18.9, 22.9) ],
+                                                                            'i': [ (19.0, 22.3), (18.7, 22.3), (18.3, 22.3) ],
+                                                                            'z': [ (17.9, 21.2), (17.6, 21.2), (17.2, 21.2) ]},              'cat_type': 'trans', 'comment': '[mag] full-frame transient [T-NSIGMA]-sigma limiting mag'},
+        # previously using sigma method:
+        #'T-LMAG' :  {'default':'None', 'val_type': 'sigma',   'val_range': {'u': [ (19.0, 0.15) ],
+        #                                                                    'g': [ (20.1, 0.15) ],
+        #                                                                    'q': [ (20.6, 0.15) ],
+        #                                                                    'r': [ (19.9, 0.15) ],
+        #                                                                    'i': [ (19.3, 0.15) ],
+        #                                                                    'z': [ (18.2, 0.15) ]},              'cat_type': 'trans', 'comment': '[mag] full-frame transient [T-NSIGMA]-sigma limiting mag'},
+
+        
         # some additional ones to make sure these are listed in the dummy output catalogs
         'REDFILE':  {'default':'None', 'val_type': 'skip',    'val_range': None,                                'cat_type': 'all',   'comment': 'BlackBOX reduced image name'},
         'MASKFILE': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'cat_type': 'all',   'comment': 'BlackBOX mask image name'},
