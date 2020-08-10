@@ -30,7 +30,7 @@ import set_buildref as set_br
 import set_blackbox as set_bb
 
 
-__version__ = '0.5'
+__version__ = '0.5.1'
 
 
 ################################################################################
@@ -69,7 +69,16 @@ def buildref (telescope=None, date_start=None, date_end=None, field_ID=None,
          images, as the background box size with which a mini image was 
          made may not be the same as the currently set value in the 
          settings file.
-        
+
+    (21) reference image specific logfile is not being created; why
+         not? Perhaps due to switching off logging stream handler?
+
+    (22) if set_buildref.center_type is not set to 'grid', the images
+         produced in the different filters will be slightly offset,
+         also resulting in a colour figure that is off.  Improve this
+         by taking the mean or median RA/DEC of all images of the
+         field, not just for that filter.
+
 
     Done:
     -----
@@ -211,6 +220,15 @@ def buildref (telescope=None, date_start=None, date_end=None, field_ID=None,
          - number of best images to select
          - header keyword on which to sort the best images, e.g.
            LIMMAG or S-SEEING
+
+    (20) need to include images in the co-adds that were flagged red
+         based on their comparison with the reference image; i.e. the
+         image itself is fine, but the image subtraction did not go
+         well. In practice: check the QC-RED?  flags if they all
+         contain "Z-" or "T-".
+         --> QC-FLAG gets promoted to a higher colour in function
+             header2table if QC-[flag colour] start with 'Z-', 'T-' or
+             'V-'
 
     """
     
@@ -469,7 +487,7 @@ def buildref (telescope=None, date_start=None, date_end=None, field_ID=None,
     list_2pack = []
     for field_ID in objs_uniq:
         ref_path = '{}/{:05}'.format(ref_dir, field_ID)
-        ref_path = '{}_alt3'.format(ref_path)
+        ref_path = '{}_alt4'.format(ref_path)
         list_2pack.append(glob.glob('{}/*.fits'.format(ref_path)))
 
     # unnest nested list_2pack
@@ -606,15 +624,41 @@ def header2table (filenames):
                                  .format(filename)))
             continue
 
-                
+
         # check if all keywords present before appending to table
-        append = True
-        for key in keys:
-            if key not in h:
-                q.put(genlog.warning('keyword {} not in header; skipping image {}'
-                                     .format(key, filename)))
-                append = False
-                break
+        mask_key = [key not in h for key in keys]
+        if np.any(mask_key):
+            q.put(genlog.warning('keyword(s) {} not in header; skipping image {}'
+                                 .format(np.array(keys)[mask_key], filename)))
+            continue
+
+
+        # check if flag of particular colour was set in the
+        # image-subtraction stage; if yes, then promote the flag
+        # colour as that flag is not relevant to the image itself and
+        # the image should be used in building the reference image
+        qc_col = ['red', 'orange', 'yellow', 'green']
+        for col in qc_col:
+            # check if current colour is the same as the QC flag
+            if h['QC-FLAG'] == col and col != 'green':
+                # loop keywords with this flag; potentially 100
+                key_base = 'QC-{}'.format(col[:3]).upper()
+                for i in range(1,100):
+                    key_temp = '{}{}'.format(key_base, i)
+                    if key_temp in h:
+                        # if keyword value does not start with 'Z-',
+                        # 'T-' or 'V-', then break; the QC-FLAG will
+                        # not get updated
+                        if not h[key_temp].startswith(('Z-', 'T-', 'V-')):
+                            break
+            
+                else: # associated to the for loop!
+                    # none of the flags' keywords were due to image subtraction
+                    # stage, so promote the QC-FLAG
+                    h['QC-FLAG'] = qc_col[qc_col.index(col)+1]
+                    q.put(genlog.info('updating QC-FLAG from {} to {} for image {}'
+                                      .format(col, h['QC-FLAG'], filename)))
+
 
         if True:
             # up to v0.9.2, it was possible for the reduced image
@@ -649,15 +693,15 @@ def header2table (filenames):
                     h[key] = h_cat[key]
 
                 
-        if append:
-            # prepare row of filename and header values
-            row = [filename]
-            for key in keys:
-                row.append(h[key])
-            # append to rows
-            rows.append(row)
+        # for surviving files, prepare row of filename and header values
+        row = [filename]
+        for key in keys:
+            row.append(h[key])
+        # append to rows
+        rows.append(row)
 
-            
+
+
     # create table from rows
     names = ['FILE']
     for key in keys:
@@ -685,7 +729,7 @@ def prep_colfig (field_ID, filters):
     ref_path = '{}/{:05}'.format(get_par(set_bb.ref_dir,tel), field_ID)
     # for the moment, add _alt to this path to separate it from
     # existing reference images
-    ref_path = '{}_alt3'.format(ref_path)
+    ref_path = '{}_alt4'.format(ref_path)
 
     # header keyword to use for scaling (e.g. PC-ZP or LIMMAG)
     key = 'LIMMAG'
@@ -749,12 +793,12 @@ def prep_colfig (field_ID, filters):
 ################################################################################
 
 def prep_ref (imagelist, field_ID, filt):
-    
+
     # determine reference directory and file
     ref_path = '{}/{:05}'.format(get_par(set_bb.ref_dir,tel), field_ID)
     # for the moment, add _alt to this path to separate it from
     # existing reference images
-    ref_path = '{}_alt3'.format(ref_path)
+    ref_path = '{}_alt4'.format(ref_path)
     
     make_dir (ref_path, lock=lock)
     ref_fits_out = '{}/{}_{}_red.fits'.format(ref_path, tel, filt)
@@ -795,7 +839,7 @@ def prep_ref (imagelist, field_ID, filt):
         
     # prepare temporary folder; for the moment, add _alt to this path
     # to separate it from existing reference images.
-    tmp_path = ('{}/{:05}_alt3/{}'
+    tmp_path = ('{}/{:05}_alt4/{}'
                 .format(get_par(set_bb.tmp_dir,tel), field_ID,
                         ref_fits_out.split('/')[-1].replace('.fits','')))
     make_dir (tmp_path, empty=True, lock=lock)
@@ -806,6 +850,7 @@ def prep_ref (imagelist, field_ID, filt):
 
     # create logfile specific to this reference image in tmp folder
     # (to be copied to final output folder at the end)
+    global log
     logfile = ref_fits.replace('.fits', '.log')
     log = create_log (logfile)
 
@@ -1169,25 +1214,32 @@ def imcombine (field_ID, imagelist, outputfile, combine_type, overwrite=True,
                         'not using it in image combination'.format(image, e))
             continue
 
-
-        bkg_corr = False
-        if 'BKG-CORR' in header:
-            if header['BKG-CORR']:
-                bkg_corr = True
+        
+        if 'BKG-SUB' in header and header['BKG-SUB']:
+            bkg_sub = True
+        else:
+            bkg_sub = False
 
                 
-        if back_type != 'new' or bkg_corr:
-            # read corresponding mini background image
-            image_bkg_mini = image.replace('red.fits', 'red_bkg_mini.fits')
-            data_bkg_mini, header_bkg_mini = read_hdulist(image_bkg_mini,
-                                                          get_header=True,
-                                                          dtype='float32')
-            # convert mini to full background image
-            bkg_boxsize = header_bkg_mini['BKG_SIZE']
-            data_bkg = mini2back (data_bkg_mini, data.shape, 
-                                  order_interp=3,
-                                  bkg_boxsize=bkg_boxsize, timing=False,
-                                  log=log, tel=tel, set_zogy=set_zogy)
+        if back_type != 'new' or bkg_sub:
+
+            # background itself is not needed if the image was already
+            # background subtracted; the background standard deviation
+            # image is needed for the variance/weights calculation
+            # below
+            if not bkg_sub:
+                # read corresponding mini background image
+                image_bkg_mini = image.replace('red.fits', 'red_bkg_mini.fits')
+                data_bkg_mini, header_bkg_mini = read_hdulist(image_bkg_mini,
+                                                              get_header=True,
+                                                              dtype='float32')
+                # convert mini to full background image
+                bkg_boxsize = header_bkg_mini['BKG_SIZE']
+                data_bkg = mini2back (data_bkg_mini, data.shape, 
+                                      order_interp=3,
+                                      bkg_boxsize=bkg_boxsize, timing=False,
+                                      log=log, tel=tel, set_zogy=set_zogy)
+
 
             # read mini background standard deviation image
             image_bkg_std_mini = image.replace('red.fits', 'red_bkg_std_mini.fits')
@@ -1224,14 +1276,14 @@ def imcombine (field_ID, imagelist, outputfile, combine_type, overwrite=True,
             pixscale = header['A-PSCALE']
             fwhm = header['S-FWHM']
             imtype = 'new'
+            sex_params = get_par(set_zogy.sex_par,tel)
             try:
                 result = run_sextractor(
                     image_temp, sexcat, get_par(set_zogy.sex_cfg,tel),
-                    get_par(set_zogy.sex_par,tel), pixscale, log, header,
-                    fit_psf=False, return_fwhm_elong=False, fraction=1.0,
-                    fwhm=fwhm, save_bkg=True, update_vignet=False,
-                    imtype=imtype, fits_mask=image_mask_temp,
-                    npasses=get_par(set_zogy.bkg_npasses,tel), tel=tel,
+                    sex_params, pixscale, log, header, fit_psf=False,
+                    return_fwhm_elong=False, fraction=1.0, fwhm=fwhm,
+                    update_vignet=False, imtype=imtype,
+                    fits_mask=image_mask_temp, npasses=2, tel=tel,
                     set_zogy=set_zogy)
                 
             except Exception as e:
@@ -1239,15 +1291,23 @@ def imcombine (field_ID, imagelist, outputfile, combine_type, overwrite=True,
                 log.error('exception was raised during [run_sextractor]: {}'
                           .format(e))
 
-            # read background image created in [run_sextractor]
-            image_temp_bkg = '{}_bkg.fits'.format(base)
-            data_bkg = read_hdulist (image_temp_bkg, dtype='float32')
+            # read source-extractor output image data and header
+            data, header = read_hdulist(image_temp, get_header=True)
+
+            # check if background was subtracted this time
+            if 'BKG-SUB' in header and header['BKG-SUB']:
+                bkg_sub = True
+            else:
+                bkg_sub = False
+
+            if not bkg_sub:
+                # read background image created in [run_sextractor]
+                image_temp_bkg = '{}_bkg.fits'.format(base)
+                data_bkg = read_hdulist (image_temp_bkg, dtype='float32')
+
             image_temp_bkg_std = '{}_bkg_std.fits'.format(base)
             data_bkg_std = read_hdulist (image_temp_bkg_std, dtype='float32')
 
-            # read source-extractor output image data and header
-            data, header = read_hdulist(image_temp, get_header=True)
-            
 
         
         # determine weights image (1/variance) 
@@ -1347,7 +1407,14 @@ def imcombine (field_ID, imagelist, outputfile, combine_type, overwrite=True,
         # save image in temp folder; first subtract background if
         # background option 'blackbox' is selected
         if back_type == 'blackbox' or back_type == 'new':
-            data -= data_bkg
+
+            # first check again if image is not already
+            # background-subtracted; if it was not in the first place,
+            # it could have been background subtracted in the
+            # source-extractor run with back_type == 'new'
+            if not bkg_sub:
+                data -= data_bkg
+
             # set edge pixel values of image to zero, otherwise those
             # pixels will be negative and will/may end up in the edge
             # of the combined image
@@ -1544,7 +1611,10 @@ def imcombine (field_ID, imagelist, outputfile, combine_type, overwrite=True,
     # background subtraction method
     header_out['R-BKG-M'] = (back_type,
                              'input images background subtraction method')
-    # background subtracted?
+
+    # background subtracted? N.B.: back_type=='none' is only used for
+    # the special case of average combination without background
+    # subtraction
     if back_type == 'none':
         bkg_sub = False
     else:
@@ -1720,7 +1790,7 @@ def imcombine (field_ID, imagelist, outputfile, combine_type, overwrite=True,
                     data_mask_remap_alt = ndimage.geometric_transform(data_mask, trans_func)
 
                     # write to image
-                    fits.writeto(image_mask.replace('.fits','_alt3'+remap_suffix),
+                    fits.writeto(image_mask.replace('.fits','_alt4'+remap_suffix),
                                  data_mask_remap_alt)
                     
                     log.info ('wall-time spent in remapping alt mask: {}'
@@ -2396,21 +2466,21 @@ if __name__ == "__main__":
     parser.add_argument('--date_start', type=str, default=None,
                         help='start date to include images, date string '
                         '(e.g. yyyymmdd) or days relative to now (negative '
-                        'number)')
+                        'number); default=None')
     parser.add_argument('--date_end', type=str, default=None,
                         help='end date to include images, date string '
                         '(e.g. yyyymmdd) or days relative to now (negative '
-                        'number)')
+                        'number); default=None')
     parser.add_argument('--field_ID', type=str, default=None,
                         help='only consider images with this(these) field ID(s) '
-                        '(optional use of * and ? wildcards)')
+                        '(optional use of * and ? wildcards); default=None')
     parser.add_argument('--filters', type=str, default=None,
                         help='only consider this(these) filter(s), e.g. uqi')
     parser.add_argument('--qc_flag_max', type=str, default='yellow',
                         choices=['green', 'yellow', 'orange', 'red'],
-                        help='worst QC flag to consider')
+                        help='worst QC flag to consider; default=\'yellow\'')
     parser.add_argument('--seeing_max', type=float, default=None,
-                        help='[arcsec] maximum seeing to consider')
+                        help='[arcsec] maximum seeing to consider; default=None')
     parser.add_argument('--make_colfig', type=str2bool, default=False,
                         help='make color figures from uqi filters?; '
                         'default=False')
