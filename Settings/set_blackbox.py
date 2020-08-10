@@ -18,9 +18,10 @@ nthread = 2
 # switch on/off different parts
 img_reduce = True
 cat_extract = True
-trans_extract = True
+trans_extract = False
 
-# force re-processing of new image only for steps that are switched on
+# force re-processing of new image, only for above parts that are
+# switched on
 force_reproc_new = False
 
 # subtract master bias
@@ -105,14 +106,14 @@ nonlin_corr_file = {'ML1': '{}/CalFiles/nonlin_splines_20200501.pkl'
 # values adopted for these LA Cosmic's parameters used in
 # astroscrappy; play with these values and see what works best; Kerry
 # had sigclip=6 and objlim=10
-sigclip = {'ML1': 6.0, 'BG': 20}
-sigfrac = 0.3
-objlim = 10.0
-niter = 3
+sigclip = {'ML1': 8.0, 'BG': 20}
+sigfrac = 0.01
+objlim = 1.0
+niter = 2
 # use separable median filter instead of the full median filter;
 # [sepmed]=True is significantly faster (factor ~3), but can lead to
 # bright stars being masked and corrected as if they are cosmics
-sepmed = True
+sepmed = False
 
 # binning used for satellite trail detection
 sat_bin = 2
