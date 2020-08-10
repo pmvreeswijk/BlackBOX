@@ -1656,7 +1656,7 @@ def blackbox_reduce (filename):
             try:
                 log.info('preparing the initial mask')
                 mask_processed = False
-                data_mask, header_mask = mask_init (data, header)
+                data_mask, header_mask = mask_init (data, header, filt)
             except Exception as e:
                 q.put(logger.info(traceback.format_exc()))
                 q.put(logger.error('exception was raised during [mask_init]: {}'.format(e)))
@@ -2712,7 +2712,7 @@ def cosmics_corr (data, header, data_mask, header_mask):
 
 ################################################################################
 
-def mask_init (data, header):
+def mask_init (data, header, filt):
 
     """Function to create initial mask from the bad pixel mask (defining
        the bad and edge pixels), and pixels that are saturated and
@@ -2723,7 +2723,8 @@ def mask_init (data, header):
     if get_par(set_zogy.timing,tel):
         t = time.time()
     
-    fits_bpm = get_par(set_bb.bad_pixel_mask,tel)
+    fits_bpm = (get_par(set_bb.bad_pixel_mask,tel)
+                .replace('bpm', 'bpm_{}'.format(filt)))
 
     bpm_present, fits_bpm = already_exists (fits_bpm, get_filename=True)
     if bpm_present:
@@ -3062,17 +3063,18 @@ def master_prep (fits_master, data_shape, log=None):
                 header_master['FLATDITH'] = (flat_dithered, 'majority of flats were dithered')
 
                 # set edge and non-positive pixels to 1; edge pixels
-                # are idenfitied by reading in bad pixel mask as
+                # are identified by reading in bad pixel mask as
                 # master preparation is not necessariliy linked to the
                 # mask of an object image, e.g. in function
                 # [masters_left]
-                fits_bpm = get_par(set_bb.bad_pixel_mask,tel)
+                fits_bpm = (get_par(set_bb.bad_pixel_mask,tel)
+                            .replace('bpm', 'bpm_{}'.format(filt)))
                 bpm_present, fits_bpm = already_exists (fits_bpm, get_filename=True)
                 if bpm_present:
                     # if mask exists, read it
                     data_mask = read_hdulist(fits_bpm)
-                    mask_replace = ((data_mask==get_par(set_zogy.mask_value['edge'],tel)) |
-                                    (master_median<=0))
+                    mask_replace = ((data_mask==get_par(
+                        set_zogy.mask_value['edge'],tel)) | (master_median<=0))
                     master_median[mask_replace] = 1
                     
 

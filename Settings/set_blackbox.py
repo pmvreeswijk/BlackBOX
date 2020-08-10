@@ -82,22 +82,24 @@ new_2keep = trans_extract_exts + all_2keep
 #===============================================================================
 
 # name of Xtalk file created by Kerry
-crosstalk_file = {'ML1': os.environ['BLACKBOXHOME']+'/CalFiles/crosstalk_20180620.txt',
-                  'BG': os.environ['BLACKBOXHOME']+'/CalFiles/crosstalk_20180620.txt'}
+bb_home = os.environ['BLACKBOXHOME']
+crosstalk_file = {'ML1': '{}/CalFiles/crosstalk_20180620.txt'.format(bb_home),
+                  'BG':  '{}/CalFiles/crosstalk_20180620.txt'.format(bb_home)}
 
-# name of initial bad pixel mask
-bad_pixel_mask = {'ML1': os.environ['BLACKBOXHOME']+'/CalFiles/bpm_u_0p05.fits.fz',
-                  'BG': os.environ['BLACKBOXHOME']+'/CalFiles/bpm_u_0p05.fits.fz'}
+# name of initial bad pixel mask; filter dependence is added in
+# blackbox, instead of making these dictionaries with the filters as
+# keys.
+bad_pixel_mask = {'ML1': '{}/CalFiles/bpm_0p2_20200727.fits.fz'.format(bb_home),
+                  'BG':  '{}/CalFiles/bpm_0p2_20200727.fits.fz'.format(bb_home)}
 
 # name of ML/BG field definition file
-mlbg_fieldIDs = ('{}/CalFiles/MLBG_FieldIDs_Mar2019.dat'
-                 .format(os.environ['BLACKBOXHOME']))
+mlbg_fieldIDs = ('{}/CalFiles/MLBG_FieldIDs_Mar2019.dat'.format(bb_home))
 
 # name of file with non-linearity correcting spline
 nonlin_corr_file = {'ML1': '{}/CalFiles/nonlin_splines_20200501.pkl'
-                    .format(os.environ['BLACKBOXHOME']),
-                    'BG': '{}/CalFiles/nonlin_splines_20200501.pkl'
-                    .format(os.environ['BLACKBOXHOME'])}
+                    .format(bb_home),
+                    'BG':  '{}/CalFiles/nonlin_splines_20200501.pkl'
+                    .format(bb_home)}
 
 #===============================================================================
 # Cosmic ray and satellite trail detection
