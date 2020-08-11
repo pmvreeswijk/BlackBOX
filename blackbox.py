@@ -93,9 +93,6 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
         blackbox and zogy - needs to be done on chopper or mlcontrol
         machine at Radboud, as laptop has too little memory
 
-    (10) check if SExtractor background is manual or global and 
-         has any influence on detections
-
     (12) go through logs, look for errors and exceptions and fix them:
       
       --> moffat fit to objects near the edge
@@ -107,40 +104,24 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          transients just before [get_trans] and flag red if more than
          e.g. 1000.
 
-    (16) speed up psfex by providing a limited random sample of good
-         PSF stars, e.g. 1000, rather than all; needs to be random
-         and not the brightest
-
     (17) moffat fit to transients in D provides negative chi2s?
 
     (19) make log input in functions optional through log=None, so that
          they can be easily used by modules outside of blackbox/zogy.
          Maybe do the same for other parameters such as telescope.
+         --> many functions done, but not yet systematically
 
-  * (20) optimal vs. large aperture magnitudes shows discrepant values
+  * (20) optimal vs. large aperture magnitudes show discrepant values
          at the bright end; why?
 
     (22) limit PSFEx LDAC catalog to [psfex_nstars] random stars
          obeying S/N constraints, such that ldac catalog has reasonable
-         size - see (16)
-
-    (25) does nproc decrease when running pool_func a 2nd time?
-
-    (29) need way to avoid running SExtractor on edges of images; for 
-         MeerLICHT, edges are zeroed in BlackBOX
-
-    (36) check if background STD image produced by source-extractor is
-         reasonably close to the improved background STD image made in
-         [get_back]; if not, then improved background determination in
-         run_sextractor still needs to be done even if the background
-         was already subtracted from the new or ref image.
+         size?
 
     (57) save header as separate fits file
 
     (62) apply_zp to transients takes average image airmass instead of
          individual airmasses of transients; improve this
-
-    (63) remove full-source objects with bad pixels in IMAFLAGS_ISO??
 
     (64) after subtraction of a background with a gradient, the
          standard deviation must be different; find a good way to
@@ -149,16 +130,11 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     (65) Exception while adding S-FWHM to the image header: 
          "ValueError: Floating point nan values are not allowed in FITS headers"
 
-  * (68) include MeerCRAB into BlackBOX - see also item (60)
-
     (76) currently the QC-FLAG relates to both the image/full-source
          catalog header and the transient source catalog; we should
          probably differentiate between them, i.e.  the flag of an
          image and full-source catalog (QC-FLAGF?) need not be the
          same as the flag of the transient catalog (QC-FLAGT?).
-
-    (77) make bad pixel maps filter-dependent with f_bad < 0.2 but
-         same edges??
 
 
     Done:
@@ -217,6 +193,12 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
   * (9) go to latest python (now 3.8) on chopper; update singularity image
 
+    (10) check if SExtractor background is manual or global and 
+         has any influence on detections
+         --> is global at the moment
+         --> it doesn't influence the detections, but is relevant
+             for the fluxes/magnitudes inferred by SExtractor
+
     (11) replace clipped_stats with more robust sigma_clipped_stats in
          zogy.py and blackbox.py; N.B.: sigma_clipped_stats returns
          output with dtype float64 - convert to float32 if these turn
@@ -262,11 +244,19 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     (23) header of output catalog is much more complete than header of
          reduced image; need to update the latter
 
+         it is possible for the reduced image header not to contain a
+         red flag, while the catalog file did contain it - this
+         happened when zogy was not processed properly
+         (e.g. astrometry.net failed), then dummy catalogs were
+         produced but the reduced image header was not updated - this
+         bug was fixed in v0.9.2.
+
          related: qc-flags in reduced images not consistent with those
          of catalog files, i.e. reduced images can have more severe flag
-         than catalog file; why? - is because qc-flags in catalog headers
-         were not updated after zogy run, so they still had the qc-flags
-         from at the start of zogy.
+         than catalog file; why? 
+         --> this is because qc-flags in catalog headers were not
+             updated after zogy run, so they still had the qc-flags
+             from at the start of zogy.
 
     (24) airmass of combined reference image is off (and therefore
          also the zeropoint) because zogy is calculating it using DATE-OBS
@@ -274,6 +264,9 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          reference; maybe AIRMASS keyword can be updated with average
          airmass? Or .. since flux was scaled to airmass 1 (true?),
          airmass keywords can be updated to that value?
+
+    (25) does nproc decrease when running pool_func a 2nd time?
+         --> doesn't seem to be the case
 
   * (26) determine image zeropoints per channel, and try fitting a
          polynomial surface to the zeropoint values across the frame.
@@ -310,6 +303,12 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          the flats with gradients can be discarded and most of the
          condensation spots as well.
 
+    (29) need way to avoid running SExtractor on edges of images; for 
+         MeerLICHT, edges are zeroed in BlackBOX
+         --> would need to read input image and save it with edge
+             pixels zeroed; leave this up to the user to supply a
+             decent image
+
     (30) if mask is provided, but saturation is not included (e.g. in case
          only a bad pixel mask is provided), the saturated and 
          saturated-connected pixels should be added to the mask
@@ -343,6 +342,15 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          float32
 
     (35) if tmp folders are kept, fpack them as well
+
+    (36) check if background STD image produced by source-extractor is
+         reasonably close to the improved background STD image made in
+         [get_back]; if not, then improved background determination in
+         run_sextractor still needs to be done even if the background
+         was already subtracted from the new or ref image.
+         --> doesn't seem to be relevant anymore; when improved
+             background is determined and subtracted, the STD image is
+             saved and can be used again in the future
 
   * (37) add switch, or use the existing "redo" switch of zogy, to
          force redoing the zogy part even if the reduced image already
@@ -503,6 +511,10 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
   * (61) interpolation done in function mini2back should not cross
          ML/BG channel edges
 
+    (63) remove full-source objects with bad pixels in IMAFLAGS_ISO??
+         --> keep them; IMAFLAGS_ISO is ingested into the database
+             and can be used there to (de-)select objects
+
     (66) update zogy.py so that reduced images are background subtracted
 
     (67) check if things go ok if one of the images do not contain
@@ -521,6 +533,8 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
              pixels between transient center and closest edge pixels
              and require a mimimum of 10 pixels (hardcoded), using
              function get_edge_coords.
+
+  * (68) include MeerCRAB into BlackBOX - see also item (60)
 
     (69) add number of transients normalized by total number of
          objects, so that limit on fraction can be set rather than
@@ -563,6 +577,9 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
     (75) use full background standard deviation image in get_trans
          instead of image average
+
+    (77) make bad pixel maps filter-dependent with f_bad < 0.2 but
+         same edges??
 
     """
     
