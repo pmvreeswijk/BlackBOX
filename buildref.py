@@ -960,19 +960,23 @@ def prep_ref (imagelist, field_ID, filt):
     # copy/move files to the reference folder
     tmp_base = ref_fits.split('_red.fits')[0]
     ref_base = ref_fits_out.split('_red.fits')[0]
-    # remove old reference files
+
+    # (re)move old reference files
     oldfiles = glob.glob('{}*'.format(ref_base))
-    if False:
-        for f in oldfiles:
-            os.remove(f)
-    else:
-        # or move them to an Old folder instead
-        old_path = '{}/Old/'.format(ref_path)
-        make_dir (old_path, lock=lock)
-        for f in oldfiles:
-            f_dst = '{}/{}'.format(old_path,f.split('/')[-1])
-            shutil.move (f, f_dst)
-        
+    if len(oldfiles)!=0:
+        if False:
+            # remove them
+            for f in oldfiles:
+                os.remove(f)
+        else:
+            # or move them to an Old folder instead
+            old_path = '{}/Old/'.format(ref_path)
+            make_dir (old_path, lock=lock)
+            for f in oldfiles:
+                f_dst = '{}/{}'.format(old_path,f.split('/')[-1])
+                shutil.move (f, f_dst)
+
+                
     # now move [ref_2keep] to the reference directory
     result = copy_files2keep(tmp_base, ref_base, get_par(set_bb.ref_2keep,tel),
                              move=False, log=log)
