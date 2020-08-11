@@ -35,11 +35,11 @@ __version__ = '0.5.1'
 
 ################################################################################
 
-def buildref (telescope=None, date_start=None, date_end=None, field_ID=None,
+def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
               filters=None, qc_flag_max=None, seeing_max=None,
               make_colfig=False, filters_colfig='iqu'):
-    
-    
+
+
     """Module to consider one specific or all available field IDs within
     a specified time range, and to combine the available images of
     that field ID in one or all filters, using those images that
@@ -337,8 +337,20 @@ def buildref (telescope=None, date_start=None, date_end=None, field_ID=None,
     # if object (field ID) is specified, which can include the unix
     # wildcards * and ?, select only images with a matching object
     # number
-    if field_ID is not None:
-        mask = [fnmatch.fnmatch(str(obj), field_ID) for obj in table['OBJECT']]
+    if field_IDs is not None:
+        # comma-split input string field_IDs into list; if no comma
+        # is present, the list will contain a single entry
+        field_ID_list = field_IDs.split(',')
+        # prepare big mask where presence of table object entry is
+        # checked against any of the field IDs in field_ID_list; this
+        # mask will contain len(table) * len(field_ID_list) entries
+        mask = [fnmatch.fnmatch(str(obj), field_ID)
+                for field_ID in field_ID_list
+                for obj in table['OBJECT']]
+        # reshape the mask to shape (len(table), len(field_ID_list))
+        mask = mask.reshape(len(table), -1)
+        # OR-combine the mask along axis=1
+        mask = np.any(mask, axis=1)
         table = table[mask]
         q.put(genlog.info('number of files left (FIELD_ID cut): {}'
                           .format(len(table))))
@@ -489,6 +501,7 @@ def buildref (telescope=None, date_start=None, date_end=None, field_ID=None,
         ref_path = '{}/{:05}'.format(ref_dir, field_ID)
         ref_path = '{}_alt4'.format(ref_path)
         list_2pack.append(glob.glob('{}/*.fits'.format(ref_path)))
+        list_2pack.append(glob.glob('{}/Old/*.fits'.format(ref_path)))
 
     # unnest nested list_2pack
     list_2pack = list(chain.from_iterable(list_2pack))
@@ -633,6 +646,52 @@ def header2table (filenames):
             continue
 
 
+        if True:
+            # up to v0.9.2, it was possible for the reduced image
+            # header not to contain a red flag, while the catalog file
+            # did contain it - this happened when zogy was not
+            # processed properly (e.g. astrometry.net failed), then
+            # dummy catalogs were produced but the reduced image
+            # header was not updated - this bug was fixed in v0.9.2.
+            if '.fz' in filename:
+                catname = filename.replace('.fits.fz', '_cat.fits')
+            else:
+                catname = filename.replace('.fits', '_cat.fits')
+            # if it doesn't exist, continue with the next
+            if not os.path.isfile(catname):
+                q.put(genlog.warning('catalog file {} does not exist; skipping '
+                                     'image {}'.format(catname, filename)))
+                continue
+
+            # read header
+            if use_fitsio:
+                with fitsio.FITS(catname) as hdulist:
+                    h_cat = hdulist[-1].read_header()
+            else:
+                with fits.open(catname) as hdulist:
+                    h_cat = hdulist[-1].header
+
+            # if dummycats were created, copy the qc-flag to the
+            # reduced image header
+            if 'DUMMYCAT' in h_cat and h_cat['DUMMYCAT']:
+                key = 'QC-FLAG'
+                if key in h_cat:
+                    h[key] = h_cat[key]
+                    #q.put(genlog.info('h[{}]: {}, h_cat[{}]: {}'
+                    #                  .format(key, h[key], key, h_cat[key])))
+                # need to copy the qc-red??, qc-ora??, qc-yel?? as well
+                qc_col = ['red', 'orange', 'yellow']
+                for col in qc_col:
+                    key_base = 'QC-{}'.format(col[:3]).upper()
+                    for i in range(1,100):
+                        key = '{}{}'.format(key_base, i)
+                        if key in h_cat:
+                            h[key] = h_cat[key]
+                            #q.put(genlog.info('h[{}]: {}, h_cat[{}]: {}'
+                            #                  .format(key, h[key], key,
+                            #                          h_cat[key])))
+                            
+
         # check if flag of particular colour was set in the
         # image-subtraction stage; if yes, then promote the flag
         # colour as that flag is not relevant to the image itself and
@@ -653,46 +712,14 @@ def header2table (filenames):
                             break
             
                 else: # associated to the for loop!
-                    # none of the flags' keywords were due to image subtraction
+                    # all of the flags' keywords were due to image subtraction
                     # stage, so promote the QC-FLAG
                     h['QC-FLAG'] = qc_col[qc_col.index(col)+1]
                     q.put(genlog.info('updating QC-FLAG from {} to {} for image {}'
                                       .format(col, h['QC-FLAG'], filename)))
 
 
-        if True:
-            # up to v0.9.2, it was possible for the reduced image
-            # header not to contain a red flag, while the catalog file
-            # did contain it - this happened when zogy was not
-            # processed properly (e.g. astrometry.net failed), then
-            # dummy catalogs were produced but the reduced image
-            # header was not updated - this bug was fixed in v0.9.2.
-            if '.fz' in filename:
-                catname = filename.replace('.fits.fz', '_cat.fits')
-            else:
-                catname = filename.replace('.fits', '_cat.fits')
-            # if it doesn't exist, continue with the next
-            if not os.path.isfile(catname):
-                q.put(genlog.warning('catalog file {} does not exist; skipping image {}'
-                                     .format(catname, filename)))
-                continue
 
-            # read header
-            if use_fitsio:
-                with fitsio.FITS(catname) as hdulist:
-                    h_cat = hdulist[-1].read_header()
-            else:
-                with fits.open(catname) as hdulist:
-                    h_cat = hdulist[-1].header
-
-            # if dummycats were created, copy the qc-flag to the
-            # reduced image header
-            if 'DUMMYCAT' in h_cat:
-                if h_cat['DUMMYCAT']:
-                    key = 'QC-FLAG'
-                    h[key] = h_cat[key]
-
-                
         # for surviving files, prepare row of filename and header values
         row = [filename]
         for key in keys:
@@ -833,7 +860,9 @@ def prep_ref (imagelist, field_ID, filt):
             # same sets of images, return
             q.put (genlog.info ('imagelist_new: {}'.format(imagelist_new)))
             q.put (genlog.info ('imagelist_used: {}'.format(imagelist_used)))
-            q.put (genlog.info ('reference image with same set of images already present; skipping'))
+            q.put (genlog.info ('reference image of {} in filter {} with same '
+                                'set of images already present; skipping'
+                                .format(field_ID, filt)))
             return
 
         
@@ -2471,9 +2500,11 @@ if __name__ == "__main__":
                         help='end date to include images, date string '
                         '(e.g. yyyymmdd) or days relative to now (negative '
                         'number); default=None')
-    parser.add_argument('--field_ID', type=str, default=None,
+    parser.add_argument('--field_IDs', type=str, default=None,
                         help='only consider images with this(these) field ID(s) '
-                        '(optional use of * and ? wildcards); default=None')
+                        '(can be multiple field IDs separated by a comma, '
+                        'and with the optional use of unix wildcards, '
+                        'e.g. 1600[0-5],16037,161??); default=None')
     parser.add_argument('--filters', type=str, default=None,
                         help='only consider this(these) filter(s), e.g. uqi')
     parser.add_argument('--qc_flag_max', type=str, default='yellow',
@@ -2495,7 +2526,7 @@ if __name__ == "__main__":
     buildref (telescope = args.telescope,
               date_start = args.date_start,
               date_end = args.date_end,
-              field_ID = args.field_ID,
+              field_IDs = args.field_IDs,
               filters = args.filters,
               qc_flag_max = args.qc_flag_max,
               seeing_max = args.seeing_max,
