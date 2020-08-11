@@ -259,7 +259,6 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
     q.put(genlog.info('log file: {}'.format(genlogfile)))
     q.put(genlog.info('number of processes: {}'.format(get_par(set_br.nproc,tel))))
     q.put(genlog.info('number of threads: {}\n'.format(get_par(set_br.nthread,tel))))
-
     q.put(genlog.info('telescope:      {}'.format(telescope)))
     q.put(genlog.info('date_start:     {}'.format(date_start)))
     q.put(genlog.info('date_end:       {}'.format(date_end)))
@@ -269,8 +268,8 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
     q.put(genlog.info('seeing_max:     {}'.format(seeing_max)))
     q.put(genlog.info('make_colfig:    {}'.format(make_colfig)))
     q.put(genlog.info('filters_colfig: {}'.format(filters_colfig)))
-    
 
+    
     t0 = time.time()
     
 
@@ -346,22 +345,32 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
 
     # if object (field ID) is specified, which can include the unix
     # wildcards * and ?, select only images with a matching object
-    # number
+    # string
     if field_IDs is not None:
+
         # comma-split input string field_IDs into list; if no comma
         # is present, the list will contain a single entry
         field_ID_list = field_IDs.split(',')
+
+        # check that the leading zeros are present for field IDs with
+        # digits only
+        for i_field, field_ID in enumerate(field_ID_list):
+            if field_ID.isdigit() and len(field_ID)!=5:
+                field_ID_list[i_field] = '{:0>5}'.format(field_ID)
+
         # prepare big mask where presence of table object entry is
         # checked against any of the field IDs in field_ID_list; this
         # mask will contain len(table) * len(field_ID_list) entries
-        mask = [fnmatch.fnmatch(str(obj), field_ID)
+        # N.B.: table['OBJECT'] is an integer, so need to convert
+        # it back to string with 5 digits
+        mask = [fnmatch.fnmatch('{:0>5}'.format(obj), field_ID)
                 for field_ID in field_ID_list
                 for obj in table['OBJECT']]
-        # reshape the mask to shape (len(table), len(field_ID_list))
-        mask = np.array(mask).reshape(len(table), -1)
-        # OR-combine the mask along axis=1 (if image object matches
+        # reshape the mask to shape (len(field_ID_list, len(table))
+        mask = np.array(mask).reshape(len(field_ID_list), len(table))
+        # OR-combine the mask along axis=0 (if image object matches
         # any of the input field_IDs, use it)
-        mask = np.any(mask, axis=1)
+        mask = np.any(mask, axis=0)
         table = table[mask]
         q.put(genlog.info('number of files left (FIELD_ID cut): {}'
                           .format(len(table))))
