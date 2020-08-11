@@ -258,8 +258,18 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
     q.put(genlog.info('building reference images'))
     q.put(genlog.info('log file: {}'.format(genlogfile)))
     q.put(genlog.info('number of processes: {}'.format(get_par(set_br.nproc,tel))))
-    q.put(genlog.info('number of threads: {}'.format(get_par(set_br.nthread,tel))))
+    q.put(genlog.info('number of threads: {}\n'.format(get_par(set_br.nthread,tel))))
 
+    q.put(genlog.info('telescope:      {}'.format(telescope)))
+    q.put(genlog.info('date_start:     {}'.format(date_start)))
+    q.put(genlog.info('date_end:       {}'.format(date_end)))
+    q.put(genlog.info('field_IDs:      {}'.format(field_IDs)))
+    q.put(genlog.info('filters:        {}'.format(filters)))
+    q.put(genlog.info('qc_flag_max:    {}'.format(qc_flag_max)))
+    q.put(genlog.info('seeing_max:     {}'.format(seeing_max)))
+    q.put(genlog.info('make_colfig:    {}'.format(make_colfig)))
+    q.put(genlog.info('filters_colfig: {}'.format(filters_colfig)))
+    
 
     t0 = time.time()
     
@@ -348,8 +358,9 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
                 for field_ID in field_ID_list
                 for obj in table['OBJECT']]
         # reshape the mask to shape (len(table), len(field_ID_list))
-        mask = mask.reshape(len(table), -1)
-        # OR-combine the mask along axis=1
+        mask = np.array(mask).reshape(len(table), -1)
+        # OR-combine the mask along axis=1 (if image object matches
+        # any of the input field_IDs, use it)
         mask = np.any(mask, axis=1)
         table = table[mask]
         q.put(genlog.info('number of files left (FIELD_ID cut): {}'
