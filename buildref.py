@@ -417,6 +417,17 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
                           .format(len(table))))
 
 
+    # if centering is set to 'grid' in buildref settings file, read
+    # the ascii file that contains the ML/BG field grid definition,
+    # that will be used to fill [radec_list] in the loop below
+    center_type = get_par(set_br.center_type,tel)
+    if center_type == 'grid':
+        # read from grid definition file located in ${ZOGYHOME}/CalFiles
+        mlbg_fieldIDs = get_par(set_bb.mlbg_fieldIDs,tel)
+        table_grid = ascii.read(mlbg_fieldIDs, names=['ID', 'RA', 'DEC'],
+                                data_start=0)
+        
+
     # for table entries that have survived the cuts, prepare the list
     # of imagelists with the accompanying lists of field_IDs and
     # filters
@@ -425,14 +436,38 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
     list_of_imagelists = []
     obj_list = []
     filt_list = []
+    radec_list = []
     for obj in objs_uniq:
-    
+        
         # skip fields '00000' and those beyond 20,000
         if int(obj) == 0 or int(obj) >= 20000:
             continue
 
+        # table mask of this particular field_ID
+        mask_obj = (table['OBJECT'] == obj)
+
+        if center_type == 'grid':
+            # for 'grid' centering, let [radec] refer to a tuple pair
+            # containing the RA and DEC coordinates
+            mask_grid = (table_grid['ID'] == obj)
+            if np.sum(mask_grid) > 0:
+                radec = (table_grid[mask_id]['RA'], table_grid[mask_id]['DEC'])
+            else:
+                q.put(genlog.error('field ID/OBJECT {} not present in ML/BG '
+                                   'grid definition file {}'
+                                   .format(obj, mlbg_fieldIDs)))
+                
+        elif center_type == 'median':
+            # otherwise let [radec] refer to a tuple pair containing
+            # the median RA-CNTR and DEC-CNTR for all images of a
+            # particular field
+            ra_cntr_med = np.median(table[mask_obj]['RA-CNTR'])
+            dec_cntr_med = np.median(table[mask_obj]['DEC-CNTR'])
+            radec = (ra_cntr_med, dec_cntr_med)
+            
+
         for filt in filts_uniq:
-            mask = ((table['OBJECT'] == obj) & (table['FILTER'] == filt))
+            mask = (mask_obj & (table['FILTER'] == filt))
             ntrue = np.sum(mask)
             q.put(genlog.info('number of files left in filter {}: {}'
                               .format(filt, ntrue)))
@@ -468,6 +503,7 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
                 list_of_imagelists.append(list(table['FILE'][mask]))
                 obj_list.append(table['OBJECT'][mask][0])
                 filt_list.append(table['FILTER'][mask][0])
+                radec_list.append(radec)
                 
 
     if len(table)==0:
@@ -487,7 +523,7 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
     # the [imcombine] function 
     try:
         result = pool_func_alt (prep_ref, list_of_imagelists, obj_list,
-                                filt_list)
+                                filt_list, radec_list)
     except Exception as e:
         q.put(genlog.error (traceback.format_exc()))
         q.put(genlog.error ('exception was raised during [pool_func_alt]: {}'
@@ -626,7 +662,7 @@ def header2table (filenames):
     rows = []
 
     # keywords to add to table
-    keys = ['MJD-OBS', 'OBJECT', 'FILTER', 'QC-FLAG',
+    keys = ['MJD-OBS', 'OBJECT', 'FILTER', 'QC-FLAG', 'RA-CNTR', 'DEC-CNTR',
             # add keyword that is sorted on if many images are available
             get_par(set_br.subset_key,tel)]
     if max_seeing is not None:
@@ -839,7 +875,7 @@ def prep_colfig (field_ID, filters):
     
 ################################################################################
 
-def prep_ref (imagelist, field_ID, filt):
+def prep_ref (imagelist, field_ID, filt, radec):
 
     # determine reference directory and file
     ref_path = '{}/{:05}'.format(get_par(set_bb.ref_dir,tel), field_ID)
@@ -897,6 +933,9 @@ def prep_ref (imagelist, field_ID, filt):
     ref_fits = '{}/{}'.format(tmp_path, ref_fits_out.split('/')[-1])
     ref_fits_mask = ref_fits.replace('red.fits','mask.fits')
 
+    # RA and DEC center of output image
+    ra_center, dec_center = radec
+        
     # create logfile specific to this reference image in tmp folder
     # (to be copied to final output folder at the end)
     global log
@@ -907,19 +946,17 @@ def prep_ref (imagelist, field_ID, filt):
     log.info('running imcombine; outputfile: {}'.format(ref_fits))
 
     try: 
-        imcombine (field_ID,
-                   imagelist,
-                   ref_fits,
-                   get_par(set_br.combine_type,tel),
+        imcombine (field_ID, imagelist, ref_fits, get_par(set_br.combine_type,tel),
                    masktype_discard = get_par(set_br.masktype_discard,tel),
                    tempdir = tmp_path,
-                   center_type = get_par(set_br.center_type,tel),
+                   ra_center = ra_center,
+                   dec_center = dec_center,
                    back_type = get_par(set_br.back_type,tel),
                    back_size = get_par(set_zogy.bkg_boxsize,tel),
                    back_filtersize = get_par(set_zogy.bkg_filtersize,tel),
                    swarp_cfg = get_par(set_zogy.swarp_cfg,tel),
                    nthreads = get_par(set_br.nthread,tel),
-                   log=log)
+                   log = log)
 
     except Exception as e:
         q.put (genlog.info (traceback.format_exc()))
@@ -990,7 +1027,6 @@ def prep_ref (imagelist, field_ID, filt):
     # get copied over to the reference folder below (which uses the
     # file extensions defined in blackbox settings file)
     if False:
-        center_type = get_par(set_br.center_type,tel)
         masktype_discard = get_par(set_br.masktype_discard,tel)
         
         def help_imcombine (combine_type, back_type, back_default=0,
@@ -1010,21 +1046,13 @@ def prep_ref (imagelist, field_ID, filt):
 
             ref_fits_temp = ref_fits.replace('.fits', ext)   
 
-            imcombine (field_ID,
-                       imagelist,
-                       ref_fits_temp,
-                       combine_type,
-                       back_type=back_type,
-                       back_default=back_default,
-                       back_size=back_size,
-                       back_filtersize=back_filtersize,
-                       center_type=center_type,
-                       masktype_discard=masktype_discard,
-                       tempdir=tmp_path,
-                       remap_each=False,
-                       swarp_cfg=get_par(set_zogy.swarp_cfg,tel),
-                       nthreads=get_par(set_br.nthread,tel),
-                       log=log)
+            imcombine (field_ID, imagelist, ref_fits_temp, combine_type,
+                       ra_center=ra_center, dec_center=dec_center,
+                       back_type=back_type, back_default=back_default,
+                       back_size=back_size, back_filtersize=back_filtersize,
+                       masktype_discard=masktype_discard, tempdir=tmp_path,
+                       remap_each=False, swarp_cfg=get_par(set_zogy.swarp_cfg,tel),
+                       nthreads=get_par(set_br.nthread,tel), log=log)
 
             # copy combined image to reference folder
             shutil.move (ref_fits_temp, ref_path)
@@ -1103,8 +1131,9 @@ def tune_gain (data, header):
 ################################################################################
 
 def imcombine (field_ID, imagelist, outputfile, combine_type, overwrite=True,
-               masktype_discard=None, tempdir='.temp', center_type='first',
-               use_wcs_center=True, back_type='auto', back_default=0,
+               masktype_discard=None, tempdir='.temp',
+               ra_center=None, dec_center=None, use_wcs_center=True,
+               back_type='auto', back_default=0,
                back_size=120, back_filtersize=3, resample_suffix='_resamp.fits',
                remap_each=True, remap_suffix='_remap.fits', swarp_cfg=None,
                nthreads=0, log=None):
@@ -1119,6 +1148,12 @@ def imcombine (field_ID, imagelist, outputfile, combine_type, overwrite=True,
     If the input images have an accompanying mask, i.e. with the same
     base name and containing "mask", then that mask will be used to
     avoid using e.g. edge pixels or cosmic rays in the combination.
+    
+    [ra_center] and [dec_center] define the central coordinates of the
+    resulting image. If they are not both defined, the median center
+    of the input images is used, in which case [use_wcs_center]
+    determines whether the WCS center or the header values from the
+    'RA' and 'DEC' keywords is used.
 
     To do:
 
@@ -1207,7 +1242,6 @@ def imcombine (field_ID, imagelist, outputfile, combine_type, overwrite=True,
     # make sure combine_type, back_type and center_type are lower case
     combine_type = combine_type.lower()
     back_type = back_type.lower()
-    center_type = center_type.lower()
     
     # check if value of [combine_type] is valid; if not, exit
     combine_type_list = ['median', 'average', 'min', 'max', 'weighted', 'chi2', 'sum',
@@ -1509,43 +1543,18 @@ def imcombine (field_ID, imagelist, outputfile, combine_type, overwrite=True,
     refimage_xsize = xsizes[0]
     refimage_ysize = ysizes[0]
     size_str = str(refimage_xsize) + ',' + str(refimage_ysize)
-    
-    if center_type == 'first':
-        ra_center = ra_centers[0]
-        dec_center = dec_centers[0]
-    elif center_type == 'last':
-        ra_center = ra_centers[-1]
-        dec_center = dec_centers[-1]
-    elif center_type == 'mean':
-        ra_center = np.mean(ra_centers)
-        dec_center = np.mean(dec_centers)
-    elif center_type == 'median':
+
+
+    # if input [ra_center] or [dec_center] is not defined, use the
+    # median RA/DEC of the input images as the center RA/DEC of the
+    # output image
+    if ra_center is None or dec_center is None:
         ra_center = np.median(ra_centers)
         dec_center = np.median(dec_centers)
-    elif center_type == 'grid':
-        # read from grid definition file located in ${ZOGYHOME}/CalFiles
-        mlbg_fieldIDs = get_par(set_bb.mlbg_fieldIDs,tel)
-        table_ID = ascii.read(mlbg_fieldIDs, names=['ID', 'RA', 'DEC'], data_start=0)
-        # check if there is a match with the defined field ID
-        mask_match = (table_ID['ID']==int(field_ID))
-        if sum(mask_match) == 0:
-            # observed field is not present in definition of field IDs
-            msg = ('input field ID not present in definition of field IDs:\n{}\n'
-                   'header field ID: {}\nnot processing'
-                   .format(mlbg_fieldIDs, field_ID))
-            q.put(genlog.error(msg))
-            log.error(msg)
-            return
-        else:
-            i_ID = np.nonzero(mask_match)[0][0]
-            ra_center = table_ID['RA'][i_ID]
-            dec_center = table_ID['DEC'][i_ID]
-            log.info('adopting grid coordinates: ra_center: {}, dec_center: {}'
-                     .format(ra_center, dec_center))
-            
+        # centering method for header
+        center_type = 'median'
     else:
-        raise ValueError ('input [center_type] not one of '
-                          '[first, last, mean, median, grid]')
+        center_type = get_par(set_br.center_type,tel)
 
     # convert coordinates to input string for SWarp
     radec_str = '{},{}'.format(ra_center, dec_center)
@@ -1675,7 +1684,6 @@ def imcombine (field_ID, imagelist, outputfile, combine_type, overwrite=True,
 
     header_out['BKG-SUB'] = (bkg_sub, 'sky background was subtracted?')
     
-    # centering method
     header_out['R-CNTR-M'] = (center_type,
                               'reference image centering method')
     # discarded mask values
