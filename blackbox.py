@@ -584,6 +584,14 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     (78) introduce maximum number of biases and flats to be used for
          the master bias/flat
 
+    (79) log files for flats and biases appear to contain info related
+         to other files. This is not due to parameter "log" being a
+         global parameter. The logfiles seem to collect all info
+         from the same CPU ID; log file not properly closed?
+         --> introduced close_log function to properly close log
+             when returning from blackbox_reduce
+
+
     """
     
     
@@ -1394,8 +1402,8 @@ def blackbox_reduce (filename):
 
 
 
-    # make log defined below global
-    global log
+    # make log defined below global - not needed anymore
+    #global log
     
 
     # check if reduction steps could be skipped
@@ -1480,8 +1488,15 @@ def blackbox_reduce (filename):
         header['LOG-IMA'] = (logfile.split('/')[-1], 'name image logfile')
     
         # now also read in the raw image data
-        data = read_hdulist(filename, dtype='float32')
+        try:
+            data = read_hdulist(filename, dtype='float32')
+        except:
+            log.error('problem reading image {}; leaving function blackbox_reduce'
+                      .format(fits_out))
+            close_log(log)
+            return None
 
+            
         # determine number of pixels with infinite/nan values
         mask_infnan = ~np.isfinite(data)
         n_infnan = np.sum(mask_infnan)
@@ -1531,7 +1546,7 @@ def blackbox_reduce (filename):
                 log.info('correcting for the crosstalk')
                 xtalk_processed = False
                 crosstalk_file = get_par(set_bb.crosstalk_file,tel)
-                data = xtalk_corr (data, crosstalk_file)
+                data = xtalk_corr (data, crosstalk_file, log=log)
             except Exception as e:
                 q.put(logger.info(traceback.format_exc()))
                 q.put(logger.error('exception was raised during [xtalk_corr]: {}'
@@ -1604,6 +1619,7 @@ def blackbox_reduce (filename):
             run_qc_check (header, tel, log=log)
             header['DATEFILE'] = (Time.now().isot, 'UTC date of writing file')
             fits.writeto(fits_out, data.astype('float32'), header, overwrite=True)
+            close_log(log)
             return fits_out
     
     
@@ -1620,9 +1636,11 @@ def blackbox_reduce (filename):
 
         except Exception as e:
             q.put(logger.info(traceback.format_exc()))
-            q.put(logger.error('exception was raised in bias [master_prep]: {}'.format(e)))
+            q.put(logger.error('exception was raised in bias [master_prep]: {}'
+                               .format(e)))
             log.info(traceback.format_exc())
-            log.error('exception was raised during bias [master_prep]: {}'.format(e))
+            log.error('exception was raised during bias [master_prep]: {}'
+                      .format(e))
 
         finally:
             lock.release()
@@ -1640,11 +1658,13 @@ def blackbox_reduce (filename):
             try:
                 # and subtract it from the flat or object image
                 log.info('subtracting the master bias')
-                data_mbias, header_mbias = read_hdulist(fits_mbias, get_header=True)
+                data_mbias, header_mbias = read_hdulist(fits_mbias,
+                                                        get_header=True)
                 data -= data_mbias
                 header['MBIAS-F'] = fits_mbias.split('/')[-1].split('.fits')[0]
 
-                # for object image, add number of days separating image and master bias
+                # for object image, add number of days separating
+                # image and master bias
                 if imgtype == 'object':
                     mjd_obs = header['MJD-OBS']
                     mjd_obs_mb = header_mbias['MJD-OBS']
@@ -1654,11 +1674,11 @@ def blackbox_reduce (filename):
 
             except Exception as e:
                 q.put(logger.info(traceback.format_exc()))
-                q.put(logger.error('exception was raised during master bias subtraction: {}'
-                                   .format(e)))
+                q.put(logger.error('exception was raised during master bias '
+                                   'subtraction: {}'.format(e)))
                 log.info(traceback.format_exc())
-                log.error('exception was raised during master bias subtraction: {}'
-                          .format(e))
+                log.error('exception was raised during master bias subtraction: '
+                          '{}'.format(e))
             else:
                 mbias_processed = True
             finally:
@@ -1676,10 +1696,11 @@ def blackbox_reduce (filename):
             try:
                 log.info('preparing the initial mask')
                 mask_processed = False
-                data_mask, header_mask = mask_init (data, header, filt)
+                data_mask, header_mask = mask_init (data, header, filt, log=log)
             except Exception as e:
                 q.put(logger.info(traceback.format_exc()))
-                q.put(logger.error('exception was raised during [mask_init]: {}'.format(e)))
+                q.put(logger.error('exception was raised during [mask_init]: {}'
+                                   .format(e)))
                 log.info(traceback.format_exc())
                 log.error('exception was raised during [mask_init]: {}'.format(e))
             else:
@@ -1703,6 +1724,7 @@ def blackbox_reduce (filename):
             # write to fits
             header['DATEFILE'] = (Time.now().isot, 'UTC date of writing file')
             fits.writeto(fits_out, data.astype('float32'), header, overwrite=True)
+            close_log(log)
             return fits_out
 
 
@@ -1783,7 +1805,8 @@ def blackbox_reduce (filename):
         try:
             log.info('detecting cosmic rays')
             cosmics_processed = False
-            data, data_mask = cosmics_corr(data, header, data_mask, header_mask)
+            data, data_mask = cosmics_corr(data, header, data_mask, header_mask,
+                                           log=log)
         except Exception as e:
             header['NCOSMICS'] = ('None', '[/s] number of cosmic rays identified')
             q.put(logger.info(traceback.format_exc()))
@@ -1816,7 +1839,7 @@ def blackbox_reduce (filename):
             if get_par(set_bb.detect_sats,tel):
                 log.info('detecting satellite trails')
                 data_mask = sat_detect(data, header, data_mask, header_mask,
-                                       tmp_path)
+                                       tmp_path, log=log)
         except Exception as e:
             header['NSATS'] = ('None', 'number of satellite trails identified')
             q.put(logger.info(traceback.format_exc()))
@@ -1878,7 +1901,7 @@ def blackbox_reduce (filename):
                                      get_par(set_bb.all_2keep,tel), move=False,
                                      log=log)
             clean_tmp(tmp_base)
-
+            close_log(log)
             return fits_out
 
 
@@ -1891,6 +1914,7 @@ def blackbox_reduce (filename):
     # for non-object images, leave function; if reduction steps would
     # not have been skipped, this would have happened before
     if imgtype != 'object':
+        close_log(log)
         return fits_out
     
     # if both catalog and transient extraction are switched off, then
@@ -1909,9 +1933,11 @@ def blackbox_reduce (filename):
                                      get_par(set_bb.img_reduce_exts,tel),
                                      move=False, log=log)
             clean_tmp(tmp_base)
+            close_log(log)
             return fits_out
 
         else:
+            close_log(log)
             return None
 
 
@@ -1942,8 +1968,10 @@ def blackbox_reduce (filename):
                               .format(text, filename)))
 
             if do_reduction:
+                close_log(log)
                 return fits_out
             else:
+                close_log(log)
                 return None
 
         else:
@@ -2071,6 +2099,7 @@ def blackbox_reduce (filename):
                 #result = copy_files2keep(tmp_base, new_base, get_par(set_bb.all_2keep,tel),
                 #                         move=False, log=log)
                 clean_tmp(tmp_base)
+                close_log(log)
                 return None
 
             else:
@@ -2134,6 +2163,7 @@ def blackbox_reduce (filename):
                 #result = copy_files2keep(tmp_base, new_base, get_par(set_bb.all_2keep,tel),
                 #                         move=False, log=log)
                 clean_tmp(tmp_base)
+                close_log(log)
                 return None
 
             else:
@@ -2246,6 +2276,7 @@ def blackbox_reduce (filename):
                 #result = copy_files2keep(tmp_base, new_base, get_par(set_bb.all_2keep,tel),
                 #                         move=False, log=log)
                 clean_tmp(tmp_base)
+                close_log(log)
                 return None
 
             else:
@@ -2290,7 +2321,8 @@ def blackbox_reduce (filename):
         log_timing_memory (t0=t_blackbox_reduce, label='blackbox_reduce', log=log)
 
     log.info('reached the end of function blackbox_reduce')
-
+    close_log(log)
+    
     return fits_out
 
 
@@ -2431,24 +2463,26 @@ def check_ref (queue_ref, obj_filt, method=None, put_lock=True):
                 
 ################################################################################
 
-def try_func (func, args_in, args_out):
+def try_func (func, args_in, args_out, log=None):
 
     """Helper function to avoid duplication when executing the different
        functions."""
 
     func_name = func.__name__
 
-    try: 
-        log.info('executing [{}]'.format(func_name))
+    try:
+        if log is not None:
+            log.info('executing [{}]'.format(func_name))
         proc_ok = False
         args[0] = func (args[1:])
     except Exception as e:
         q.put(logger.info(traceback.format_exc()))
         q.put(logger.error('exception was raised during [{}]: {}'
                            .format(func_name, e)))
-        log.info(traceback.format_exc())
-        log.error('exception was raised during [{}]: {}'
-                  .format(func_name, e))
+        if log is not None:
+            log.info(traceback.format_exc())
+            log.error('exception was raised during [{}]: {}'
+                      .format(func_name, e))
     else:
         proc_ok = True
 
@@ -2486,6 +2520,18 @@ def create_log (logfile):
 
     return log
     
+
+################################################################################
+
+def close_log (log):
+
+    handlers = log.handlers[:]
+    for handler in handlers:
+        handler.close()
+        log.removeHandler(handler)
+
+    return
+
 
 ################################################################################
 
@@ -2565,20 +2611,22 @@ def copy_files2keep (src_base, dest_base, ext2keep, move=True,
                             file_2remove = '{}.fz'.format(dest_file)
 
                         if os.path.isfile(file_2remove):
-                            log.info('removing existing {}'.format(file_2remove))
                             os.remove(file_2remove)
+                            if log is not None:
+                                log.info('removing existing {}'
+                                         .format(file_2remove))
                             
                     # move or copy file
                     if not move:
+                        shutil.copyfile(src_file, dest_file)
                         if log is not None:
                             log.info('copying {} to {}'.
                                      format(src_file, dest_file))
-                        shutil.copyfile(src_file, dest_file)
                     else:
+                        shutil.move(src_file, dest_file)
                         if log is not None:
                             log.info('moving {} to {}'
                                      .format(src_file, dest_file))
-                        shutil.move(src_file, dest_file)
                     
                         
                         
@@ -2587,7 +2635,7 @@ def copy_files2keep (src_base, dest_base, ext2keep, move=True,
 
 ################################################################################
 
-def sat_detect (data, header, data_mask, header_mask, tmp_path):
+def sat_detect (data, header, data_mask, header_mask, tmp_path, log=None):
 
     # could also try skimage.transform.probabilistic_hough_line()
     
@@ -2613,13 +2661,15 @@ def sat_detect (data, header, data_mask, header_mask, tmp_path):
                                      buf=40, sigma=3, h_thresh=0.2, plot=False,
                                      verbose=False)
         except Exception as e:
-            log.error('exception was raised during [detsat]: {}'.format(e))
+            if log is not None:
+                log.error('exception was raised during [detsat]: {}'.format(e))
             # raise exception
             raise RuntimeError ('problem with running detsat module')
         else:
             # also raise exception if detsat module returns errors
             if len(errors) != 0:
-                log.error('detsat errors: {}'.format(errors))
+                if log is not None:
+                    log.error('detsat errors: {}'.format(errors))
                 raise RuntimeError ('problem with running detsat module')
             
         #create satellite trail if found
@@ -2633,8 +2683,10 @@ def sat_detect (data, header, data_mask, header_mask, tmp_path):
                                         pad=0, sigma=5, subwidth=5000).astype(np.uint8)
             except ValueError:
                 #if error occurs, add comment
-                log.info ('Warning: satellite trail found but could not be fitted for file {} and is not included in the mask.'
-                          .format(tmp_path.split('/')[-1]))
+                if log is not None:
+                    log.info ('Warning: satellite trail found but could not be '
+                              'fitted for file {} and is not included in the mask'
+                              .format(tmp_path.split('/')[-1]))
                 break
             satellite_fitting = True
             binned_data[mask_binned == 1] = np.median(binned_data)
@@ -2664,7 +2716,8 @@ def sat_detect (data, header, data_mask, header_mask, tmp_path):
     header['NSATS'] = (nsats, 'number of satellite trails identified')
     header_mask['NSATS'] = (nsats, 'number of satellite trails identified')
 
-    log.info('number of satellite trails identified: {}'.format(nsats))
+    if log is not None:
+        log.info('number of satellite trails identified: {}'.format(nsats))
     
     if get_par(set_zogy.timing,tel):
         log_timing_memory (t0=t, label='sat_detect', log=log)
@@ -2674,7 +2727,7 @@ def sat_detect (data, header, data_mask, header_mask, tmp_path):
         
 ################################################################################
 
-def cosmics_corr (data, header, data_mask, header_mask):
+def cosmics_corr (data, header, data_mask, header_mask, log=None):
 
     if get_par(set_zogy.timing,tel):
         t = time.time()
@@ -2721,9 +2774,10 @@ def cosmics_corr (data, header, data_mask, header_mask):
     header['NCOSMICS'] = (ncosmics_persec, '[/s] number of cosmic rays identified')
     # also add this to header of mask image
     header_mask['NCOSMICS'] = (ncosmics_persec, '[/s] number of cosmic rays identified')
-    log.info('number of cosmic rays identified: {}'.format(ncosmics))
-    
-    
+    if log is not None:
+        log.info('number of cosmic rays identified: {}'.format(ncosmics))
+
+        
     if get_par(set_zogy.timing,tel):
         log_timing_memory (t0=t, label='cosmics_corr', log=log)
 
@@ -2732,7 +2786,7 @@ def cosmics_corr (data, header, data_mask, header_mask):
 
 ################################################################################
 
-def mask_init (data, header, filt):
+def mask_init (data, header, filt, log=None):
 
     """Function to create initial mask from the bad pixel mask (defining
        the bad and edge pixels), and pixels that are saturated and
@@ -2753,7 +2807,8 @@ def mask_init (data, header, filt):
     else:
         # if not, create uint8 array of zeros with same shape as
         # [data]
-        log.info('Warning: bad pixel mask {} does not exist'.format(fits_bpm))
+        if log is not None:
+            log.info('Warning: bad pixel mask {} does not exist'.format(fits_bpm))
         data_mask = np.zeros(np.shape(data), dtype='uint8')
 
     # mask of pixels with non-finite values in [data]
@@ -3237,9 +3292,9 @@ def master_prep (fits_master, data_shape, log=None):
             fits.writeto(fits_master, master_median.astype('float32'), header_master,
                          overwrite=True)
 
+
     if get_par(set_zogy.timing,tel):
-        if log is not None:
-            log_timing_memory (t0=t, label='master_prep', log=log)
+        log_timing_memory (t0=t, label='master_prep', log=log)
 
     return fits_master
 
@@ -3982,12 +4037,13 @@ def os_corr(data, header, imgtype, tel=None, log=None):
         # channel) with function [replace_pix] in zogy.py
         mask_hos = (data_hos > 2000.)
         # add couple of pixels connected to this mask
-        mask_hos = ndimage.binary_dilation(mask_hos, structure=np.ones((3,3)).astype('bool'))
+        mask_hos = ndimage.binary_dilation(mask_hos,
+                                           structure=np.ones((3,3)).astype('bool'))
 
         # interpolate spline over these pixels
         if imgtype == 'object':
-            data_hos_replaced = inter_pix (data_hos, std_vos[i_chan], mask_hos, dpix=10, k=2,
-                                           log=log)
+            data_hos_replaced = inter_pix (data_hos, std_vos[i_chan], mask_hos,
+                                           dpix=10, k=2, log=log)
         
         # determine clipped mean for each column
         mean_hos, __, __ = sigma_clipped_stats(data_hos.astype('float64'), axis=0,
@@ -4052,16 +4108,15 @@ def os_corr(data, header, imgtype, tel=None, log=None):
         header['FLATSTD'] = (std, '[e-] sigma (STD) flat')
 
 
-    if log is not None:
-        if get_par(set_zogy.timing,tel):
-            log_timing_memory (t0=t, label='os_corr', log=log)
+    if get_par(set_zogy.timing,tel):
+        log_timing_memory (t0=t, label='os_corr', log=log)
 
     return data_out
 
 
 ################################################################################
 
-def xtalk_corr (data, crosstalk_file):
+def xtalk_corr (data, crosstalk_file, log=None):
 
     if get_par(set_zogy.timing,tel):
         t = time.time()
@@ -4208,9 +4263,8 @@ def nonlin_corr(data, nonlin_corr_file, log=None):
         data[data_sec_red[i_chan]] /= (frac_corr + 1)
 
 
-    if log is not None:
-        if get_par(set_zogy.timing,tel):
-            log_timing_memory (t0=t, label='nonlin_corr', log=log)
+    if get_par(set_zogy.timing,tel):
+        log_timing_memory (t0=t, label='nonlin_corr', log=log)
         
     return data
 
@@ -4237,9 +4291,8 @@ def gain_corr(data, header, tel=None, log=None):
         header['GAIN{}'.format(i_chan+1)] = (gain[i_chan], '[e-/ADU] gain applied to '
                                              'channel {}'.format(i_chan+1))
 
-    if log is not None:
-        if get_par(set_zogy.timing,tel):
-            log_timing_memory (t0=t, label='gain_corr', log=log)
+    if get_par(set_zogy.timing,tel):
+        log_timing_memory (t0=t, label='gain_corr', log=log)
         
     return data
 
@@ -4317,7 +4370,7 @@ def get_path (date, dir_type):
     elif dir_type == 'write':
         root_dir = get_par(set_bb.red_dir,tel)
     else:
-        log.error('[dir_type] not one of "read" or "write"')
+        print ('error: [dir_type] not one of "read" or "write"')
         
     path = '{}/{}'.format(root_dir, date_dir)
     if '//' in path:
