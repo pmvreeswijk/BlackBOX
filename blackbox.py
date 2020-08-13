@@ -120,9 +120,6 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
     (57) save header as separate fits file
 
-    (62) apply_zp to transients takes average image airmass instead of
-         individual airmasses of transients; improve this
-
     (64) after subtraction of a background with a gradient, the
          standard deviation must be different; find a good way to
          improve the STD estimate
@@ -511,6 +508,9 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
   * (61) interpolation done in function mini2back should not cross
          ML/BG channel edges
 
+    (62) apply_zp to transients takes average image airmass instead of
+         individual airmasses of transients; improve this
+
     (63) remove full-source objects with bad pixels in IMAFLAGS_ISO??
          --> keep them; IMAFLAGS_ISO is ingested into the database
              and can be used there to (de-)select objects
@@ -580,6 +580,9 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
     (77) make bad pixel maps filter-dependent with f_bad < 0.2 but
          same edges??
+
+    (78) introduce maximum number of biases and flats to be used for
+         the master bias/flat
 
     """
     
@@ -2898,16 +2901,45 @@ def master_prep (fits_master, data_shape, log=None):
 
         # do not consider image with header QC-FLAG set to red
         mask_keep = np.ones(len(file_list), dtype=bool)
+        mjd_obs_temp = np.zeros(len(file_list))
         for i_file, filename in enumerate(file_list):
             header_temp = read_hdulist (filename, get_data=False, get_header=True)
-            if 'QC-FLAG' in header_temp:
-                if header_temp['QC-FLAG'] == 'red':
-                    mask_keep[i_file] = False
+            if 'QC-FLAG' in header_temp and header_temp['QC-FLAG'] == 'red':
+                mask_keep[i_file] = False
+            # record MJD-OBS in array
+            if 'MJD-OBS' in header_temp:
+                mjd_obs_temp[i_file] = header_temp['MJD-OBS'] 
+            
         file_list = np.array(file_list)[mask_keep]
-
-        # initialize cube of images to be combined
+        mjd_obs_temp = mjd_obs_temp[mask_keep]
         nfiles = len(file_list)
 
+
+        # if number of biases/flats exceed nbias_max/nflat_max, select
+        # the nbias_max/nflat_max ones closest in time to midnight of
+        # the evening date
+        if imtype=='bias':
+            nmax = get_par(set_bb.nbias_max,tel)
+        elif imtype=='flat':
+            nmax = get_par(set_bb.nflat_max,tel)
+
+        if nfiles > nmax:
+            # difference between observed MJD and mignight of the
+            # evening date
+            mjd_midnight = date2mjd('{}'.format(date_eve), time_str='23:59')
+            mjd_obs_delta = np.abs(mjd_obs_temp - mjd_midnight)
+            # sort the observed delta MJDs of the files
+            index_sort = np.argsort (mjd_obs_delta)
+            # select nmax
+            file_list = file_list[index_sort][0:nmax]
+            nfiles = len(file_list)
+            if log is not None:
+                log.info ('number of available {} frames ({}) exceeds the '
+                          'maximum specified ({}); using these frames closest '
+                          'in time to midnight of the evening date ({}): {}'
+                          .format(imtype, len(index_sort), nmax, mjd_midnight,
+                                  file_list))
+ 
 
         # if master bias/flat contains a red flag, look for a nearby
         # master flat instead

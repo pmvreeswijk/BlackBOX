@@ -34,10 +34,12 @@ correct_nonlin = False
 
 # time window [days] within which to include biases in master bias 
 # (0=only same night, 1=including previous and next night, etc.)
-bias_window = 1
+bias_window = 3
+nbias_max = 20
 # time window [days] within which to include flats in master flat 
 # (0=only same night, 1=including previous and next night, etc.)
-flat_window = 3
+flat_window = 5
+nflat_max = 15
 
 # degree polynomial fit to vertical overscan clipped means
 voscan_poldeg = 3
