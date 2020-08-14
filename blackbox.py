@@ -613,42 +613,36 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     if not os.path.isdir(get_par(set_bb.log_dir,tel)):
         os.makedirs(get_par(set_bb.log_dir,tel))
     
-    global q, genlogfile, logger
-    q = Manager().Queue() #create queue for logging
+    global genlogfile, genlog
     genlogfile = '{}/{}_{}.log'.format(get_par(set_bb.log_dir,tel), tel,
                                        Time.now().strftime('%Y%m%d_%H%M%S'))
-    logger = create_log (genlogfile)
-
-    q.put(logger.info('processing mode:      {}'.format(mode)))
-    q.put(logger.info('log file:             {}'.format(genlogfile)))
-    q.put(logger.info('number of processes:  {}'
-                      .format(get_par(set_bb.nproc,tel))))
-    q.put(logger.info('number of threads:    {}'
-                      .format(get_par(set_bb.nthread,tel))))
-
-    q.put(logger.info('switch img_reduce:    {}'
-                      .format(get_par(set_bb.img_reduce,tel))))
-    q.put(logger.info('switch cat_extract:   {}'
-                      .format(get_par(set_bb.cat_extract,tel))))
-    q.put(logger.info('switch trans_extract: {}'
-                      .format(get_par(set_bb.trans_extract,tel))))
+    genlog = create_log (genlogfile)
+    
+    genlog.info ('processing mode:      {}'.format(mode))
+    genlog.info ('log file:             {}'.format(genlogfile))
+    genlog.info ('number of processes:  {}'.format(get_par(set_bb.nproc,tel)))
+    genlog.info ('number of threads:    {}'.format(get_par(set_bb.nthread,tel)))
+    genlog.info ('switch img_reduce:    {}'
+                 .format(get_par(set_bb.img_reduce,tel)))
+    genlog.info ('switch cat_extract:   {}'
+                 .format(get_par(set_bb.cat_extract,tel)))
+    genlog.info ('switch trans_extract: {}'
+                 .format(get_par(set_bb.trans_extract,tel)))
 
     # leave right away if none of the main processing switches are on
     if (not get_par(set_bb.img_reduce,tel) and
         not get_par(set_bb.cat_extract,tel) and
         not get_par(set_bb.trans_extract,tel)):
     
-        q.put(logger.info('main processing switches img_reduce, cat_extract '
-                          'and trans_extract all False, nothing left to do'))
+        genlog.info ('main processing switches img_reduce, cat_extract '
+                     'and trans_extract all False, nothing left to do')
         logging.shutdown()
         return
 
 
     # create master bias and/or flat if [master_date] is specified
     if master_date is not None:
-
         create_masters (mdate=master_date, run_fpack=True)
-
         logging.shutdown()
         return
 
@@ -660,23 +654,24 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     if read_path is None:
         if date is not None:
             read_path, __ = get_path(date, 'read')
-            q.put(logger.info('processing files from directory: {}'
-                              .format(read_path)))
+            genlog.info ('processing files from directory: {}'.format(read_path))
         elif image is not None:
             pass
         elif image_list is not None:
             pass
         else:
             # if [read_path], [date], [image] and [image_list] are all None, exit
-            q.put(logger.critical('[read_path], [date], [image] and [image_list] '
-                                  'all None'))
-            raise (SystemExit)
+            genlog.critical ('[read_path], [date], [image], [image_list] all None')
+            logging.shutdown()
+            return
+
     else:
         # if it is provided but does not exist, exit
         if not os.path.isdir(read_path):
-            q.put(logger.critical('[read_path] directory provided does not exist:\n{}'
-                                  .format(read_path)))
-            raise (SystemExit)
+            genlog.critical ('[read_path] directory provided does not exist:\n{}'
+                             .format(read_path))
+            logging.shutdown()
+            return
         
     
     # create global lock instance that can be used in [blackbox_reduce] for
@@ -707,9 +702,10 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
         filenames = [name for sublist in lists for name in sublist]
     else:
         if mode == 'night':
-            q.put(logger.critical('[image] or [image_list] should not be defined '
-                                  'in night mode'))
-            raise (SystemExit)
+            genlog.critical ('[image] or [image_list] should not be defined '
+                             'in night mode')
+            logging.shutdown()
+            return
         
         elif image is not None:
             # if input parameter [image] is defined, the filenames
@@ -728,7 +724,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     if mode == 'day':
 
         if len(filenames)==0:
-            q.put(logger.warning('no files to reduce'))
+            genlog.warning ('no files to reduce')
 
 
         # see https://docs.python.org/3/library/tracemalloc.html
@@ -742,7 +738,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
             # [set_zogy.display] is set to True; something that is not
             # allowed (at least not on a macbook) when
             # multiprocessing.
-            q.put(logger.warning('running with single processor'))
+            genlog.warning ('running with single processor')
             filenames_reduced = []
             for filename in filenames:
                 filename_reduced = blackbox_reduce(filename)
@@ -798,20 +794,20 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
             time.sleep(60)
 
         # all done!
-        q.put(logger.info('stopping time reached, exiting night mode'))
+        genlog.info ('stopping time reached, exiting night mode')
         observer.stop() #stop observer
         observer.join() #join observer
 
 
     if get_par(set_zogy.timing,tel):
         log_timing_memory (t0=t_run_blackbox, label='run_blackbox before fpacking',
-                           log=logger)
+                           log=genlog)
         
 
 
     # fpack remaining fits images
     # ---------------------------       
-    q.put(logger.info('fpacking fits images'))
+    genlog.info ('fpacking fits images')
     # now that all files have been processed, fpack!
     # create list of files to fpack
     list_2pack = prep_packlist (date, image, filename_reduced)
@@ -826,7 +822,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
     # create jpg images for all reduced frames
     # ----------------------------------------
-    q.put(logger.info('creating jpg images'))
+    genlog.info ('creating jpg images')
     # create list of files to jpg
     list_2jpg = prep_jpglist (date, image, filename_reduced)
     if image is None:
@@ -840,7 +836,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
     if get_par(set_zogy.timing,tel):
         log_timing_memory (t0=t_run_blackbox, label='run_blackbox after fpacking '
-                           'and creating jpgs', log=logger)
+                           'and creating jpgs', log=genlog)
 
 
     logging.shutdown()
@@ -957,11 +953,11 @@ def pool_func (func, filelist, *args):
         pool.close()
         pool.join()
         results = [r.get() for r in results]
-        #q.put(logger.info('result from pool.apply_async: {}'.format(results)))
+        #genlog.info ('result from pool.apply_async: {}'.format(results))
     except Exception as e:
-        q.put(logger.info(traceback.format_exc()))
-        q.put(logger.error('exception was raised during [pool.apply_async({})]: {}'
-                           .format(func, e)))
+        genlog.info (traceback.format_exc())
+        genlog.error ('exception was raised during [pool.apply_async({})]: {}'
+                      .format(func, e))
         raise SystemExit
 
     return results
@@ -1057,9 +1053,9 @@ def fpack (filename):
                 subprocess.call(cmd)
 
     except Exception as e:
-        q.put(logger.info(traceback.format_exc()))
-        q.put(logger.error('exception was raised in fpacking of image {} {}'
-                           .format(filename,e)))
+        genlog.info (traceback.format_exc())
+        genlog.error ('exception was raised in fpacking of image {}: {}'
+                      .format(filename,e))
 
 
 ################################################################################
@@ -1113,7 +1109,7 @@ def create_jpg (filename):
 
         if not os.path.isfile(image_jpg):
             
-            q.put(logger.info('saving {} to {}'.format(filename, image_jpg)))
+            genlog.info ('saving {} to {}'.format(filename, image_jpg))
               
             # read input image
             data, header = read_hdulist(filename, get_header=True)
@@ -1145,9 +1141,9 @@ def create_jpg (filename):
             
 
     except Exception as e:
-        q.put(logger.info(traceback.format_exc()))
-        q.put(logger.error('exception was raised in creating jpg of image {} {}'
-                           .format(filename,e)))
+        genlog.info (traceback.format_exc())
+        genlog.error ('exception was raised in creating jpg of image {}: {}'
+                      .format(filename,e))
 
 
 ################################################################################
@@ -1200,17 +1196,14 @@ def blackbox_reduce (filename):
         t_blackbox_reduce = time.time()
 
 
-    q.put(logger.info('processing {}'.format(filename)))
-
-
     # just read the header for the moment
     try:
         header = read_hdulist(filename, get_data=False, get_header=True)
     except Exception as e:
-        q.put(logger.info(traceback.format_exc()))
-        q.put(logger.error('exception was raised in read_hdulist at top of '
-                           '[blackbox_reduce]: {}'.format(e)))
-        q.put(logger.error('not processing {}'.format(filename)))    
+        genlog.info (traceback.format_exc())
+        genlog.error ('exception was raised in read_hdulist at top of '
+                      '[blackbox_reduce]: {}\nnot processing {}'
+                      .format(e, filename))
         return None
 
      
@@ -1228,7 +1221,7 @@ def blackbox_reduce (filename):
     src = filename
     dest = '{}/{}'.format(raw_path, filename.split('/')[-1])
     if already_exists (dest):
-        q.put(logger.warning('{} already exists; not copying/moving file'.format(dest)))
+        genlog.warning ('{} already exists; not copying/moving file'.format(dest))
     else:
         make_dir (raw_path, lock=lock)
         # moving:
@@ -1242,16 +1235,16 @@ def blackbox_reduce (filename):
 
     
     # check if all crucial keywwords are present in the header
-    qc_flag = run_qc_check (header, tel, log=logger)
+    qc_flag = run_qc_check (header, tel, log=genlog)
     if qc_flag=='no_object':
-        q.put(logger.error('keyword OBJECT not in header of object image; '
-                           ' skipping image'))
+        genlog.error ('keyword OBJECT not in header of object image {}; '
+                      'skipping image'.format(filename))
         return None
 
     
     if qc_flag=='red':
-        q.put(logger.error('red QC flag in image {}; returning without making '
-                           ' dummy catalogs'.format(filename)))
+        genlog.error ('red QC flag in image {}; returning without making '
+                      'dummy catalogs'.format(filename))
         return None
     
 
@@ -1264,9 +1257,8 @@ def blackbox_reduce (filename):
     # then also return
     imgtype = header['IMAGETYP'].lower()
     if imgtype not in imgtypes2process:
-        q.put(logger.warning('image type ({}) not in [imgtypes] ({}); '
-                             'not processing {}'
-                             .format(imgtype, imgtypes2process, filename)))
+        genlog.warning ('image type ({}) not in [imgtypes] ({}); not processing {}'
+                        .format(imgtype, imgtypes2process, filename))
         return None
 
 
@@ -1274,9 +1266,10 @@ def blackbox_reduce (filename):
     try: 
         header = set_header(header, filename)
     except Exception as e:
-        q.put(logger.info(traceback.format_exc()))
-        q.put(logger.error('exception was raised during [set_header]: {}'.format(e)))
-        q.put(logger.error('returning without making dummy catalogs'))
+        genlog.info (traceback.format_exc())
+        genlog.error ('exception was raised during [set_header] of image {}: {}; '
+                      'returning without making dummy catalogs'
+                      .format(filename, e))
         return None
     
     
@@ -1319,19 +1312,21 @@ def blackbox_reduce (filename):
         exptime = header['EXPTIME']
         if 'IMAGETYP' in header and (header['IMAGETYP'].lower()=='object'
             and int(exptime)==0):
-            q.put(logger.error('science image with EXPTIME of zero; skipping image'))
+            genlog.error ('science image {} with EXPTIME of zero; skipping image'
+                          .format(filename))
             return None
     else:
-        q.put(logger.warning('keyword EXPTIME not in header; skipping image'))
+        genlog.warning ('keyword EXPTIME not in header of {}; skipping image'
+                        .format(filename))
         return None
 
 
     # if [only_filt] is specified, skip image if not relevant
     if filts is not None:
         if filt not in filts and imgtype != 'bias' and imgtype != 'dark':
-            q.put(logger.warning('image filter ({}) not in [only_filters] ({}); '
-                                 'not processing {}'
-                                 .format(filt, filts, filename)))
+            genlog.warning ('image filter ({}) not in [only_filters] ({}); '
+                            'not processing {}'
+                            .format(filt, filts, filename))
             return None
 
     fits_out = '{}/{}_{}_{}.fits'.format(path[imgtype], tel, utdate, uttime)
@@ -1367,9 +1362,9 @@ def blackbox_reduce (filename):
                                       get_header=True)
             utdate_ref, uttime_ref = get_date_time(header_ref)
             if utdate_ref==utdate and uttime_ref==uttime:
-                q.put(logger.info ('this image {} is the current reference image '
-                                   'of field {}; skipping'
-                                   .format(fits_out.split('/')[-1], obj)))
+                genlog.info ('this image {} is the current reference image '
+                             'of field {}; skipping'
+                             .format(fits_out.split('/')[-1], obj))
                 return None
 
 
@@ -1421,9 +1416,9 @@ def blackbox_reduce (filename):
         not (get_par(set_bb.img_reduce,tel) and
              get_par(set_bb.force_reproc_new,tel))):
         
-        q.put(logger.warning ('corresponding reduced {} image {} already exists; '
-                              'skipping its reduction'
-                              .format(imgtype, fits_out_present.split('/')[-1])))
+        genlog.warning ('corresponding reduced {} image {} already exists; '
+                        'skipping its reduction'
+                        .format(imgtype, fits_out_present.split('/')[-1]))
 
         # copy relevant files to tmp folder for object images
         if imgtype == 'object':
@@ -1442,12 +1437,10 @@ def blackbox_reduce (filename):
         do_reduction = True
         
         if file_present:
-            # reduced file is already present, so this is a forced
-            # re-reduction (force_reproc_new=True)
-            q.put(logger.info('\nre-processing {}'.format(filename)))
 
-            # delete all corresponding files in reduced folder as they
-            # will become obsolete with this re-reduction
+            # this is a forced re-reduction; delete all corresponding
+            # files in reduced folder as they will become obsolete
+            # with this re-reduction
             if imgtype == 'object':
                 files_2remove = glob.glob('{}*'.format(new_base))
             else:
@@ -1458,21 +1451,21 @@ def blackbox_reduce (filename):
                 # master bias and/or flat are removed inside [master_prep]
                 
             for file_2remove in files_2remove:
-                q.put(logger.info('removing existing {}'.format(file_2remove)))
+                genlog.info ('removing existing {}'.format(file_2remove))
                 os.remove(file_2remove)
 
-        else:
-            q.put(logger.info('\nprocessing {}'.format(filename)))
-            #q.put(logger.info('-'*(len(filename)+11)))
-    
+
         # create a logger that will append the log commands to [logfile]
         log = create_log (logfile)
 
         # immediately write some info to the log
-        log.info('processing {}'.format(filename))
+        if file_present:
+            log.info('forced re-processing of {}'.format(filename))
+        else:
+            log.info('processing {}'.format(filename))
+
         log.info('image type: {}, filter: {}, exptime: {:.1f}s'
                  .format(imgtype, filt, exptime))
-
         log.info('write_path: {}'.format(write_path))
         log.info('bias_path: {}'.format(bias_path))
         log.info('dark_path: {}'.format(dark_path))
@@ -1481,7 +1474,7 @@ def blackbox_reduce (filename):
             log.info('tmp_path: {}'.format(tmp_path))
             log.info('ref_path: {}'.format(ref_path))
 
-                                  
+
         # general log file
         header['LOG'] = (genlogfile.split('/')[-1], 'name general logfile')
         # image log file
@@ -1517,8 +1510,6 @@ def blackbox_reduce (filename):
             gain_processed = False
             data = gain_corr(data, header, tel=tel, log=log)
         except Exception as e:
-            #q.put(logger.info(traceback.format_exc()))
-            #q.put(logger.error('exception was raised during [gain_corr]: {}'.format(e)))
             log.info(traceback.format_exc())
             log.error('exception was raised during [gain_corr]: {}'.format(e))
         else:
@@ -1548,9 +1539,6 @@ def blackbox_reduce (filename):
                 crosstalk_file = get_par(set_bb.crosstalk_file,tel)
                 data = xtalk_corr (data, crosstalk_file, log=log)
             except Exception as e:
-                q.put(logger.info(traceback.format_exc()))
-                q.put(logger.error('exception was raised during [xtalk_corr]: {}'
-                                   .format(e)))
                 log.info(traceback.format_exc())
                 log.error('exception was raised during [xtalk_corr]: {}'.format(e))
             else:
@@ -1572,8 +1560,6 @@ def blackbox_reduce (filename):
             os_processed = False
             data = os_corr(data, header, imgtype, tel=tel, log=log)
         except Exception as e:
-            q.put(logger.info(traceback.format_exc()))
-            q.put(logger.error('exception was raised during [os_corr]: {}'.format(e)))
             log.info(traceback.format_exc())
             log.error('exception was raised during [os_corr]: {}'.format(e))
         else:
@@ -1601,9 +1587,6 @@ def blackbox_reduce (filename):
                 header['NONLIN-F'] = (nonlin_corr_file.split('/')[-1],
                                       'name non-linearity correction file')
             except Exception as e:
-                #q.put(logger.info(traceback.format_exc()))
-                #q.put(logger.error('exception was raised during [nonlin_corr]: '
-                #                   '{}'.format(e)))
                 log.info(traceback.format_exc())
                 log.error('exception was raised during [nonlin_corr]: {}'
                           .format(e))
@@ -1635,9 +1618,6 @@ def blackbox_reduce (filename):
             fits_mbias = master_prep (fits_master, data.shape, log=log)
 
         except Exception as e:
-            q.put(logger.info(traceback.format_exc()))
-            q.put(logger.error('exception was raised in bias [master_prep]: {}'
-                               .format(e)))
             log.info(traceback.format_exc())
             log.error('exception was raised during bias [master_prep]: {}'
                       .format(e))
@@ -1673,9 +1653,6 @@ def blackbox_reduce (filename):
                         '[days] time between image and master bias used')
 
             except Exception as e:
-                q.put(logger.info(traceback.format_exc()))
-                q.put(logger.error('exception was raised during master bias '
-                                   'subtraction: {}'.format(e)))
                 log.info(traceback.format_exc())
                 log.error('exception was raised during master bias subtraction: '
                           '{}'.format(e))
@@ -1698,9 +1675,6 @@ def blackbox_reduce (filename):
                 mask_processed = False
                 data_mask, header_mask = mask_init (data, header, filt, log=log)
             except Exception as e:
-                q.put(logger.info(traceback.format_exc()))
-                q.put(logger.error('exception was raised during [mask_init]: {}'
-                                   .format(e)))
                 log.info(traceback.format_exc())
                 log.error('exception was raised during [mask_init]: {}'.format(e))
             else:
@@ -1740,13 +1714,10 @@ def blackbox_reduce (filename):
             fits_mflat = master_prep (fits_master, data.shape, log=log)
 
         except Exception as e:
-            q.put(logger.info(traceback.format_exc()))
-            q.put(logger.error('exception was raised during flat [master_prep]: '
-                               '{}'.format(e)))
             log.info(traceback.format_exc())
             log.error('exception was raised during flat [master_prep]: {}'
                       .format(e))
-
+            
         finally:
             lock.release()
 
@@ -1775,9 +1746,6 @@ def blackbox_reduce (filename):
                         '[days] time between image and master flat used')
 
             except Exception as e:
-                q.put(logger.info(traceback.format_exc()))
-                q.put(logger.error('exception was raised during master flat '
-                                   'division: {}'.format(e)))
                 log.info(traceback.format_exc())
                 log.error('exception was raised during master flat division: {}'
                           .format(e))
@@ -1809,9 +1777,6 @@ def blackbox_reduce (filename):
                                            log=log)
         except Exception as e:
             header['NCOSMICS'] = ('None', '[/s] number of cosmic rays identified')
-            q.put(logger.info(traceback.format_exc()))
-            q.put(logger.error('exception was raised during [cosmics_corr]: {}'
-                               .format(e)))
             log.info(traceback.format_exc())
             log.error('exception was raised during [cosmics_corr]: {}'.format(e))
         else:
@@ -1842,9 +1807,6 @@ def blackbox_reduce (filename):
                                        tmp_path, log=log)
         except Exception as e:
             header['NSATS'] = ('None', 'number of satellite trails identified')
-            q.put(logger.info(traceback.format_exc()))
-            q.put(logger.error('exception was raised during [sat_detect]: {}'
-                               .format(e)))
             log.info(traceback.format_exc())
             log.error('exception was raised during [sat_detect]: {}'.format(e))
         else:
@@ -1922,9 +1884,8 @@ def blackbox_reduce (filename):
     if (not get_par(set_bb.cat_extract,tel) and
         not get_par(set_bb.trans_extract,tel)):
 
-        q.put(logger.info('main processing switches cat_extract and '
-                          'trans_extract are off, nothing left to do for {}'
-                          .format(filename)))
+        log.info('main processing switches cat_extract and trans_extract are off, '
+                 'nothing left to do for {}'.format(filename))
 
         if do_reduction:
             # if reduction steps were performed, copy selected output
@@ -1963,9 +1924,8 @@ def blackbox_reduce (filename):
                    .reshape(len(ext_list),-1).sum(axis=1))
 
         if np.all(present):
-            q.put(logger.info('all {} data products already present in reduced '
-                              'folder, nothing left to do for {}'
-                              .format(text, filename)))
+            log.info ('all {} data products already present in reduced folder, '
+                      'nothing left to do for {}'.format(text, filename))
 
             if do_reduction:
                 close_log(log, logfile)
@@ -2009,7 +1969,7 @@ def blackbox_reduce (filename):
         files_2remove = [fn for fn in new_list for ext in ext_list if ext in fn]
         lock.acquire()
         for file_2remove in files_2remove:
-            q.put(logger.info('removing existing {}'.format(file_2remove)))
+            log.info ('removing existing {}'.format(file_2remove))
             os.remove(file_2remove)
                 
         lock.release()
@@ -2476,9 +2436,6 @@ def try_func (func, args_in, args_out, log=None):
         proc_ok = False
         args[0] = func (args[1:])
     except Exception as e:
-        q.put(logger.info(traceback.format_exc()))
-        q.put(logger.error('exception was raised during [{}]: {}'
-                           .format(func_name, e)))
         if log is not None:
             log.info(traceback.format_exc())
             log.error('exception was raised during [{}]: {}'
@@ -3036,15 +2993,17 @@ def master_prep (fits_master, data_shape, log=None):
                 return None
                 
         else:
+
             if imtype=='bias':
-                q.put(logger.info ('making master {} for night {}'
-                                   .format(imtype, date_eve)))
+                log.info ('making master {} for night {}'
+                          .format(imtype, date_eve))
                 if not get_par(set_bb.subtract_mbias,tel):
-                    q.put(logger.info ('(but will not be applied to input image '
-                                       'as [subtract_mbias] is set to False)'))
-            if imtype=='flat':
-                q.put(logger.info ('making master {} in filter {} for night {}'
-                                   .format(imtype, filt, date_eve)))
+                    log.info ('(but will not be applied to input image '
+                              'as [subtract_mbias] is set to False)')
+
+            elif imtype=='flat':
+                log.info ('making master {} in filter {} for night {}'
+                          .format(imtype, filt, date_eve))
 
             # assuming that individual flats/biases have the same
             # shape as the input data
@@ -3366,8 +3325,8 @@ def check_header1 (header, filename):
     # crucial keywords for any image type
     for key in ['IMAGETYP', 'DATE-OBS', 'FILTER']:
         if key not in header:
-            q.put(logger.error('crucial keyword {} not present in header; '
-                               'not processing {}'.format(key, filename)))
+            genlog.error ('crucial keyword {} not present in header; '
+                          'not processing {}'.format(key, filename))
             header_ok = False
             # return immediately in this case as keyword 'IMAGETYP' is
             # used below which may not exist
@@ -3388,8 +3347,8 @@ def check_header1 (header, filename):
         if imgtype=='object':
             # if neither FIELD_ID nor OBJECT present in header of an
             # object image, then also bail out
-            q.put(logger.error('FIELD_ID or OBJECT keyword not present in '
-                               'header; not processing {}'.format(filename)))
+            genlog.error ('FIELD_ID or OBJECT keyword not present in '
+                          'header; not processing {}'.format(filename))
             header_ok = False
             # return right away as otherwise [obj] not defined, which
             # is used below
@@ -3402,16 +3361,16 @@ def check_header1 (header, filename):
         try:
             int(obj)
         except Exception as e:
-            q.put(logger.error('keyword OBJECT (or FIELD_ID if present) does '
-                               'not contain digits only; not processing {}'
-                               .format(filename)))
+            genlog.error ('keyword OBJECT (or FIELD_ID if present) does '
+                          'not contain digits only; not processing {}'
+                          .format(filename))
             header_ok = False
 
         else:
             # check if OBJECT keyword is in the right range 1-19999
             if int(obj)==0 or int(obj)>=20000:
-                q.put(logger.warning('OBJECT (or FIELD_ID) not in range 1-19999; '
-                                     'not processing {}'.format(filename)))
+                genlog.error ('OBJECT (or FIELD_ID) not in range 1-19999; '
+                              'not processing {}'.format(filename))
                 header_ok = False
    
 
@@ -3421,15 +3380,15 @@ def check_header1 (header, filename):
         # any potential dithering will not be detected)
         for keys in ['EXPTIME', 'RA', 'DEC']:
             if key not in header:
-                q.put(logger.error('crucial keyword {} not present in header; '
-                                   'not processing {}'.format(key, filename)))
+                genlog.error ('crucial keyword {} not present in header; '
+                              'not processing {}'.format(key, filename))
                 header_ok = False
 
 
     # check if filename contains 'test'
     if 'test' in filename.lower():
-        q.put(logger.warning('filename contains string \'test\'; '
-                             'not processing {}'.format(filename)))
+        genlog.warning ('filename contains string \'test\'; '
+                        'not processing {}'.format(filename))
         header_ok = False
     
             
@@ -3469,35 +3428,32 @@ def check_header2 (header, filename):
         if sum(mask_match) == 0:
             # observed field is not present in definition of field IDs
             header_ok = False
-            q.put(logger.error('input header field ID not present in '
-                               'definition of field IDs:\n{}\n'
-                               'header field ID: {}, RA{}: {:.4f}, DEC{}: {:.4f}\n'
-                               'not processing {}'
-                               .format(mlbg_fieldIDs, obj, key_ext, ra_deg,
-                                       key_ext, dec_deg, filename)))
+            genlog.error ('input header field ID not present in definition of '
+                          'field IDs:\n{}\nheader field ID: {}, RA{}: {:.4f}, '
+                          'DEC{}: {:.4f}\nnot processing {}'
+                          .format(mlbg_fieldIDs, obj, key_ext, ra_deg,
+                                  key_ext, dec_deg, filename))
+
         else:
             i_ID = np.nonzero(mask_match)[0][0]
             if haversine(table_ID['RA'][i_ID], table_ID['DEC'][i_ID], 
                          ra_deg, dec_deg) > 10./60:
-                q.put(logger.error('input header field ID, RA and DEC combination '
-                                   'is inconsistent (>10\') with definition of field IDs\n'
-                                   'header field ID: {}, RA{:4s}: {:.4f}, DEC{:4s}: {:.4f}\n'
-                                   'vs.    field ID: {}, RA{:4s}: {:.4f}, DEC{:4s}: {:.4f} '
-                                   'in {}\n'
-                                   'not processing {}'
-                                   .format(obj, key_ext, ra_deg, key_ext, dec_deg,
-                                           table_ID['ID'][i_ID], 
-                                           '', table_ID['RA'][i_ID],
-                                           '', table_ID['DEC'][i_ID],
-                                           mlbg_fieldIDs, filename)))
+                genlog.error ('input header field ID, RA and DEC combination '
+                              'is inconsistent (>10\') with definition of field '
+                              'IDs\nheader field ID: {}, RA    : {:.4f}, '
+                              'DEC    : {:.4f}\nvs.    field ID: {}, RA{:4s}: '
+                              '{:.4f}, DEC{:4s}: {:.4f} in {}\nnot processing {}'
+                              .format(obj, key_ext, ra_deg, key_ext, dec_deg,
+                                      table_ID['ID'][i_ID], table_ID['RA'][i_ID],
+                                      table_ID['DEC'][i_ID], mlbg_fieldIDs,
+                                      filename))
                 header_ok = False
 
 
     # if binning is not 1x1, also skip processing
     if 'XBINNING' in header and 'YBINNING' in header: 
         if header['XBINNING'] != 1 or header['YBINNING'] != 1:
-            q.put(logger.error('BINNING not 1x1; not processing {}'
-                               .format(filename)))
+            genlog.error ('BINNING not 1x1; not processing {}'.format(filename))
             header_ok = False
 
 
@@ -4429,8 +4385,8 @@ def sort_files(read_path, search_str, recursive=False):
         header = read_hdulist(filename, get_data=False, get_header=True)
         
         if 'IMAGETYP' not in header:
-            q.put(logger.info('keyword IMAGETYP not present in header of image '
-                              '{}; skipping it'.format(filename)))
+            genlog.info ('keyword IMAGETYP not present in header of image; '
+                         'not processing {}'.format(filename))
             # add this file to [others] list, which will not be reduced
             others.append(filename)
 
@@ -4612,7 +4568,7 @@ def action(queue):
     while True:
 
         if queue.empty():
-            q.put(logger.info('queue is empty for now'))
+            genlog.info ('queue is empty for now')
 
         # get event from queue
         event = queue.get(True)
@@ -4629,16 +4585,16 @@ def action(queue):
             filetype = 'pre-existing'
             print ('Error: {}'.format(e))
 
-            
-        q.put(logger.info('detected a {} file: {}'.format(filetype, filename)))
-        q.put(logger.info('type(filename): {}'.format(type(filename))))
 
-        
+        genlog.info ('detected a {} file: {}'.format(filetype, filename))
+        genlog.info ('type(filename): {}'.format(type(filename)))
+
+
         # only continue if a fits file
         if 'fits' not in filename:
 
-            q.put(logger.info('{} is not a fits file; skipping it'
-                              .format(filename)))
+            genlog.info ('{} is not a fits file; skipping it'
+                         .format(filename))
 
         else:
             # if filename is a temporary rsync copy (default
@@ -4648,11 +4604,11 @@ def action(queue):
             # refer to the eventual file created by rsync
             fn_head, fn_tail = os.path.split(filename)
             if fn_tail[0] == '.':
-                filename = '{}/{}'.format(
-                    fn_head, '.'.join(fn_tail.split('.')[1:-1]))
-                q.put(logger.info('changed filename from rsync copy {} to {}'
-                                  .format(event.src_path, filename)))
-                
+                filename = '{}/{}'.format(fn_head, '.'
+                                          .join(fn_tail.split('.')[1:-1]))
+                genlog.info ('changed filename from rsync copy {} to {}'
+                             .format(event.src_path, filename))
+
             # this while loop below replaces the old [copying]
             # function; it times out after wait_max is reached
             wait_max = 30
@@ -4668,10 +4624,9 @@ def action(queue):
 
                     process = False
                     if nsleep==0:
-                        q.put(logger.info(
-                            'problem reading file {} but will keep trying '
-                            'for {}s; current exception: {}'.format(
-                                filename, wait_max, e)))
+                        genlog.info ('problem reading file {} but will keep '
+                                     'trying for {}s; current exception: {}'
+                                     .format(filename, wait_max, e))
 
                     # give file a bit of time to arrive before next read attempt
                     time.sleep(5)
@@ -4688,9 +4643,9 @@ def action(queue):
                 filenames_reduced.append(filename_reduced)
                 
             else:
-                q.put(logger.info('wait time for file {} exceeded {}s; '
-                                  'bailing out with final exception: {}'
-                                  .format(filename, wait_max, e)))
+                genlog.info ('wait time for file {} exceeded {}s; '
+                             'bailing out with final exception: {}'
+                             .format(filename, wait_max, e))
 
     return filenames_reduced
 
