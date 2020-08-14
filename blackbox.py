@@ -642,7 +642,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
     # create master bias and/or flat if [master_date] is specified
     if master_date is not None:
-        create_masters (mdate=master_date, run_fpack=True)
+        create_masters (mdate=master_date)
         logging.shutdown()
         return
 
@@ -802,7 +802,6 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     if get_par(set_zogy.timing,tel):
         log_timing_memory (t0=t_run_blackbox, label='run_blackbox before fpacking',
                            log=genlog)
-        
 
 
     # fpack remaining fits images
@@ -845,8 +844,13 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
 ################################################################################
 
-def create_masters (mdate=None, run_fpack=False):
-
+def create_masters (mdate=None, run_fpack=True, run_create_jpg=True):
+    
+    if get_par(set_zogy.timing,tel):
+        t = time.time()
+    
+    genlog.info ('creating master frames')
+    
     # prepare list of all red/yyyy/mm/dd/bias and flat directories
     red_dir = get_par(set_bb.red_dir,tel)
     # if mdate is not specified, loop all available [imtype]
@@ -900,16 +904,34 @@ def create_masters (mdate=None, run_fpack=False):
     data_shape = (get_par(set_bb.ny,tel) * get_par(set_bb.ysize_chan,tel), 
                   get_par(set_bb.nx,tel) * get_par(set_bb.xsize_chan,tel))
 
-
     # use [pool_func] to process list of masters
-    list_fits_master = pool_func (master_prep, list_masters, data_shape)
+    list_fits_master = pool_func (master_prep, list_masters, data_shape, genlog)
+
+
+    if get_par(set_zogy.timing,tel):
+        log_timing_memory (t0=t, label='create_masters before fpacking',
+                           log=genlog)
 
 
     # use [pool_func] to fpack masters just created
+    list_masters_existing = [f for f in list_masters if os.path.isfile(f)]
     if run_fpack:
-        list_masters_existing = [f for f in list_masters if os.path.isfile(f)]
+        genlog.info ('fpacking master frames')
         results = pool_func (fpack, list_masters_existing)
 
+
+    # use [pool_func] to create jpegs
+    if run_create_jpg:
+        genlog.info ('creating jpg images')
+        if run_fpack:
+            list_masters_existing = ['{}.fz'.format(f)
+                                     for f in list_masters_existing]
+        results = pool_func (create_jpg, list_masters_existing)
+
+        
+    if get_par(set_zogy.timing,tel):
+        log_timing_memory (t0=t, label='create_masters after fpacking and '
+                           'creating jpgs', log=genlog)
 
     return
 
@@ -1221,7 +1243,7 @@ def blackbox_reduce (filename):
     src = filename
     dest = '{}/{}'.format(raw_path, filename.split('/')[-1])
     if already_exists (dest):
-        genlog.warning ('{} already exists; not copying/moving file'.format(dest))
+        genlog.info ('{} already exists; not copying/moving file'.format(dest))
     else:
         make_dir (raw_path, lock=lock)
         # moving:
@@ -1330,7 +1352,7 @@ def blackbox_reduce (filename):
             return None
 
     fits_out = '{}/{}_{}_{}.fits'.format(path[imgtype], tel, utdate, uttime)
-
+    
     if imgtype == 'bias':
         make_dir (bias_path, lock=lock)
 
@@ -1464,15 +1486,16 @@ def blackbox_reduce (filename):
         else:
             log.info('processing {}'.format(filename))
 
-        log.info('image type: {}, filter: {}, exptime: {:.1f}s'
-                 .format(imgtype, filt, exptime))
-        log.info('write_path: {}'.format(write_path))
-        log.info('bias_path: {}'.format(bias_path))
-        log.info('dark_path: {}'.format(dark_path))
-        log.info('flat_path: {}'.format(flat_path))
+        log.info ('output file: {}'.format(fits_out))
+        log.info ('image type:  {}, filter: {}, exptime: {:.1f}s'
+                  .format(imgtype, filt, exptime))
+        log.info ('write_path:  {}'.format(write_path))
+        log.info ('bias_path:   {}'.format(bias_path))
+        log.info ('dark_path:   {}'.format(dark_path))
+        log.info ('flat_path:   {}'.format(flat_path))
         if imgtype == 'object':
-            log.info('tmp_path: {}'.format(tmp_path))
-            log.info('ref_path: {}'.format(ref_path))
+            log.info ('tmp_path:    {}'.format(tmp_path))
+            log.info ('ref_path:    {}'.format(ref_path))
 
 
         # general log file
@@ -2994,16 +3017,19 @@ def master_prep (fits_master, data_shape, log=None):
                 
         else:
 
-            if imtype=='bias':
-                log.info ('making master {} for night {}'
-                          .format(imtype, date_eve))
-                if not get_par(set_bb.subtract_mbias,tel):
-                    log.info ('(but will not be applied to input image '
-                              'as [subtract_mbias] is set to False)')
+            if log is not None:
 
-            elif imtype=='flat':
-                log.info ('making master {} in filter {} for night {}'
-                          .format(imtype, filt, date_eve))
+                if imtype=='bias':
+                    log.info ('making master {} for night {}'
+                              .format(imtype, date_eve))
+                    if not get_par(set_bb.subtract_mbias,tel):
+                        log.info ('(but will not be applied to input image '
+                                  'as [subtract_mbias] is set to False)')
+
+                elif imtype=='flat':
+                    log.info ('making master {} in filter {} for night {}'
+                              .format(imtype, filt, date_eve))
+
 
             # assuming that individual flats/biases have the same
             # shape as the input data
