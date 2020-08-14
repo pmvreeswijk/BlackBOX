@@ -1493,7 +1493,7 @@ def blackbox_reduce (filename):
         except:
             log.error('problem reading image {}; leaving function blackbox_reduce'
                       .format(fits_out))
-            close_log(log)
+            close_log(log, logfile)
             return None
 
             
@@ -1619,7 +1619,7 @@ def blackbox_reduce (filename):
             run_qc_check (header, tel, log=log)
             header['DATEFILE'] = (Time.now().isot, 'UTC date of writing file')
             fits.writeto(fits_out, data.astype('float32'), header, overwrite=True)
-            close_log(log)
+            close_log(log, logfile)
             return fits_out
     
     
@@ -1724,7 +1724,7 @@ def blackbox_reduce (filename):
             # write to fits
             header['DATEFILE'] = (Time.now().isot, 'UTC date of writing file')
             fits.writeto(fits_out, data.astype('float32'), header, overwrite=True)
-            close_log(log)
+            close_log(log, logfile)
             return fits_out
 
 
@@ -1901,7 +1901,7 @@ def blackbox_reduce (filename):
                                      get_par(set_bb.all_2keep,tel), move=False,
                                      log=log)
             clean_tmp(tmp_base)
-            close_log(log)
+            close_log(log, logfile)
             return fits_out
 
 
@@ -1914,7 +1914,7 @@ def blackbox_reduce (filename):
     # for non-object images, leave function; if reduction steps would
     # not have been skipped, this would have happened before
     if imgtype != 'object':
-        close_log(log)
+        close_log(log, logfile)
         return fits_out
     
     # if both catalog and transient extraction are switched off, then
@@ -1933,11 +1933,11 @@ def blackbox_reduce (filename):
                                      get_par(set_bb.img_reduce_exts,tel),
                                      move=False, log=log)
             clean_tmp(tmp_base)
-            close_log(log)
+            close_log(log, logfile)
             return fits_out
 
         else:
-            close_log(log)
+            close_log(log, logfile)
             return None
 
 
@@ -1968,10 +1968,10 @@ def blackbox_reduce (filename):
                               .format(text, filename)))
 
             if do_reduction:
-                close_log(log)
+                close_log(log, logfile)
                 return fits_out
             else:
-                close_log(log)
+                close_log(log, logfile)
                 return None
 
         else:
@@ -2099,7 +2099,7 @@ def blackbox_reduce (filename):
                 #result = copy_files2keep(tmp_base, new_base, get_par(set_bb.all_2keep,tel),
                 #                         move=False, log=log)
                 clean_tmp(tmp_base)
-                close_log(log)
+                close_log(log, logfile)
                 return None
 
             else:
@@ -2163,7 +2163,7 @@ def blackbox_reduce (filename):
                 #result = copy_files2keep(tmp_base, new_base, get_par(set_bb.all_2keep,tel),
                 #                         move=False, log=log)
                 clean_tmp(tmp_base)
-                close_log(log)
+                close_log(log, logfile)
                 return None
 
             else:
@@ -2276,7 +2276,7 @@ def blackbox_reduce (filename):
                 #result = copy_files2keep(tmp_base, new_base, get_par(set_bb.all_2keep,tel),
                 #                         move=False, log=log)
                 clean_tmp(tmp_base)
-                close_log(log)
+                close_log(log, logfile)
                 return None
 
             else:
@@ -2321,7 +2321,7 @@ def blackbox_reduce (filename):
         log_timing_memory (t0=t_blackbox_reduce, label='blackbox_reduce', log=log)
 
     log.info('reached the end of function blackbox_reduce')
-    close_log(log)
+    close_log(log, logfile)
     
     return fits_out
 
@@ -2508,27 +2508,32 @@ def create_log (logfile):
                                      'line %(lineno)d]', '%Y-%m-%dT%H:%M:%S')
     logging.Formatter.converter = time.gmtime #convert time in logger to UTC
 
-    fileHandler = logging.FileHandler(logfile, 'a')
-    fileHandler.setFormatter(logFormatter)
-    fileHandler.setLevel(logging.INFO)
-    log.addHandler(fileHandler)
-
     #streamHandler = logging.StreamHandler()
     #streamHandler.setFormatter(logFormatter)
     #streamHandler.setLevel(logging.WARNING)
     #log.addHandler(streamHandler)
+
+    fileHandler = logging.FileHandler(logfile, 'a')
+    fileHandler.setFormatter(logFormatter)
+    fileHandler.setLevel(logging.INFO)
+    log.addHandler(fileHandler)
 
     return log
     
 
 ################################################################################
 
-def close_log (log):
+def close_log (log, logfile):
 
     handlers = log.handlers[:]
     for handler in handlers:
-        handler.close()
-        log.removeHandler(handler)
+        if logfile in str(handler):
+            log.info('removing handler {} from log'.format(handler))
+            log.removeHandler(handler)
+
+    # remove the last handler, which is assumed to be the filehandler
+    # added inside blackbox_reduce
+    #log.removeHandler(log.handlers[-1])
 
     return
 
