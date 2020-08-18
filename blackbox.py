@@ -133,6 +133,22 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          image and full-source catalog (QC-FLAGF?) need not be the
          same as the flag of the transient catalog (QC-FLAGT?).
 
+    (80) make a short summary of the night when the night mode is
+         finishing:
+
+         - how many non-red bias frames were taken?
+         - how many flat frames were taken in each filter?
+         - how many non-red flat frames were taken in each filter?
+         - how many science exposures were taken?
+         - total science exposure time of the night?
+         - how many science exposures were flagged red?
+         - total non-red science exposure time of the night?
+         - compare these times to total time that dome was open? how?
+
+         - possibly including an "observing" log with some main header 
+           keywords such as 
+           OBJECT, DATE-OBS, EXPTIME, FILTER, AIRMASS, S-SEEING, QC-FLAG
+
 
     Done:
     -----
@@ -1228,7 +1244,7 @@ def blackbox_reduce (filename):
                       .format(e, filename))
         return None
 
-     
+
     # first header check using function [check_header1]
     header_ok = check_header1 (header, filename)
     if not header_ok:
@@ -1534,7 +1550,8 @@ def blackbox_reduce (filename):
             data = gain_corr(data, header, tel=tel, log=log)
         except Exception as e:
             log.info(traceback.format_exc())
-            log.error('exception was raised during [gain_corr]: {}'.format(e))
+            log.error('exception was raised during [gain_corr] of image {}: {}'
+                      .format(filename, e))
         else:
             gain_processed = True
         finally:
@@ -1563,7 +1580,8 @@ def blackbox_reduce (filename):
                 data = xtalk_corr (data, crosstalk_file, log=log)
             except Exception as e:
                 log.info(traceback.format_exc())
-                log.error('exception was raised during [xtalk_corr]: {}'.format(e))
+                log.error('exception was raised during [xtalk_corr] of image {}: '
+                          '{}'.format(filename, e))
             else:
                 xtalk_processed = True
             finally:
@@ -1584,7 +1602,8 @@ def blackbox_reduce (filename):
             data = os_corr(data, header, imgtype, tel=tel, log=log)
         except Exception as e:
             log.info(traceback.format_exc())
-            log.error('exception was raised during [os_corr]: {}'.format(e))
+            log.error('exception was raised during [os_corr] of image {}: {}'
+                      .format(filename, e))
         else:
             os_processed = True
         finally:
@@ -1611,8 +1630,8 @@ def blackbox_reduce (filename):
                                       'name non-linearity correction file')
             except Exception as e:
                 log.info(traceback.format_exc())
-                log.error('exception was raised during [nonlin_corr]: {}'
-                          .format(e))
+                log.error('exception was raised during [nonlin_corr] of image '
+                          '{}: {}'.format(filename, e))
             else:
                 nonlin_corr_processed = True
             finally:
@@ -1642,8 +1661,8 @@ def blackbox_reduce (filename):
 
         except Exception as e:
             log.info(traceback.format_exc())
-            log.error('exception was raised during bias [master_prep]: {}'
-                      .format(e))
+            log.error('exception was raised during bias [master_prep] of master '
+                      '{}: {}'.format(fits_master, e))
 
         finally:
             lock.release()
@@ -1677,8 +1696,8 @@ def blackbox_reduce (filename):
 
             except Exception as e:
                 log.info(traceback.format_exc())
-                log.error('exception was raised during master bias subtraction: '
-                          '{}'.format(e))
+                log.error('exception was raised during master bias subtraction '
+                          'of image {}: {}'.format(filename, e))
             else:
                 mbias_processed = True
             finally:
@@ -1699,7 +1718,8 @@ def blackbox_reduce (filename):
                 data_mask, header_mask = mask_init (data, header, filt, log=log)
             except Exception as e:
                 log.info(traceback.format_exc())
-                log.error('exception was raised during [mask_init]: {}'.format(e))
+                log.error('exception was raised during [mask_init] for image {}: '
+                          '{}'.format(filename, e))
             else:
                 mask_processed = True
             finally:
@@ -1738,8 +1758,8 @@ def blackbox_reduce (filename):
 
         except Exception as e:
             log.info(traceback.format_exc())
-            log.error('exception was raised during flat [master_prep]: {}'
-                      .format(e))
+            log.error('exception was raised during flat [master_prep] of master '
+                      '{}: {}'.format(fits_master, e))
             
         finally:
             lock.release()
@@ -1770,8 +1790,8 @@ def blackbox_reduce (filename):
 
             except Exception as e:
                 log.info(traceback.format_exc())
-                log.error('exception was raised during master flat division: {}'
-                          .format(e))
+                log.error('exception was raised during master flat division of '
+                          'image {}: {}'.format(filename, e))
             else:
                 mflat_processed = True
             finally:
@@ -1801,7 +1821,8 @@ def blackbox_reduce (filename):
         except Exception as e:
             header['NCOSMICS'] = ('None', '[/s] number of cosmic rays identified')
             log.info(traceback.format_exc())
-            log.error('exception was raised during [cosmics_corr]: {}'.format(e))
+            log.error('exception was raised during [cosmics_corr] of image {}: '
+                      '{}'.format(filename, e))
         else:
             cosmics_processed = True
         finally:
@@ -1831,7 +1852,8 @@ def blackbox_reduce (filename):
         except Exception as e:
             header['NSATS'] = ('None', 'number of satellite trails identified')
             log.info(traceback.format_exc())
-            log.error('exception was raised during [sat_detect]: {}'.format(e))
+            log.error('exception was raised during [sat_detect] of image {}: {}'
+                      .format(filename, e))
         else:
             if get_par(set_bb.detect_sats,tel):
                 sat_processed = True
@@ -2069,8 +2091,8 @@ def blackbox_reduce (filename):
                 nthread=get_par(set_bb.nthread,tel), telescope=tel)
         except Exception as e:
             log.info(traceback.format_exc())
-            log.error('exception was raised during reference [optimal_subtraction]: {}'
-                      .format(e))
+            log.error('exception was raised during [optimal_subtraction] for '
+                      'new-only image {}: {}'.format(new_fits, e))
         else:
             zogy_processed = True
         finally:
@@ -2133,8 +2155,8 @@ def blackbox_reduce (filename):
                 nthread=get_par(set_bb.nthread,tel), telescope=tel)
         except Exception as e:
             log.info(traceback.format_exc())
-            log.error('exception was raised during new-only [optimal_subtraction]: {}'
-                      .format(e))
+            log.error('exception was raised during [optimal_subtraction] for '
+                      'reference-only image {}: {}'.format(new_fits, e))
         else:
             zogy_processed = True
         finally:
@@ -2247,7 +2269,9 @@ def blackbox_reduce (filename):
                 verbose=None, nthread=get_par(set_bb.nthread,tel), telescope=tel)
         except Exception as e:
             log.info(traceback.format_exc())
-            log.error('exception was raised during new [optimal_subtraction]: {}'.format(e))
+            log.error('exception was raised during [optimal_subtraction] for '
+                      'new image {} and reference image {}: {}'
+                      .format(new_fits, ref_fits, e))
         else:
             zogy_processed = True
         finally:
@@ -3976,8 +4000,10 @@ def os_corr(data, header, imgtype, tel=None, log=None):
         y_vos = np.arange(nrows_chan)
         # fit low order polynomial
         try:
+            polyfit_ok = True
             p = np.polyfit(y_vos, mean_vos_col, vos_poldeg)
         except Exception as e:
+            polyfit_ok = False
             if log is not None:
                 log.info(traceback.format_exc())
                 log.info('exception was raised during polynomial fit to channel {} '
@@ -3996,9 +4022,20 @@ def os_corr(data, header, imgtype, tel=None, log=None):
             
         # fit values
         fit_vos_col = np.polyval(p, y_vos)
-        # subtract this off the entire channel
-        data[chan_sec[i_chan]] -= fit_vos_col.reshape(nrows_chan,1)
-        
+        if not np.all(np.isfinite(fit_vos_col)):
+            polyfit_ok = False
+
+        header['VOSFITOK'] = (polyfit_ok, 'polynomial fit to vert. overscan '
+                              'finite?')
+            
+        # if polynomial fit is reliable, subtract this off the entire
+        # channel; otherwise subtract the nanmedian of the vos row
+        # means
+        if polyfit_ok:
+            data[chan_sec[i_chan]] -= fit_vos_col.reshape(nrows_chan,1)
+        else:
+            data[chan_sec[i_chan]] -= np.nanmedian(mean_vos_col)
+            
         #plt.plot(y_vos, mean_vos_col, color='black')
         #plt.plot(y_vos, fit_vos_col, color='red')
         #plt.savefig('test_poly_{}.pdf'.format(i_chan))
@@ -4053,20 +4090,30 @@ def os_corr(data, header, imgtype, tel=None, log=None):
     def add_stats(mean_arr, std_arr, label, key_label):
         # add headers outside above loop to make header more readable
         for i_chan in range(nchans):
+            val_tmp = mean_arr[i_chan]
+            if not np.isfinite(val_tmp):
+                val_tmp = 'None'
             header['BIASM{}{}'.format(i_chan+1, key_label)] = (
-                mean_arr[i_chan], '[e-] channel {} mean vert. overscan {}'
+                val_tmp, '[e-] channel {} mean vert. overscan {}'
                 .format(i_chan+1, label))
+
         for i_chan in range(nchans):
+            val_tmp = std_arr[i_chan]
+            if not np.isfinite(val_tmp):
+                val_tmp = 'None'
             header['RDN{}{}'.format(i_chan+1, key_label)] = (
-                std_arr[i_chan], '[e-] channel {} sigma (STD) vert. overscan {}'
+                val_tmp, '[e-] channel {} sigma (STD) vert. overscan {}'
                 .format(i_chan+1, label))
+
 
     result = add_stats(mean_vos, std_vos, '', '')
 
     # write the average from both the means and standard deviations
     # determined for each channel to the header
-    header['BIASMEAN'] = (np.mean(mean_vos), '[e-] average all channel means vert. overscan')
-    header['RDNOISE'] = (np.mean(std_vos), '[e-] average all channel sigmas vert. overscan')
+    header['BIASMEAN'] = (np.mean(mean_vos), '[e-] average all channel means '
+                          'vert. overscan')
+    header['RDNOISE'] = (np.mean(std_vos), '[e-] average all channel sigmas '
+                         'vert. overscan')
 
         
     # if the image is a flatfield, add some header keywords with
