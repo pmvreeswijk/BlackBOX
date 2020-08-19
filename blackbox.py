@@ -4025,30 +4025,30 @@ def os_corr(data, header, imgtype, tel=None, log=None):
         if not np.all(np.isfinite(fit_vos_col)):
             polyfit_ok = False
 
-        header['VOSFITOK'] = (polyfit_ok, 'polynomial fit to vert. overscan '
+        header['VOSFITOK'] = (polyfit_ok, 'polynomial fit to vertical overscan '
                               'finite?')
-            
+
         # if polynomial fit is reliable, subtract this off the entire
         # channel; otherwise subtract the nanmedian of the vos row
         # means
         if polyfit_ok:
+            mean_vos[i_chan] = np.mean(fit_vos_col)
             data[chan_sec[i_chan]] -= fit_vos_col.reshape(nrows_chan,1)
         else:
-            data[chan_sec[i_chan]] -= np.nanmedian(mean_vos_col)
-            
+            mean_vos[i_chan] = np.nanmedian(mean_vos_col)
+            data[chan_sec[i_chan]] -= mean_vos[i_chan]
+
         #plt.plot(y_vos, mean_vos_col, color='black')
         #plt.plot(y_vos, fit_vos_col, color='red')
         #plt.savefig('test_poly_{}.pdf'.format(i_chan))
         #plt.close()        
-        
+
         data_vos = data[os_sec_vert[i_chan]]
         # determine mean and std of overscan subtracted vos:
         __, __, std_vos[i_chan] = sigma_clipped_stats(data_vos.astype('float64'),
                                                       mask_value=0)
-        # the above mean_vos is close to zero; instead use the mean polyfit value
-        # (but keep the std_vos calculated above)
-        mean_vos[i_chan] = np.mean(fit_vos_col)
-                
+
+
         # -------------------
         # horizontal overscan
         # -------------------
@@ -4086,36 +4086,27 @@ def os_corr(data, header, imgtype, tel=None, log=None):
         data_out[data_sec_red[i_chan]] = data[data_sec[i_chan]] 
 
 
-        
-    def add_stats(mean_arr, std_arr, label, key_label):
-        # add headers outside above loop to make header more readable
-        for i_chan in range(nchans):
-            val_tmp = mean_arr[i_chan]
-            if not np.isfinite(val_tmp):
-                val_tmp = 'None'
-            header['BIASM{}{}'.format(i_chan+1, key_label)] = (
-                val_tmp, '[e-] channel {} mean vert. overscan {}'
-                .format(i_chan+1, label))
 
-        for i_chan in range(nchans):
-            val_tmp = std_arr[i_chan]
-            if not np.isfinite(val_tmp):
-                val_tmp = 'None'
-            header['RDN{}{}'.format(i_chan+1, key_label)] = (
-                val_tmp, '[e-] channel {} sigma (STD) vert. overscan {}'
-                .format(i_chan+1, label))
+    # add headers outside above loop to make header more readable
+    for i_chan in range(nchans):
+        header['BIASM{}'.format(i_chan+1)] = (
+            mean_vos[i_chan], '[e-] channel {} mean vertical overscan'
+            .format(i_chan+1))
+
+    for i_chan in range(nchans):
+        header['RDN{}'.format(i_chan+1)] = (
+            std_vos[i_chan], '[e-] channel {} sigma (STD) vertical overscan'
+            .format(i_chan+1))
 
 
-    result = add_stats(mean_vos, std_vos, '', '')
-
-    # write the average from both the means and standard deviations
+    # write the average of both the means and standard deviations
     # determined for each channel to the header
-    header['BIASMEAN'] = (np.mean(mean_vos), '[e-] average all channel means '
+    header['BIASMEAN'] = (np.nanmean(mean_vos), '[e-] average all channel means '
                           'vert. overscan')
-    header['RDNOISE'] = (np.mean(std_vos), '[e-] average all channel sigmas '
+    header['RDNOISE'] = (np.nanmean(std_vos), '[e-] average all channel sigmas '
                          'vert. overscan')
 
-        
+
     # if the image is a flatfield, add some header keywords with
     # the statistics of [data_out]
     if imgtype == 'flat':
