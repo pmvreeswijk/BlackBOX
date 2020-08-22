@@ -3767,7 +3767,7 @@ def set_header(header, filename):
         if tel=='ML1':
             tcorr_radec = Time('2019-02-09T00:00:00', format='isot').mjd
             if (mjd_obs < tcorr_radec and 'RA-REF' in header and
-                'DEC-REF' in header:
+                'DEC-REF' in header):
                 ra_deg = Angle(header['RA-REF'], unit=u.hour).degree
                 dec_deg = Angle(header['DEC-REF'], unit=u.deg).degree
                 edit_head(header, 'RA', value=ra_deg,
