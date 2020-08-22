@@ -2438,7 +2438,6 @@ def get_flatstats (data, header, data_mask, tel=None, log=None):
          (np.ma.count(data_masked_reshaped, axis=2) - 1)))
 
 
-
     # avoid using outer rim of subimages in RDIF-MAX and RSTD-MAX
     # statistics; this mask discards those subimages
     mask_cntr = ndimage.binary_erosion(np.ones(mini_median.shape, dtype=bool))
@@ -3598,13 +3597,15 @@ def set_header(header, filename):
     edit_head(header, 'NAXIS1', comments='length of array axis')
     edit_head(header, 'NAXIS2', comments='length of array axis')
 
-    edit_head(header, 'BUNIT', value='e-', comments='Physical unit of array values')
+    edit_head(header, 'BUNIT', value='e-',
+              comments='Physical unit of array values')
     edit_head(header, 'BSCALE', comments='value = fits_value*BSCALE+BZERO')
     edit_head(header, 'BZERO', comments='value = fits_value*BSCALE+BZERO')
     #edit_head(header, 'CCD-AMP', value='', comments='Amplifier mode of the CCD camera')
     #edit_head(header, 'CCD-SET', value='', comments='CCD settings file')
    
-    edit_head(header, 'CCD-TEMP', value='None', comments='[C] Current CCD temperature')
+    edit_head(header, 'CCD-TEMP', value='None',
+              comments='[C] Current CCD temperature')
         
     if 'XBINNING' in header:
         edit_head(header, 'XBINNING', comments='[pix] Binning factor X axis')
@@ -3613,7 +3614,8 @@ def set_header(header, filename):
         nx = get_par(set_bb.nx,tel)
         dx = get_par(set_bb.xsize_chan,tel)
         xbinning = int(np.ceil(float(nx*dx)/xsize))
-        edit_head(header, 'XBINNING', value=xbinning, comments='[pix] Binning factor X axis')
+        edit_head(header, 'XBINNING', value=xbinning,
+                  comments='[pix] Binning factor X axis')
         
     if 'YBINNING' in header:
         edit_head(header, 'YBINNING', comments='[pix] Binning factor Y axis')
@@ -3622,18 +3624,22 @@ def set_header(header, filename):
         ny = get_par(set_bb.ny,tel)
         dy = get_par(set_bb.ysize_chan,tel)
         ybinning = int(np.ceil(float(ny*dy)/ysize))
-        edit_head(header, 'YBINNING', value=ybinning, comments='[pix] Binning factor Y axis')
+        edit_head(header, 'YBINNING', value=ybinning,
+                  comments='[pix] Binning factor Y axis')
 
 
     edit_head(header, 'ALTITUDE', comments='[deg] Telescope altitude')
     edit_head(header, 'AZIMUTH', comments='[deg] Telescope azimuth (N=0;E=90)')
-    edit_head(header, 'RADESYS', value='ICRS', comments='Coordinate reference frame')
-    edit_head(header, 'EPOCH', value=2015.5, comments='Coordinate reference epoch')
+    edit_head(header, 'RADESYS', value='ICRS',
+              comments='Coordinate reference frame')
+    edit_head(header, 'EPOCH', value=2015.5,
+              comments='Coordinate reference epoch')
 
     if 'DOMEAZ' in header:
         edit_head(header, 'DOMEAZ', comments='[deg] Dome azimuth (N=0;E=90)')
     else:
-        edit_head(header, 'DOMEAZ', value='None', comments='[deg] Dome azimuth (N=0;E=90)')
+        edit_head(header, 'DOMEAZ', value='None',
+                  comments='[deg] Dome azimuth (N=0;E=90)')
     
     # RA
     if 'RA' in header:
@@ -3643,7 +3649,8 @@ def set_header(header, filename):
         else:
             # convert RA decimal hours to degrees
             ra_deg = header['RA'] * 15.
-        edit_head(header, 'RA', value=ra_deg, comments='[deg] Telescope right ascension')
+        edit_head(header, 'RA', value=ra_deg,
+                  comments='[deg] Telescope right ascension')
 
     # DEC
     if 'DEC' in header:
@@ -3653,24 +3660,38 @@ def set_header(header, filename):
         else:
             # for airmass determination below
             dec_deg = header['DEC']
-        edit_head(header, 'DEC', value=dec_deg, comments='[deg] Telescope declination')
+        edit_head(header, 'DEC', value=dec_deg,
+                  comments='[deg] Telescope declination')
 
-    edit_head(header, 'FLIPSTAT', value='None', comments='Telescope side of the pier')
+    edit_head(header, 'FLIPSTAT', value='None',
+              comments='Telescope side of the pier')
     edit_head(header, 'EXPTIME', comments='[s] Requested exposure time')
 
     if 'ISTRACKI' in header:
         # convert the string value to boolean
         value = (header['ISTRACKI']=='True')
-        edit_head(header, 'ISTRACKI', value=value, comments='Telescope is tracking')
+        edit_head(header, 'ISTRACKI', value=value,
+                  comments='Telescope is tracking')
 
 
     # record original DATE-OBS and END-OBS in ACQSTART and ACQEND
-    edit_head(header, 'ACQSTART', value=header['DATE-OBS'], comments='start of acquisition (server timing)')
+    edit_head(header, 'ACQSTART', value=header['DATE-OBS'],
+              comments='start of acquisition (server timing)')
     if 'END-OBS' in header:
-        edit_head(header, 'ACQEND', value=header['END-OBS'], comments='end of acquisition (server timing)')
+        edit_head(header, 'ACQEND', value=header['END-OBS'],
+                  comments='end of acquisition (server timing)')
     else:
-        edit_head(header, 'ACQEND', value='None', comments='end of acquisition (server timing)')
+        edit_head(header, 'ACQEND', value='None',
+                  comments='end of acquisition (server timing)')
         
+
+    # for some flatsfieds, IMAGETYP was erroneously set to Object;
+    # update those
+    imgtype = header['IMAGETYP'].lower()
+    if 'flat' in filename.lower() and imgtype == 'object':
+        imgtype = 'flat'
+        edit_head(header, 'IMAGETYP', value=imgtype)
+
 
     # midexposure DATE-OBS is based on GPSSTART and GPSEND; if these
     # keywords are not present in the header, or if the image is a
@@ -3678,20 +3699,23 @@ def set_header(header, filename):
     # keywords, and if they do, the keyword values are actually
     # identical to those of the image preceding the bias/dark), then
     # just adopt the original DATE-OBS (=ACQSTART) as the date of
-    # observation
-    imgtype = header['IMAGETYP'].lower()
+    # observation    
     if 'GPSSTART' in header and 'GPSEND' in header and imgtype == 'object':
         
         # replace DATE-OBS with (GPSSTART+GPSEND)/2
         gps_mjd = Time([header['GPSSTART'], header['GPSEND']], format='isot').mjd
         mjd_obs = np.sum(gps_mjd)/2.
         date_obs_str = Time(mjd_obs, format='mjd').isot
-        edit_head(header, 'DATE-OBS', value=date_obs_str, comments='Midexp. date @img cntr:(GPSSTART+GPSEND)/2')
-        date_obs = Time(date_obs_str, format='isot') # change from a string to time class
+        edit_head(header, 'DATE-OBS', value=date_obs_str,
+                  comments='Midexp. date @img cntr:(GPSSTART+GPSEND)/2')
+
+        # change from a string to time class
+        date_obs = Time(date_obs_str, format='isot') 
 
         # also add keyword to check (GPSEND-GPSSTART) - EXPTIME
         gps_shut = (gps_mjd[1]-gps_mjd[0])*24*3600. - header['EXPTIME']
-        edit_head(header, 'GPS-SHUT', value=gps_shut, comments='[s] Shutter time:(GPSEND-GPSSTART)-EXPTIME')
+        edit_head(header, 'GPS-SHUT', value=gps_shut,
+                  comments='[s] Shutter time:(GPSEND-GPSSTART)-EXPTIME')
         
     else:
         date_obs_str = header['DATE-OBS']
@@ -3702,13 +3726,17 @@ def set_header(header, filename):
         
         
     if 'GPSSTART' not in header:
-        edit_head(header, 'GPSSTART', value='None', comments='GPS timing start of opening shutter')
+        edit_head(header, 'GPSSTART', value='None',
+                  comments='GPS timing start of opening shutter')
     if 'GPSEND' not in header:
-        edit_head(header, 'GPSEND', value='None', comments='GPS timing end of opening shutter')
+        edit_head(header, 'GPSEND', value='None',
+                  comments='GPS timing end of opening shutter')
     if 'GPS-SHUT' not in header and imgtype == 'object':
-        edit_head(header, 'GPS-SHUT', value='None', comments='[s] Shutter time:(GPSEND-GPSSTART)-EXPTIME')
+        edit_head(header, 'GPS-SHUT', value='None',
+                  comments='[s] Shutter time:(GPSEND-GPSSTART)-EXPTIME')
 
-    edit_head(header, 'MJD-OBS', value=mjd_obs, comments='[d] MJD (based on DATE-OBS)')
+    edit_head(header, 'MJD-OBS', value=mjd_obs,
+              comments='[d] MJD (based on DATE-OBS)')
     
     # in degrees:
     lon_temp = get_par(set_zogy.obs_lon,tel)
@@ -3716,7 +3744,8 @@ def set_header(header, filename):
     lst_deg = lst.deg
     # in hh:mm:ss.sss
     lst_str = lst.to_string(sep=':', precision=3)
-    edit_head(header, 'LST', value=lst_str, comments='apparent LST (based on DATE-OBS)')
+    edit_head(header, 'LST', value=lst_str,
+              comments='apparent LST (based on DATE-OBS)')
         
     utc = (mjd_obs-np.floor(mjd_obs)) * 3600. * 24
     edit_head(header, 'UTC', value=utc, comments='[s] UTC (based on DATE-OBS)')
@@ -3737,7 +3766,8 @@ def set_header(header, filename):
         # images we replace the RA and DEC by the RA-REF and DEC-REF
         if tel=='ML1':
             tcorr_radec = Time('2019-02-09T00:00:00', format='isot').mjd
-            if mjd_obs < tcorr_radec and 'RA-REF' in header and 'DEC-REF' in header:
+            if (mjd_obs < tcorr_radec and 'RA-REF' in header and
+                'DEC-REF' in header:
                 ra_deg = Angle(header['RA-REF'], unit=u.hour).degree
                 dec_deg = Angle(header['DEC-REF'], unit=u.deg).degree
                 edit_head(header, 'RA', value=ra_deg,
@@ -3767,35 +3797,62 @@ def set_header(header, filename):
     # but seems to have disappeared during the 2nd half of March 2019
     if 'RA' in header:
         lha_deg = lst_deg - ra_deg
-        edit_head(header, 'HA', value=lha_deg, comments='[deg] Local hour angle (=LST-RA)')
+        edit_head(header, 'HA', value=lha_deg,
+                  comments='[deg] Local hour angle (=LST-RA)')
 
     # Weather headers required for Database
-    edit_head(header, 'CL-BASE',  value='None', dtype=float, comments='[m] Reinhardt cloud base altitude')
-    edit_head(header, 'RH-MAST',  value='None', dtype=float, comments='Vaisala RH mast')
-    edit_head(header, 'RH-DOME',  value='None', dtype=float, comments='CilSense2 RH dome')
-    edit_head(header, 'RH-AIRCO', value='None', dtype=float, comments='CilSense3 RH server room airco')
-    edit_head(header, 'RH-PIER',  value='None', dtype=float, comments='CilSense1 RH pier')
-    edit_head(header, 'PRESSURE', value='None', dtype=float, comments='[hPa] Vaisala pressure mast')
-    edit_head(header, 'T-PIER',   value='None', dtype=float, comments='[C] CilSense1 temperature pier')
-    edit_head(header, 'T-DOME',   value='None', dtype=float, comments='CilSense2 temperature dome')
-    edit_head(header, 'T-ROOF',   value='None', dtype=float, comments='[C] Reinhardt temperature roof')
-    edit_head(header, 'T-AIRCO',  value='None', dtype=float, comments='[C] CilSense3 temperature server room airco')
-    edit_head(header, 'T-MAST',   value='None', dtype=float, comments='[C] Vaisala temperature mast')
-    edit_head(header, 'T-STRUT',  value='None', dtype=float, comments='[C] Temperature carbon strut between M1 and M2')
-    edit_head(header, 'T-CRING',  value='None', dtype=float, comments='[C] Temperature main carbon ring around M1')
-    edit_head(header, 'T-SPIDER', value='None', dtype=float, comments='[C] Temperature carbon spider above M2')
-    edit_head(header, 'T-FWN',    value='None', dtype=float, comments='[C] Temperature filter wheel housing North')
-    edit_head(header, 'T-FWS',    value='None', dtype=float, comments='[C] Temperature filter wheel housing South')
-    edit_head(header, 'T-M2HOLD', value='None', dtype=float, comments='[C] Temperature aluminium M2 holder')
-    edit_head(header, 'T-GUICAM', value='None', dtype=float, comments='[C] Temperature guide camera')
-    edit_head(header, 'T-M1',     value='None', dtype=float, comments='[C] Temperature backside M1')
-    edit_head(header, 'T-CRYWIN', value='None', dtype=float, comments='[C] Temperature Cryostat window')
-    edit_head(header, 'T-CRYGET', value='None', dtype=float, comments='[C] Temperature Cryostat getter')
-    edit_head(header, 'T-CRYCP',  value='None', dtype=float, comments='[C] Temperature Cryostat cold plate')
-    edit_head(header, 'PRES-CRY', value='None', dtype=float, comments='[bar] Cryostat vacuum pressure')
-    edit_head(header, 'WINDAVE',  value='None', dtype=float, comments='[km/h] Vaisala wind speed mast')
-    edit_head(header, 'WINDGUST', value='None', dtype=float, comments='[km/h] Vaisala wind gust mast')
-    edit_head(header, 'WINDDIR',  value='None', dtype=float, comments='[deg] Vaisala wind direction mast')
+    edit_head(header, 'CL-BASE',  value='None', dtype=float,
+              comments='[m] Reinhardt cloud base altitude')
+    edit_head(header, 'RH-MAST',  value='None', dtype=float,
+              comments='Vaisala RH mast')
+    edit_head(header, 'RH-DOME',  value='None', dtype=float,
+              comments='CilSense2 RH dome')
+    edit_head(header, 'RH-AIRCO', value='None', dtype=float,
+              comments='CilSense3 RH server room airco')
+    edit_head(header, 'RH-PIER',  value='None', dtype=float,
+              comments='CilSense1 RH pier')
+    edit_head(header, 'PRESSURE', value='None', dtype=float,
+              comments='[hPa] Vaisala pressure mast')
+    edit_head(header, 'T-PIER',   value='None', dtype=float,
+              comments='[C] CilSense1 temperature pier')
+    edit_head(header, 'T-DOME',   value='None', dtype=float,
+              comments='CilSense2 temperature dome')
+    edit_head(header, 'T-ROOF',   value='None', dtype=float,
+              comments='[C] Reinhardt temperature roof')
+    edit_head(header, 'T-AIRCO',  value='None', dtype=float,
+              comments='[C] CilSense3 temperature server room airco')
+    edit_head(header, 'T-MAST',   value='None', dtype=float,
+              comments='[C] Vaisala temperature mast')
+    edit_head(header, 'T-STRUT',  value='None', dtype=float,
+              comments='[C] Temperature carbon strut between M1 and M2')
+    edit_head(header, 'T-CRING',  value='None', dtype=float,
+              comments='[C] Temperature main carbon ring around M1')
+    edit_head(header, 'T-SPIDER', value='None', dtype=float,
+              comments='[C] Temperature carbon spider above M2')
+    edit_head(header, 'T-FWN',    value='None', dtype=float,
+              comments='[C] Temperature filter wheel housing North')
+    edit_head(header, 'T-FWS',    value='None', dtype=float,
+              comments='[C] Temperature filter wheel housing South')
+    edit_head(header, 'T-M2HOLD', value='None', dtype=float,
+              comments='[C] Temperature aluminium M2 holder')
+    edit_head(header, 'T-GUICAM', value='None', dtype=float,
+              comments='[C] Temperature guide camera')
+    edit_head(header, 'T-M1',     value='None', dtype=float,
+              comments='[C] Temperature backside M1')
+    edit_head(header, 'T-CRYWIN', value='None', dtype=float,
+              comments='[C] Temperature Cryostat window')
+    edit_head(header, 'T-CRYGET', value='None', dtype=float,
+              comments='[C] Temperature Cryostat getter')
+    edit_head(header, 'T-CRYCP',  value='None', dtype=float,
+              comments='[C] Temperature Cryostat cold plate')
+    edit_head(header, 'PRES-CRY', value='None', dtype=float,
+              comments='[bar] Cryostat vacuum pressure')
+    edit_head(header, 'WINDAVE',  value='None', dtype=float,
+              comments='[km/h] Vaisala wind speed mast')
+    edit_head(header, 'WINDGUST', value='None', dtype=float,
+              comments='[km/h] Vaisala wind gust mast')
+    edit_head(header, 'WINDDIR',  value='None', dtype=float,
+              comments='[deg] Vaisala wind direction mast')
     
     
     edit_head(header, 'FILTER', comments='Filter')
@@ -3817,24 +3874,34 @@ def set_header(header, filename):
                      'i':'z',
                      'z':'u'}
 
-        transition_mjd = Time(['2017-11-19T00:00:00', '2018-02-24T23:59:59'], format='isot').mjd
-        tcorr_mjd = Time(['2018-02-25T00:00:00', '2019-01-13T15:00:00'], format='isot').mjd
+        transition_mjd = Time(['2017-11-19T00:00:00', '2018-02-24T23:59:59'],
+                              format='isot').mjd
+        tcorr_mjd = Time(['2018-02-25T00:00:00', '2019-01-13T15:00:00'],
+                         format='isot').mjd
         if mjd_obs >= transition_mjd[0] and mjd_obs <= transition_mjd[1]:
             if 'OBSERVER' in header and header['OBSERVER'].lower()=='abot':
                 filt_old = header['FILTER']
-                edit_head(header, 'FILTER', value=filt_corr[filt_old], comments='Filter (corrected)')
+                edit_head(header, 'FILTER', value=filt_corr[filt_old],
+                          comments='Filter (corrected)')
         elif mjd_obs >= tcorr_mjd[0] and mjd_obs <= tcorr_mjd[1]:
             filt_old = header['FILTER']
-            edit_head(header, 'FILTER', value=filt_corr[filt_old], comments='Filter (corrected)')
+            edit_head(header, 'FILTER', value=filt_corr[filt_old],
+                      comments='Filter (corrected)')
 
-
-    edit_head(header, 'CCD-ID',   value='None', dtype=str, comments='CCD camera ID')
-    edit_head(header, 'CONTROLL', value='None', dtype=str, comments='CCD controller')
-    edit_head(header, 'DETSPEED', value='None', dtype=int, comments='[kHz] Detector read speed')
-    edit_head(header, 'CCD-NW',   dtype=int, comments='Number of channels in width')
-    edit_head(header, 'CCD-NH',   dtype=int, comments='Number of channels in height')
-    edit_head(header, 'INSTRUME', value='None', dtype=str, comments='Instrument name')
-    edit_head(header, 'FOCUSPOS', value='None', dtype=int, comments='[micron] Focuser position')
+    edit_head(header, 'CCD-ID',   value='None', dtype=str,
+              comments='CCD camera ID')
+    edit_head(header, 'CONTROLL', value='None', dtype=str,
+              comments='CCD controller')
+    edit_head(header, 'DETSPEED', value='None', dtype=int,
+              comments='[kHz] Detector read speed')
+    edit_head(header, 'CCD-NW',   dtype=int,
+              comments='Number of channels in width')
+    edit_head(header, 'CCD-NH',   dtype=int,
+              comments='Number of channels in height')
+    edit_head(header, 'INSTRUME', value='None', dtype=str,
+              comments='Instrument name')
+    edit_head(header, 'FOCUSPOS', value='None', dtype=int,
+              comments='[micron] Focuser position')
 
     if tel=='ML1':
         origin = 'MeerLICHT-1, Sutherland'
@@ -3851,31 +3918,40 @@ def set_header(header, filename):
 
 
     edit_head(header, 'IMAGETYP', dtype=str, comments='Image type')
-    edit_head(header, 'OBJECT',   dtype=str, comments='Name of object observed (field ID)')
+    edit_head(header, 'OBJECT',   dtype=str,
+              comments='Name of object observed (field ID)')
 
     if header['IMAGETYP'].lower()=='object':
         if 'FIELD_ID' in header:
             obj = header['FIELD_ID']
         else:
             obj = header['OBJECT']
-        edit_head(header, 'OBJECT', value='{:0>5}'.format(obj), comments='Name of object observed (field ID)')
+        edit_head(header, 'OBJECT', value='{:0>5}'.format(obj),
+                  comments='Name of object observed (field ID)')
 
 
     # do not add ARCFILE name for the moment
     #arcfile = '{}.{}'.format(tel, date_obs_str)
     #edit_head(header, 'ARCFILE', value=arcfile, comments='Archive filename')
-    edit_head(header, 'ORIGFILE', value=filename.split('/')[-1].split('.fits')[0], comments='ABOT filename')
+    edit_head(header, 'ORIGFILE', value=filename.split('/')[-1].split('.fits')[0],
+              comments='ABOT filename')
 
     
-    edit_head(header, 'OBSERVER', value='None', dtype=str, comments='Robotic observations software and PC ID')
+    edit_head(header, 'OBSERVER', value='None', dtype=str,
+              comments='Robotic observations software and PC ID')
     edit_head(header, 'ABOTVER',  value='None', dtype=str, comments='ABOT version')
     edit_head(header, 'PROGNAME', value='None', dtype=str, comments='Program name')
     edit_head(header, 'PROGID',   value='None', dtype=str, comments='Program ID')
-    edit_head(header, 'GUIDERST', value='None', dtype=str, comments='Guider status')
-    edit_head(header, 'GUIDERFQ', value='None', dtype=float, comments='[Hz] Guide loop frequency')
-    edit_head(header, 'TRAKTIME', value='None', dtype=float, comments='[s] Autoguider exposure time during imaging')
-    edit_head(header, 'ADCX',     value='None', dtype=float, comments='[mm] Position offset ADC lens in x')
-    edit_head(header, 'ADCY',     value='None', dtype=float, comments='[mm] Position offset ADC lens in y')
+    edit_head(header, 'GUIDERST', value='None', dtype=str,
+              comments='Guider status')
+    edit_head(header, 'GUIDERFQ', value='None', dtype=float,
+              comments='[Hz] Guide loop frequency')
+    edit_head(header, 'TRAKTIME', value='None', dtype=float,
+              comments='[s] Autoguider exposure time during imaging')
+    edit_head(header, 'ADCX',     value='None', dtype=float,
+              comments='[mm] Position offset ADC lens in x')
+    edit_head(header, 'ADCY',     value='None', dtype=float,
+              comments='[mm] Position offset ADC lens in y')
     
     
     # remove the following keywords:
@@ -4273,7 +4349,8 @@ def xtalk_corr (data, crosstalk_file, log=None):
     #         j, i = 1, 0
     #     else:
     #         j, i = 0, 8
-    #     print (victim, height*j, height*(j+1), width*(int(victim)-1-i), width*(int(victim)-i))
+    #     print (victim, height*j, height*(j+1), width*(int(victim)-1-i),
+    #            width*(int(victim)-i))
     #
     # victim is not the channel index, but number
     #
@@ -4423,7 +4500,8 @@ def get_path (date, dir_type):
     # rewrite this block using astropy.time; very confusing now
     if 'T' in date:
         if '.' in date:
-            # rounds date to microseconds as more digits can't be defined in the format (next line)
+            # rounds date to microseconds as more digits cannot be
+            # defined in the format (next line)
             date = str(Time(date, format='isot')) 
             date_format = '%Y-%m-%dT%H:%M:%S.%f'
             high_noon = 'T12:00:00.0'
