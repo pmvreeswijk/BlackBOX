@@ -118,7 +118,9 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          obeying S/N constraints, such that ldac catalog has reasonable
          size?
 
-    (57) save header as separate fits file
+    (57) save header as separate fits file; for now, just save one
+         header file for each of the reduced image, full-source and
+         transient catalogs.
 
     (64) after subtraction of a background with a gradient, the
          standard deviation must be different; find a good way to
@@ -134,7 +136,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          same as the flag of the transient catalog (QC-FLAGT?).
 
     (80) make a short summary of the night when the night mode is
-         finishing:
+         finishing, which could be emailed to a list of people
 
          - how many non-red bias frames were taken?
          - how many flat frames were taken in each filter?
@@ -450,7 +452,6 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
              sigclip=8 (6), sigfrac=0.01 (0.3), objlim=1 (20),
              sepmed=False (False)
 
-
     (48) add mode such that all input files are considered new images,
          i.e. no reference images are created, nor is the comparison
          between new and ref done. This is to speed up the processing
@@ -606,7 +607,6 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          from the same CPU ID; log file not properly closed?
          --> introduced close_log function to properly close log
              when returning from blackbox_reduce
-
 
     """
     
@@ -1711,11 +1711,12 @@ def blackbox_reduce (filename):
 
         # create initial mask array
         ###########################
-        if imgtype == 'object':
+        if imgtype == 'object' or imgtype == 'flat':
             try:
                 log.info('preparing the initial mask')
                 mask_processed = False
-                data_mask, header_mask = mask_init (data, header, filt, log=log)
+                data_mask, header_mask = mask_init (data, header, filt, imgtype,
+                                                    log=log)
             except Exception as e:
                 log.info(traceback.format_exc())
                 log.error('exception was raised during [mask_init] for image {}: '
@@ -1733,9 +1734,9 @@ def blackbox_reduce (filename):
 
         # if IMAGETYP=flat, write [data] to fits and return
         if imgtype == 'flat':
-            # first add some statistics to header
+            # first add some image statistics to header
             if os_processed:
-                get_flatstats (data, header, imgtype)
+                get_flatstats (data, header, data_mask, tel=tel, log=log)
             # call [run_qc_check] to update header with any QC flags
             run_qc_check (header, tel, log=log)
             # write to fits
@@ -2335,8 +2336,15 @@ def blackbox_reduce (filename):
 
 ################################################################################
     
-def get_flatstats (data, header, imgtype):
+def get_flatstats (data, header, data_mask, tel=None, log=None):
+
+    if get_par(set_zogy.timing,tel):
+        t = time.time()
     
+    # mask of valid pixels
+    mask_use = (data_mask == 0)
+
+
     # add some header keywords with the statistics
     sec_temp = get_par(set_bb.flat_norm_sec,tel)
     value_temp = '[{}:{},{}:{}]'.format(
@@ -2345,20 +2353,30 @@ def get_flatstats (data, header, imgtype):
     header['STATSEC'] = (
         value_temp, 'pre-defined statistics section [y1:y2,x1:x2]')
     
+
     # statistics on STATSEC
-    index_stat = get_rand_indices(data[sec_temp].shape)
-    __, median_sec, std_sec = sigma_clipped_stats(data[sec_temp][index_stat]
-                                                  .astype('float64'),
-                                                  mask_value=0)
+    mask_use_temp = mask_use[sec_temp]
+    median_sec = np.median(data[sec_temp][mask_use_temp])
+    std_sec = np.std(data[sec_temp][mask_use_temp])
+    # using masked array (slow!)
+    #median_sec = np.ma.median(data_masked[sec_temp])
+    #std_sec = np.ma.std(data_masked[sec_temp])
+
     header['MEDSEC'] = (median_sec, '[e-] median flat over STATSEC')
     header['STDSEC'] = (std_sec, '[e-] sigma (STD) flat over STATSEC')
     header['RSTDSEC'] = (std_sec/median_sec, 'relative sigma (STD) flat '
                          'over STATSEC')
 
+    
     # full image statistics
     index_stat = get_rand_indices(data.shape)
-    __, median, std = sigma_clipped_stats(data[index_stat].astype('float64'),
-                                          mask_value=0)
+    mask_use_temp = mask_use[index_stat]
+    median = np.median(data[index_stat][mask_use_temp])
+    std = np.std(data[index_stat][mask_use_temp])
+    # masked array (slow!)
+    #median = np.ma.median(data_masked[index_stat])
+    #std = np.ma.std(data_masked[index_stat])
+
     header['FLATMED'] = (median, '[e-] median flat')
     header['FLATSTD'] = (std, '[e-] sigma (STD) flat')
     header['FLATRSTD'] = (std/median, 'relative sigma (STD) flat')
@@ -2383,7 +2401,8 @@ def get_flatstats (data, header, imgtype):
         header['FLATRS{}'.format(i_chan+1)] = (
             std_temp/median_temp,
             'channel {} relative sigma (STD) flat'.format(i_chan+1))
-        
+
+
 
     # split image in 8x8 subimages and calculate a few additional
     # statistics; size of subimages is taken to be the same as the
@@ -2392,32 +2411,61 @@ def get_flatstats (data, header, imgtype):
     subsize = get_par(set_zogy.subimage_size,tel)
     nsubs_side = int(ysize/subsize)
     
-    # reshape
-    data_reshaped = data.reshape(
+    # create masked array and reshape it
+    data_masked_reshaped = np.ma.masked_array(data, mask=~mask_use).reshape(
         nsubs_side,subsize,-1,subsize).swapaxes(1,2).reshape(
             nsubs_side,nsubs_side,-1)
-    
-    # get clipped statistics
-    index_stat = get_rand_indices((data_reshaped.shape[2],))
-    mini_mean, mini_median, mini_std = sigma_clipped_stats (
-        data_reshaped[:,:,index_stat].astype('float64'),
-        sigma=3, axis=2, mask_value=0)
+
+    # get statistics
+    index_stat = get_rand_indices((data_masked_reshaped.shape[2],), fraction=0.1)
+    mini_median = np.ma.median(data_masked_reshaped[:,:,index_stat], axis=2)
+    mini_median_reshaped = mini_median.reshape(nsubs_side, nsubs_side, 1)
+
+    # to avoid adding possible stars to the STD determination,
+    # calculate the STD for each subimage only for the values below
+    # the median, and do this calculation with respect to the median,
+    # i.e.:  STD**2 = sum((data[<median] - median)**2) / (N-1)
+    mask_clip = (data_masked_reshaped > mini_median_reshaped)
+    # update mask of masked array
+    data_masked_reshaped.mask |= mask_clip
+
+    # standard deviation
+    #mini_std = np.ma.std(data_masked_reshaped, axis=2)
+    # do not bother to work on fraction of pixels (index_stat) as half
+    # of the pixels have already been clipped
+    mini_std = np.sqrt(
+        (np.ma.sum((data_masked_reshaped - mini_median_reshaped)**2, axis=2) /
+         (np.ma.count(data_masked_reshaped, axis=2) - 1)))
+
+
+
+    # avoid using outer rim of subimages in RDIF-MAX and RSTD-MAX
+    # statistics; this mask discards those subimages
+    mask_cntr = ndimage.binary_erosion(np.ones(mini_median.shape, dtype=bool))
 
     # statistic used by Danielle, or the maximum relative difference
     # between the boxes' medians
-    danstat = ((np.amax(mini_median) - np.amin(mini_median)) /
-               (np.amax(mini_median) + np.amin(mini_median)))
-    
-    header['NSUBS'] = (nsubs_side**2, 'number of subimages for statistics')
+    minimum = np.amin(mini_median[mask_cntr])
+    maximum = np.amax(mini_median[mask_cntr])
+    danstat = np.abs((maximum - minimum) / (maximum + minimum))
+
+    header['NSUBSTOT'] = (mask_cntr.size, 'number of subimages available for statistics')
+    header['NSUBS'] = (np.sum(mask_cntr), 'number of subimages used for statistics')
     header['RDIF-MAX'] = (danstat, '(max(subs)-min(subs)) / (max(subs)+min(subs))')
 
-    mask_nonzero = (mini_median != 0)
+    mask_nonzero = (mini_median[mask_cntr] != 0)
     if np.sum(mask_nonzero) != 0:
-        rstd = mini_std[mask_nonzero] / mini_median[mask_nonzero]
-        index_max = np.argmax(rstd)
-        rstd_max = rstd.ravel()[index_max]
-        header['RSTD-MAX'] = (rstd_max, 'maximum relative sigma (STD) of subimages')
-    
+        rstd_max = np.amax(mini_std[mask_cntr][mask_nonzero] /
+                           np.abs(mini_median[mask_cntr][mask_nonzero]))
+    else:
+        rstd_max = 'None'
+
+    header['RSTD-MAX'] = (rstd_max, 'maximum relative sigma (STD) of subimages')
+
+
+    if get_par(set_zogy.timing,tel):
+        log_timing_memory (t0=t, label='get_flatstats', log=log)
+
     return
 
 
@@ -2795,8 +2843,8 @@ def cosmics_corr (data, header, data_mask, header_mask, log=None):
 
 ################################################################################
 
-def mask_init (data, header, filt, log=None):
-
+def mask_init (data, header, filt, imgtype, log=None):
+    
     """Function to create initial mask from the bad pixel mask (defining
        the bad and edge pixels), and pixels that are saturated and
        pixels connected to saturated pixels.
@@ -2820,50 +2868,57 @@ def mask_init (data, header, filt, log=None):
             log.info('Warning: bad pixel mask {} does not exist'.format(fits_bpm))
         data_mask = np.zeros(np.shape(data), dtype='uint8')
 
-    # mask of pixels with non-finite values in [data]
-    mask_infnan = ~np.isfinite(data)
-    # replace those pixel values with zeros
-    data[mask_infnan] = 0
-    # and add them to [data_mask] with same value defined for 'bad' pixels
-    # unless that pixel was already masked
-    data_mask[(mask_infnan) & (data_mask==0)] += get_par(
-        set_zogy.mask_value['bad'],tel)
-    
-    # identify saturated pixels; saturation level (ADU) is taken from
-    # blackbox settings file, which needs to be mulitplied by the gain
-    # and have the mean biaslevel subtracted
-    satlevel_electrons = (get_par(set_bb.satlevel,tel) *
-                          np.mean(get_par(set_bb.gain,tel)) - header['BIASMEAN'])
-    mask_sat = (data >= satlevel_electrons)
-    # add them to the mask of edge and bad pixels
-    data_mask[mask_sat] += get_par(set_zogy.mask_value['saturated'],tel)
-
-    # determining number of saturated objects; 2 saturated pixels are
-    # considered from the same object also if they are only connected
-    # diagonally
-    struct = np.ones((3,3), dtype=bool)
-    __, nobj_sat = ndimage.label(mask_sat, structure=struct)
-    
-    # and pixels connected to saturated pixels
-    struct = np.ones((3,3), dtype=bool)
-    mask_satconnect = ndimage.binary_dilation(mask_sat, structure=struct,
-                                              iterations=2)
-    # add them to the mask
-    data_mask[(mask_satconnect) & (~mask_sat)] += get_par(
-        set_zogy.mask_value['saturated-connected'],tel)
 
     # create initial mask header 
     header_mask = fits.Header()
-    header_mask['SATURATE'] = (satlevel_electrons, '[e-] adopted saturation '
-                               'threshold')
-    header['NOBJ-SAT'] = (nobj_sat, 'number of saturated objects')
-    # also add these to the header of image itself
-    header['SATURATE'] = (satlevel_electrons, '[e-] adopted saturation threshold')
-    header['NOBJ-SAT'] = (nobj_sat, 'number of saturated objects')
-    # rest of the mask header entries are added in one go using
-    # function [mask_header] once all the reduction steps have
-    # finished
+
     
+    if imgtype == 'object':
+        
+        # mask of pixels with non-finite values in [data]
+        mask_infnan = ~np.isfinite(data)
+        # replace those pixel values with zeros
+        data[mask_infnan] = 0
+        # and add them to [data_mask] with same value defined for 'bad' pixels
+        # unless that pixel was already masked
+        data_mask[(mask_infnan) & (data_mask==0)] += get_par(
+            set_zogy.mask_value['bad'],tel)
+    
+        # identify saturated pixels; saturation level (ADU) is taken from
+        # blackbox settings file, which needs to be mulitplied by the gain
+        # and have the mean biaslevel subtracted
+        satlevel_electrons = (get_par(set_bb.satlevel,tel) *
+                              np.mean(get_par(set_bb.gain,tel)) - header['BIASMEAN'])
+        mask_sat = (data >= satlevel_electrons)
+        # add them to the mask of edge and bad pixels
+        data_mask[mask_sat] += get_par(set_zogy.mask_value['saturated'],tel)
+
+        # determining number of saturated objects; 2 saturated pixels are
+        # considered from the same object also if they are only connected
+        # diagonally
+        struct = np.ones((3,3), dtype=bool)
+        __, nobj_sat = ndimage.label(mask_sat, structure=struct)
+    
+        # and pixels connected to saturated pixels
+        struct = np.ones((3,3), dtype=bool)
+        mask_satconnect = ndimage.binary_dilation(mask_sat, structure=struct,
+                                                  iterations=2)
+        # add them to the mask
+        data_mask[(mask_satconnect) & (~mask_sat)] += get_par(
+            set_zogy.mask_value['saturated-connected'],tel)
+
+
+        header_mask['SATURATE'] = (satlevel_electrons, '[e-] adopted saturation '
+                                   'threshold')
+        header['NOBJ-SAT'] = (nobj_sat, 'number of saturated objects')
+        # also add these to the header of image itself
+        header['SATURATE'] = (satlevel_electrons, '[e-] adopted saturation threshold')
+        header['NOBJ-SAT'] = (nobj_sat, 'number of saturated objects')
+        # rest of the mask header entries are added in one go using
+        # function [mask_header] once all the reduction steps have
+        # finished
+
+
     if get_par(set_zogy.timing,tel):
         log_timing_memory (t0=t, label='mask_init', log=log)
 
@@ -4025,8 +4080,9 @@ def os_corr(data, header, imgtype, tel=None, log=None):
         if not np.all(np.isfinite(fit_vos_col)):
             polyfit_ok = False
 
-        header['VOSFITOK'] = (polyfit_ok, 'polynomial fit to vertical overscan '
-                              'finite?')
+        header['VFITOK{}'.format(i_chan+1)] = (
+            polyfit_ok, 'channel {} vert. overscan polyfit finite?'
+            .format(i_chan+1))
 
         # if polynomial fit is reliable, subtract this off the entire
         # channel; otherwise subtract the nanmedian of the vos row
