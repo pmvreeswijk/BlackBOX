@@ -166,8 +166,19 @@ qc_range = {
         'MEDSEC'  : {'default':'None', 'val_type': 'min_max', 'val_range': [ (2.4*20e3, 2.4*30e3), (2.4*15e3, 2.4*35e3), (2.4*10e3, 2.4*40e3) ], 'cat_type': None, 'comment': '[e-] median flat over STATSEC (bias-subtracted)'},
         #'RSTDSEC' : {'default':'None', 'val_type': 'sigma', 'val_range': [ (0, 0.01) ],              'cat_type': None, 'comment': 'relative sigma (STD) flat over STATSEC'},
         #'FLATRSTD': {'default':'None', 'val_type': 'sigma', 'val_range': [ (0,0.025),(0,0.026),(0,0.027)], 'cat_type': None, 'comment': 'relative sigma (STD) flat'},
-        'RDIF-MAX': {'default':'None', 'val_type': 'min_max', 'val_range': [ (0,0.03), (0,0.035), (0,0.04) ],                                    'cat_type': None, 'comment': '(max(subs)-min(subs)) / (max(subs)+min(subs))'},
-        'RSTD-MAX': {'default':'None', 'val_type': 'min_max', 'val_range': [ (0,0.05) ],                                                         'cat_type': None, 'comment': 'max. relative sigma (STD) of subimages'},
+        'RDIF-MAX': {'default':'None', 'val_type': 'sigma',   'val_range': {'u': [ (0.026, 0.002) ],
+                                                                            'g': [ (0.010, 0.001) ],
+                                                                            'q': [ (0.011, 0.001) ],
+                                                                            'r': [ (0.011, 0.001) ],
+                                                                            'i': [ (0.014, 0.001) ],
+                                                                            'z': [ (0.023, 0.001) ]},           'cat_type': None, 'comment': '(max(subs)-min(subs)) / (max(subs)+min(subs))'},
+
+        'RSTD-MAX': {'default':'None', 'val_type': 'sigma',   'val_range': {'u': [ (0.073, 0.001) ],
+                                                                            'g': [ (0.064, 0.001) ],
+                                                                            'q': [ (0.053, 0.001) ],
+                                                                            'r': [ (0.043, 0.001) ],
+                                                                            'i': [ (0.028, 0.001) ],
+                                                                            'z': [ (0.023, 0.0005)]},           'cat_type': None, 'comment': 'max. relative sigma (STD) of subimages'},
 
 
         # master flat (these keywords should not end up in dummy catalogs: cat_type=None)
@@ -213,6 +224,7 @@ qc_range = {
                                                                             'r': [ (0.03, 0.01) ], 
                                                                             'i': [ (0.03, 0.01) ], 
                                                                             'z': [ (0.04, 0.01) ]},             'cat_type': 'all', 'comment': '[arcsec] dRA sigma (STD) offset'},
+
         'A-DDESTD': {'default':'None', 'val_type': 'sigma',   'val_range': {'u': [ (0.06, 0.04) ],
                                                                             'g': [ (0.03, 0.02) ], 
                                                                             'q': [ (0.03, 0.01) ], 
