@@ -361,8 +361,6 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
         # prepare big mask where presence of table object entry is
         # checked against any of the field IDs in field_ID_list; this
         # mask will contain len(table) * len(field_ID_list) entries
-        # N.B.: table['OBJECT'] is an integer, so need to convert
-        # it back to string with 5 digits
         mask = [fnmatch.fnmatch('{:0>5}'.format(obj), field_ID)
                 for field_ID in field_ID_list
                 for obj in table['OBJECT']]
@@ -440,6 +438,7 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
     for obj in objs_uniq:
         
         # skip fields '00000' and those beyond 20,000
+        #if int(obj) == 0 or int(obj) >= 20000:
         if int(obj) == 0 or int(obj) >= 20000:
             continue
 
@@ -469,8 +468,8 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
         for filt in filts_uniq:
             mask = (mask_obj & (table['FILTER'] == filt))
             ntrue = np.sum(mask)
-            q.put(genlog.info('number of files left in filter {}: {}'
-                              .format(filt, ntrue)))
+            q.put(genlog.info('number of files left for {} in filter {}: {}'
+                              .format(obj, filt, ntrue)))
             if ntrue > 1:
                 nmax = get_par(set_br.subset_nmax,tel)
                 if ntrue > nmax:
@@ -554,7 +553,7 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
     ref_dir = get_par(set_bb.ref_dir,tel)
     list_2pack = []
     for field_ID in objs_uniq:
-        ref_path = '{}/{:05}'.format(ref_dir, field_ID)
+        ref_path = '{}/{:0>5}'.format(ref_dir, field_ID)
         ref_path = '{}_alt4'.format(ref_path)
         list_2pack.append(glob.glob('{}/*.fits'.format(ref_path)))
         list_2pack.append(glob.glob('{}/Old/*.fits'.format(ref_path)))
@@ -665,9 +664,12 @@ def header2table (filenames):
     keys = ['MJD-OBS', 'OBJECT', 'FILTER', 'QC-FLAG', 'RA-CNTR', 'DEC-CNTR',
             # add keyword that is sorted on if many images are available
             get_par(set_br.subset_key,tel)]
+    keys_dtype = [float, 'S5', 'S1', 'S6', float, float, float]
     if max_seeing is not None:
         keys.append('S-SEEING')
+        keys_dtype.append(float)
 
+        
     # loop input list of filenames
     for filename in filenames:
 
@@ -784,15 +786,12 @@ def header2table (filenames):
         rows.append(row)
 
 
-
     # create table from rows
     names = ['FILE']
-    for key in keys:
+    dtypes = ['S']
+    for i_key, key in enumerate(keys):
         names.append(key)
-
-    dtypes = ['S', float, int, 'S1', 'S6', float]
-    if max_seeing is not None:
-        dtypes.append(float)
+        dtypes.append(keys_dtype[i_key])
 
     if len(rows) == 0:
         # rows without entries: create empty table
@@ -809,7 +808,7 @@ def header2table (filenames):
 def prep_colfig (field_ID, filters):
     
     # determine reference directory and file
-    ref_path = '{}/{:05}'.format(get_par(set_bb.ref_dir,tel), field_ID)
+    ref_path = '{}/{:0>5}'.format(get_par(set_bb.ref_dir,tel), field_ID)
     # for the moment, add _alt to this path to separate it from
     # existing reference images
     ref_path = '{}_alt4'.format(ref_path)
@@ -878,7 +877,7 @@ def prep_colfig (field_ID, filters):
 def prep_ref (imagelist, field_ID, filt, radec):
 
     # determine reference directory and file
-    ref_path = '{}/{:05}'.format(get_par(set_bb.ref_dir,tel), field_ID)
+    ref_path = '{}/{:0>5}'.format(get_par(set_bb.ref_dir,tel), field_ID)
     # for the moment, add _alt to this path to separate it from
     # existing reference images
     ref_path = '{}_alt4'.format(ref_path)
@@ -924,7 +923,7 @@ def prep_ref (imagelist, field_ID, filt, radec):
         
     # prepare temporary folder; for the moment, add _alt to this path
     # to separate it from existing reference images.
-    tmp_path = ('{}/{:05}_alt4/{}'
+    tmp_path = ('{}/{:0>5}_alt4/{}'
                 .format(get_par(set_bb.tmp_dir,tel), field_ID,
                         ref_fits_out.split('/')[-1].replace('.fits','')))
     make_dir (tmp_path, empty=True, lock=lock)
