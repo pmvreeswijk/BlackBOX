@@ -4809,7 +4809,7 @@ def action(queue):
 
             # this while loop below replaces the old [copying]
             # function; it times out after wait_max is reached
-            wait_max = 30
+            wait_max = 60
             t0 = time.time()
             nsleep = 0
             while time.time()-t0 < wait_max:
@@ -4833,6 +4833,8 @@ def action(queue):
                 else:
                     # if fits file was read fine, set process flag to True
                     process = True
+                    # and break out of while loop
+                    break
 
 
             if process:
