@@ -869,10 +869,10 @@ def create_masters (mdate=None, run_fpack=True, run_create_jpg=True):
     
     # prepare list of all red/yyyy/mm/dd/bias and flat directories
     red_dir = get_par(set_bb.red_dir,tel)
-    # if mdate is not specified, loop all available [imtype]
-    # folders in the reduced path
+    # if mdate is not specified or equal to '*', loop all available
+    # [imtype] folders in the reduced path
     year, month, day = '*', '*', '*'
-    if mdate is not None:
+    if mdate is not None and mdate != '*':
         mdate = ''.join(e for e in mdate if e.isdigit())
         # if [mdate] is specified, only loop [imtype] folders in
         # the reduced path of specific year, month and/or day
@@ -920,8 +920,10 @@ def create_masters (mdate=None, run_fpack=True, run_create_jpg=True):
     data_shape = (get_par(set_bb.ny,tel) * get_par(set_bb.ysize_chan,tel), 
                   get_par(set_bb.nx,tel) * get_par(set_bb.xsize_chan,tel))
 
-    # use [pool_func] to process list of masters
-    list_fits_master = pool_func (master_prep, list_masters, data_shape, genlog)
+    # use [pool_func] to process list of masters; pick_alt is set to
+    # False as there is no need to look for an alternative master flat
+    list_fits_master = pool_func (master_prep, list_masters, data_shape, False,
+                                  genlog)
 
 
     if get_par(set_zogy.timing,tel):
@@ -2950,7 +2952,7 @@ def mask_header(data_mask, header_mask):
 
 ################################################################################
 
-def master_prep (fits_master, data_shape, log=None):
+def master_prep (fits_master, data_shape, pick_alt=True, log=None):
 
     if get_par(set_zogy.timing,tel):
         t = time.time()
@@ -3062,8 +3064,15 @@ def master_prep (fits_master, data_shape, log=None):
         # if master bias/flat contains a red flag, look for a nearby
         # master flat instead
         if nfiles < 3 or not master_ok:
-            fits_master_close = get_closest_biasflat(date_eve, imtype, filt=filt)
 
+            # if input [pick_alt] is True, look for a nearby master
+            # flat, otherwise just return None
+            if pick_alt:
+                fits_master_close = get_closest_biasflat(date_eve, imtype,
+                                                         filt=filt)
+            else:
+                return None
+                
             if fits_master_close is not None:
 
                 # if master bias subtraction switch is off, the master
@@ -3127,14 +3136,18 @@ def master_prep (fits_master, data_shape, log=None):
 
                 if imtype=='flat':
                     # divide by median over the region [set_bb.flat_norm_sec]
-                    index_flat_norm = get_par(set_bb.flat_norm_sec,tel)
-                    __, median, std = sigma_clipped_stats(
-                        master_cube[i_file][index_flat_norm].astype('float64'),
-                        mask_value=0)
+                    if 'MEDSEC' in header_temp:
+                        median = header_temp['MEDSEC']
+                    else:
+                        index_flat_norm = get_par(set_bb.flat_norm_sec,tel)
+                        median = np.median(master_cube[i_file][index_flat_norm])
+
                     if log is not None:
-                        log.info ('flat name: {}, median: {}, std: {}'
-                                  .format(filename, median, std))
-                    master_cube[i_file] /= median
+                        log.info ('flat name: {}, median: {}'
+                                  .format(filename, median))
+
+                    if median != 0:
+                        master_cube[i_file] /= median
 
                     # collect RA and DEC to check for dithering
                     if 'RA' in header_temp and 'DEC' in header_temp:
@@ -3490,10 +3503,11 @@ def check_header1 (header, filename):
 
 
     # check if filename contains 'test'
-    if 'test' in filename.lower():
-        genlog.warning ('filename contains string \'test\'; '
-                        'not processing {}'.format(filename))
-        header_ok = False
+    if True:
+        if 'test' in filename.lower():
+            genlog.warning ('filename contains string \'test\'; '
+                            'not processing {}'.format(filename))
+            header_ok = False
     
             
     return header_ok
@@ -3857,6 +3871,10 @@ def set_header(header, filename):
     
     edit_head(header, 'FILTER', comments='Filter')
     if tel=='ML1':
+        # for some 2017 data, 'VR' was used for 'q':
+        if header['FILTER'] == 'VR':
+            edit_head(header, 'FILTER', value='q')
+                
         # for ML1: filter is incorrectly identified in the header for data
         # taken with Abot from 2017-11-19T00:00:00 until 2019-01-13T15:00:00.
         # Divided this time in a transition period (from 2017-11-19T00:00:00
