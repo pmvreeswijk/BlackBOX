@@ -129,11 +129,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     (65) Exception while adding S-FWHM to the image header: 
          "ValueError: Floating point nan values are not allowed in FITS headers"
 
-    (76) currently the QC-FLAG relates to both the image/full-source
-         catalog header and the transient source catalog; we should
-         probably differentiate between them, i.e.  the flag of an
-         image and full-source catalog (QC-FLAGF?) need not be the
-         same as the flag of the transient catalog (QC-FLAGT?).
+
 
     (80) make a short summary of the night when the night mode is
          finishing, which could be emailed to a list of people
@@ -595,6 +591,17 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     (75) use full background standard deviation image in get_trans
          instead of image average
 
+    (76) currently the QC-FLAG relates to both the image/full-source
+         catalog header and the transient source catalog; we should
+         probably differentiate between them, i.e.  the flag of an
+         image and full-source catalog (QC-FLAGF?) need not be the
+         same as the flag of the transient catalog (QC-FLAGT?).  
+         --> introduced separate QC-FLAG for transient part:
+             TQC-FLAG, with its separate TQCRED1-99,
+             TQCORA1-99 through changes to qc.py and set_qc.py.
+         --> the QC-FLAG is still valid for the reduced image 
+             and full-source catalog
+
     (77) make bad pixel maps filter-dependent with f_bad < 0.2 but
          same edges??
 
@@ -730,9 +737,8 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
         elif image_list is not None:
             # if input parameter [image_list] is defined, 
             # read the ascii files into filenames list
-            f = open(image_list, 'r')
-            filenames = [name.strip() for name in f]
-            f.close()
+            with open(image_list, 'r') as f:
+                filenames = [name.strip() for name in f]
 
 
     # split into 'day' or 'night' mode
@@ -757,12 +763,11 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
             genlog.warning ('running with single processor')
             filenames_reduced = []
             for filename in filenames:
-                filename_reduced = blackbox_reduce(filename)
-                filenames_reduced.append(filename_reduced)
-                
+                filenames_reduced.append(blackbox_reduce(filename))
+ 
         else:
             # use [pool_func] to process list of files
-            results = pool_func (try_blackbox_reduce, filenames)
+            filenames_reduced = pool_func (try_blackbox_reduce, filenames)
 
 
         #snapshot2 = tracemalloc.take_snapshot()
@@ -825,7 +830,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     genlog.info ('fpacking fits images')
     # now that all files have been processed, fpack!
     # create list of files to fpack
-    list_2pack = prep_packlist (date, image, filename_reduced)
+    list_2pack = prep_packlist (date, image, filenames_reduced[0])
     if image is None:
         # use [pool_func] to process the list
         results = pool_func (fpack, list_2pack)
@@ -839,7 +844,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     # ----------------------------------------
     genlog.info ('creating jpg images')
     # create list of files to jpg
-    list_2jpg = prep_jpglist (date, image, filename_reduced)
+    list_2jpg = prep_jpglist (date, image, filenames_reduced[0])
     if image is None:
         # use [pool_func] to process the list
         results = pool_func (create_jpg, list_2jpg)
@@ -1274,14 +1279,8 @@ def blackbox_reduce (filename):
     filename = dest
 
     
-    # check if all crucial keywwords are present in the header
+    # check quality control
     qc_flag = run_qc_check (header, tel, log=genlog)
-    if qc_flag=='no_object':
-        genlog.error ('keyword OBJECT not in header of object image {}; '
-                      'skipping image'.format(filename))
-        return None
-
-    
     if qc_flag=='red':
         genlog.error ('red QC flag in image {}; returning without making '
                       'dummy catalogs'.format(filename))
@@ -1902,8 +1901,10 @@ def blackbox_reduce (filename):
         if qc_flag=='red':
             log.error('red QC flag in image {}; making dummy catalogs and '
                       'returning'.format(fits_out))
-            run_qc_check (header, tel, 'new', fits_tmp_cat, log=log)
-            run_qc_check (header, tel, 'trans', fits_tmp_trans, log=log)
+            run_qc_check (header, tel, cat_type='new', cat_dummy=fits_tmp_cat,
+                          log=log)
+            run_qc_check (header, tel, cat_type='trans', cat_dummy=fits_tmp_trans,
+                          log=log)
 
             # copy selected output files to new directory and remove tmp folder
             # corresponding to the object image
@@ -2100,12 +2101,12 @@ def blackbox_reduce (filename):
             zogy_processed = True
         finally:
             if not zogy_processed:
-                log.error('due to exception: returning without copying new-only files')
-
                 # copy selected output files to red directory and remove tmp folder
                 # corresponding to the image
-                #result = copy_files2keep(tmp_base, new_base, get_par(set_bb.all_2keep,tel),
-                #                         move=False, log=log)
+                log.warning ('due to exception, only copy image reduction products')
+                result = copy_files2keep(tmp_base, new_base,
+                                         get_par(set_bb.img_reduce_exts,tel),
+                                         move=False, log=log)
                 clean_tmp(tmp_base)
                 close_log(log, logfile)
                 return None
@@ -2117,12 +2118,17 @@ def blackbox_reduce (filename):
                 if qc_flag=='red':
                     log.error('red QC flag in [header_optsub] returned by new-only '
                               '[optimal_subtraction]; making dummy catalogs')
-                    run_qc_check (header_optsub, tel, 'new', fits_tmp_cat, log=log)
-                    #run_qc_check (header_optsub, tel, 'trans', fits_tmp_trans, log=log)
+                    run_qc_check (header_optsub, tel, cat_type='new',
+                                  cat_dummy=fits_tmp_cat, log=log)
+                    run_qc_check (header_optsub, tel, cat_type='trans',
+                                  cat_dummy=fits_tmp_trans, log=log)
 
                 else:
                     # update catalog header with latest qc-flags
                     with fits.open(fits_tmp_cat, 'update') as hdulist:
+                        #for key in hdulist[-1].header:
+                        #    if 'QC' in key:
+                        #        del hdulist[-1].header[key]
                         for key in header_optsub:
                             if 'QC' in key:
                                 hdulist[-1].header[key] = (
@@ -2164,12 +2170,12 @@ def blackbox_reduce (filename):
             zogy_processed = True
         finally:
             if not zogy_processed:
-                log.error('due to exception: returning without copying reference files')
-
                 # copy selected output files to red directory and remove tmp folder
                 # corresponding to the image
-                #result = copy_files2keep(tmp_base, new_base, get_par(set_bb.all_2keep,tel),
-                #                         move=False, log=log)
+                log.warning ('due to exception, only copy image reduction products')
+                result = copy_files2keep(tmp_base, new_base,
+                                         get_par(set_bb.img_reduce_exts,tel),
+                                         move=False, log=log)
                 clean_tmp(tmp_base)
                 close_log(log, logfile)
                 return None
@@ -2182,8 +2188,10 @@ def blackbox_reduce (filename):
                     log.error('red QC flag in [header_optsub] returned by reference '
                               '[optimal_subtraction]; making dummy catalogs as if it '
                               'were a new image')
-                    run_qc_check (header_optsub, tel, 'new', fits_tmp_cat, log=log)
-                    run_qc_check (header_optsub, tel, 'trans', fits_tmp_trans, log=log)
+                    run_qc_check (header_optsub, tel, cat_type='new',
+                                  cat_dummy=fits_tmp_cat, log=log)
+                    run_qc_check (header_optsub, tel, cat_type='trans',
+                                  cat_dummy=fits_tmp_trans, log=log)
 
                 else:
                     # update catalog header with latest qc-flags
@@ -2279,44 +2287,58 @@ def blackbox_reduce (filename):
             zogy_processed = True
         finally:
             if not zogy_processed:
-                log.error('due to exception: returning without copying new files')
-
                 # copy selected output files to red directory and remove tmp folder
                 # corresponding to the image
-                #result = copy_files2keep(tmp_base, new_base, get_par(set_bb.all_2keep,tel),
-                #                         move=False, log=log)
+                log.warning ('due to exception, only copy image reduction products')
+                result = copy_files2keep(tmp_base, new_base,
+                                         get_par(set_bb.img_reduce_exts,tel),
+                                         move=False, log=log)
                 clean_tmp(tmp_base)
                 close_log(log, logfile)
                 return None
 
             else:
                 # feed [header_optsub] to [run_qc_check], and if there
-                # is a red flag make output dummy catalog and return
+                # is a red flag: make output dummy catalog and return
                 qc_flag = run_qc_check (header_optsub, tel, log=log)
+                qc_flag_trans = run_qc_check (header_optsub, tel,
+                                              cat_type='trans', log=log)                
+
                 if qc_flag=='red':
                     log.error('red QC flag in [header_optsub] returned by new '
-                              '[optimal_subtraction]: making dummy catalogs')
-                    run_qc_check (header_optsub, tel, 'new', fits_tmp_cat, log=log)
-                    run_qc_check (header_optsub, tel, 'trans', fits_tmp_trans, log=log)
-
+                              'vs. ref [optimal_subtraction]: making dummy '
+                              'full-source catalog')
+                    run_qc_check (header_optsub, tel, cat_type='new',
+                                  cat_dummy=fits_tmp_cat, log=log)
                 else:
-                    # update catalog header with latest qc-flags
+                    # update full-source catalog header with latest qc-flags
                     with fits.open(fits_tmp_cat, 'update') as hdulist:
                         for key in header_optsub:
                             if 'QC' in key:
                                 hdulist[-1].header[key] = (
                                     header_optsub[key], header_optsub.comments[key])
-                    # same for transient catalog header
+                                
+                if qc_flag=='red' or qc_flag_trans=='red':
+                    log.error('red transient QC flag in [header_optsub] returned '
+                              'by new vs ref [optimal_subtraction]: making dummy '
+                              'transient catalog')
+                    run_qc_check (header_optsub, tel, cat_type='trans',
+                                  cat_dummy=fits_tmp_trans, log=log)
+                else:
+                    # update transient catalog header with latest qc-flags
                     with fits.open(fits_tmp_trans, 'update') as hdulist:
                         for key in header_optsub:
                             if 'QC' in key:
                                 hdulist[-1].header[key] = (
                                     header_optsub[key], header_optsub.comments[key])
 
+                                
 
-        # update reduced image header with extended header from ZOGY [header_optsub]
+        # update reduced image header with full-source catalog header
+        with fits.open(fits_tmp_cat) as hdulist:
+            header_cat = hdulist[-1].header        
         with fits.open(new_fits, 'update') as hdulist:
-            hdulist[0].header = header_optsub
+            hdulist[0].header = header_cat
         
                     
         # copy selected output files to new directory
@@ -4916,7 +4938,7 @@ if __name__ == "__main__":
     params.add_argument('--imgtypes', type=str, default=None, help='Only consider this(these) image type(s); default=None')
     params.add_argument('--filters', type=str, default=None, help='Only consider this(these) filter(s); default=None')
     params.add_argument('--image', type=str, default=None, help='Only process this particular image (requires full path); default=None')
-    params.add_argument('--image_list', type=str, default=None, help='Only process images listed in ASCII file with this name; default=None')
+    params.add_argument('--image_list', type=str, default=None, help='Process images listed in ASCII file with this name; default=None')
     params.add_argument('--master_date', type=str, default=None, help='Create master file of type(s) [imgtypes] and filter(s) [filters] for this(these) date(s) (e.g. 2019 or 2019/10 or 2019-10-14); default=None')
     params.add_argument('--slack', default=True, help='Upload messages for night mode to slack; default=True')
     args = params.parse_args()
