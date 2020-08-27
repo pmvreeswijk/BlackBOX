@@ -1320,7 +1320,7 @@ def imcombine (field_ID, imagelist, outputfile, combine_type, overwrite=True,
                                                               get_header=True,
                                                               dtype='float32')
                 # convert mini to full background image
-                bkg_boxsize = header_bkg_mini['BKG_SIZE']
+                bkg_boxsize = header_bkg_mini['BKG-SIZE']
                 data_bkg = mini2back (data_bkg_mini, data.shape, 
                                       order_interp=3,
                                       bkg_boxsize=bkg_boxsize, timing=False,
@@ -1334,7 +1334,7 @@ def imcombine (field_ID, imagelist, outputfile, combine_type, overwrite=True,
                                                                   dtype='float32')
 
             # convert mini to full background standard deviation image
-            bkg_boxsize = header_bkg_std_mini['BKG_SIZE']
+            bkg_boxsize = header_bkg_std_mini['BKG-SIZE']
             data_bkg_std = mini2back (data_bkg_std_mini, data.shape,
                                       order_interp=3,
                                       bkg_boxsize=bkg_boxsize, timing=False,
@@ -2538,9 +2538,9 @@ if __name__ == "__main__":
                         'e.g. 1600[0-5],16037,161??); default=None')
     parser.add_argument('--filters', type=str, default=None,
                         help='only consider this(these) filter(s), e.g. uqi')
-    parser.add_argument('--qc_flag_max', type=str, default='yellow',
+    parser.add_argument('--qc_flag_max', type=str, default='orange',
                         choices=['green', 'yellow', 'orange', 'red'],
-                        help='worst QC flag to consider; default=\'yellow\'')
+                        help='worst QC flag to consider; default=\'orange\'')
     parser.add_argument('--seeing_max', type=float, default=None,
                         help='[arcsec] maximum seeing to consider; default=None')
     parser.add_argument('--make_colfig', type=str2bool, default=False,
