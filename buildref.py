@@ -22,7 +22,7 @@ import aplpy
 
 from blackbox import date2mjd, str2bool, unzip
 from blackbox import get_par, already_exists, copy_files2keep
-from blackbox import create_log, define_sections, fpack, make_dir
+from blackbox import create_log, close_log, define_sections, fpack, make_dir
 from qc import qc_check, run_qc_check
 
 import set_zogy
@@ -233,7 +233,7 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
     """
     
 
-    global tel, q, genlog, lock, max_qc_flag, max_seeing, start_date, end_date
+    global tel, genlog, lock, max_qc_flag, max_seeing, start_date, end_date
     global time_refstart
     tel = telescope
     lock = Lock()
@@ -249,25 +249,24 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
     if not os.path.isdir(get_par(set_bb.log_dir,tel)):
         os.makedirs(get_par(set_bb.log_dir,tel))
 
-    q = Manager().Queue() #create queue for logging
     genlogfile = '{}/{}_{}_buildref.log'.format(get_par(set_bb.log_dir,tel), tel,
                                                 Time.now().strftime('%Y%m%d_%H%M%S'))
     genlog = create_log (genlogfile)
 
     
-    q.put(genlog.info('building reference images'))
-    q.put(genlog.info('log file: {}'.format(genlogfile)))
-    q.put(genlog.info('number of processes: {}'.format(get_par(set_br.nproc,tel))))
-    q.put(genlog.info('number of threads: {}\n'.format(get_par(set_br.nthread,tel))))
-    q.put(genlog.info('telescope:      {}'.format(telescope)))
-    q.put(genlog.info('date_start:     {}'.format(date_start)))
-    q.put(genlog.info('date_end:       {}'.format(date_end)))
-    q.put(genlog.info('field_IDs:      {}'.format(field_IDs)))
-    q.put(genlog.info('filters:        {}'.format(filters)))
-    q.put(genlog.info('qc_flag_max:    {}'.format(qc_flag_max)))
-    q.put(genlog.info('seeing_max:     {}'.format(seeing_max)))
-    q.put(genlog.info('make_colfig:    {}'.format(make_colfig)))
-    q.put(genlog.info('filters_colfig: {}'.format(filters_colfig)))
+    genlog.info ('building reference images')
+    genlog.info ('log file: {}'.format(genlogfile))
+    genlog.info ('number of processes: {}'.format(get_par(set_br.nproc,tel)))
+    genlog.info ('number of threads: {}\n'.format(get_par(set_br.nthread,tel)))
+    genlog.info ('telescope:      {}'.format(telescope))
+    genlog.info ('date_start:     {}'.format(date_start))
+    genlog.info ('date_end:       {}'.format(date_end))
+    genlog.info ('field_IDs:      {}'.format(field_IDs))
+    genlog.info ('filters:        {}'.format(filters))
+    genlog.info ('qc_flag_max:    {}'.format(qc_flag_max))
+    genlog.info ('seeing_max:     {}'.format(seeing_max))
+    genlog.info ('make_colfig:    {}'.format(make_colfig))
+    genlog.info ('filters_colfig: {}'.format(filters_colfig))
 
     
     t0 = time.time()
@@ -278,9 +277,8 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
     
     red_path = get_par(set_bb.red_dir,tel)
     filenames = glob.glob('{}/*/*/*/*_red.fits*'.format(red_path))
-    q.put(genlog.info('total number of files: {}'
-                      .format(len(filenames))))
-    
+    genlog.info ('total number of files: {}'.format(len(filenames)))
+
     # split into [nproc] lists
     nfiles = len(filenames)
     nproc = get_par(set_br.nproc,tel)
@@ -297,15 +295,15 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
         # stack separate tables in results
         table = vstack(results)
     except Exception as e:
-        q.put(genlog.error (traceback.format_exc()))
-        q.put(genlog.error ('exception was raised during [pool_func_alt]: {}'
-                            .format(e)))
+        genlog.error (traceback.format_exc())
+        genlog.error ('exception was raised during [pool_func_alt]: {}'
+                            .format(e))
         raise RuntimeError
 
 
-    q.put(genlog.info('number of files with all required keywords: {}'
-                      .format(len(table))))
-    q.put(genlog.info('file headers read in {:.2f}s'.format(time.time()-t0)))
+    genlog.info ('number of files with all required keywords: {}'
+                 .format(len(table)))
+    genlog.info ('file headers read in {:.2f}s'.format(time.time()-t0))
 
     
     # filter table entries based on date, field_ID, filter, qc-flag and seeing
@@ -339,8 +337,8 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
     # select relevant table entries
     mask = ((table['MJD-OBS'] >= mjd_start) & (table['MJD-OBS'] <= mjd_end))
     table = table[mask]
-    q.put(genlog.info('number of files left (date_start/end cut): {}'
-                      .format(len(table))))
+    genlog.info ('number of files left (date_start/end cut): {}'
+                 .format(len(table)))
     
 
     # if object (field ID) is specified, which can include the unix
@@ -370,8 +368,7 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
         # any of the input field_IDs, use it)
         mask = np.any(mask, axis=0)
         table = table[mask]
-        q.put(genlog.info('number of files left (FIELD_ID cut): {}'
-                          .format(len(table))))
+        genlog.info ('number of files left (FIELD_ID cut): {}'.format(len(table)))
 
 
     # if filter(s) is specified, select only images with filter(s)
@@ -380,8 +377,7 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
         #mask = [table['FILTER'][i] in filters for i in range(len(table))]
         mask = [filt in filters for filt in table['FILTER']]
         table = table[mask]
-        q.put(genlog.info('number of files left (FILTER cut): {}'
-                          .format(len(table))))
+        genlog.info ('number of files left (FILTER cut): {}'.format(len(table)))
         
         
     # if qc_flag_max is specified, select only images with QC-FLAG of
@@ -391,19 +387,22 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
         # redefine qc_col up to and including qc_flag_max
         qc_col = qc_col[0:qc_col.index(qc_flag_max)+1]
 
-        mask_green = [table['QC-FLAG'][i].strip()=='green' for i in range(len(table))]
-        mask_yellow = [table['QC-FLAG'][i].strip()=='yellow' for i in range(len(table))]
-        mask_orange = [table['QC-FLAG'][i].strip()=='orange' for i in range(len(table))]
-        mask_red = [table['QC-FLAG'][i].strip()=='red' for i in range(len(table))]
-        q.put(genlog.info('number of green: {}, yellow: {}, orange: {}, red: {}'
-                          .format(np.sum(mask_green), np.sum(mask_yellow),
-                                  np.sum(mask_orange), np.sum(mask_red))))
+        mask_green = [table['QC-FLAG'][i].strip()=='green'
+                      for i in range(len(table))]
+        mask_yellow = [table['QC-FLAG'][i].strip()=='yellow'
+                       for i in range(len(table))]
+        mask_orange = [table['QC-FLAG'][i].strip()=='orange'
+                       for i in range(len(table))]
+        mask_red = [table['QC-FLAG'][i].strip()=='red'
+                    for i in range(len(table))]
+        genlog.info ('number of green: {}, yellow: {}, orange: {}, red: {}'
+                     .format(np.sum(mask_green), np.sum(mask_yellow),
+                             np.sum(mask_orange), np.sum(mask_red)))
         
         # strip table color from spaces
         mask = [table['QC-FLAG'][i].strip() in qc_col for i in range(len(table))]
         table = table[mask]
-        q.put(genlog.info('number of files left (QC-FLAG cut): {}'
-                          .format(len(table))))
+        genlog.info ('number of files left (QC-FLAG cut): {}'.format(len(table)))
 
 
     # if max_seeing is specified, select only images with the same or
@@ -411,8 +410,7 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
     if max_seeing is not None:
         mask = (table['S-SEEING'] <= max_seeing)
         table = table[mask]
-        q.put(genlog.info('number of files left (SEEING cut): {}'
-                          .format(len(table))))
+        genlog.info ('number of files left (SEEING cut): {}'.format(len(table)))
 
 
     # if centering is set to 'grid' in buildref settings file, read
@@ -452,10 +450,9 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
             if np.sum(mask_grid) > 0:
                 radec = (table_grid[mask_id]['RA'], table_grid[mask_id]['DEC'])
             else:
-                q.put(genlog.error('field ID/OBJECT {} not present in ML/BG '
-                                   'grid definition file {}'
-                                   .format(obj, mlbg_fieldIDs)))
-                
+                genlog.error ('field ID/OBJECT {} not present in ML/BG '
+                              'grid definition file {}'.format(obj, mlbg_fieldIDs))
+
         elif center_type == 'median':
             # otherwise let [radec] refer to a tuple pair containing
             # the median RA-CNTR and DEC-CNTR for all images of a
@@ -468,8 +465,8 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
         for filt in filts_uniq:
             mask = (mask_obj & (table['FILTER'] == filt))
             ntrue = np.sum(mask)
-            q.put(genlog.info('number of files left for {} in filter {}: {}'
-                              .format(obj, filt, ntrue)))
+            genlog.info ('number of files left for {} in filter {}: {}'
+                         .format(obj, filt, ntrue))
             if ntrue > 1:
                 nmax = get_par(set_br.subset_nmax,tel)
                 if ntrue > nmax:
@@ -490,11 +487,10 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
                         mask &= (table[key_sort] < threshold)
                     else:
                         mask &= (table[key_sort] > threshold)
-                    q.put(genlog.info ('selected following subset of {} images '
-                                       'for field_ID {}, filter: {}, based on '
-                                       'header keyword: {}:\n{}'
-                                       .format(nmax, obj, filt, key_sort,
-                                               table[mask])))
+                    genlog.info ('selected following subset of {} images '
+                                 'for field_ID {}, filter: {}, based on '
+                                 'header keyword: {}:\n{}'
+                                 .format(nmax, obj, filt, key_sort,table[mask]))
                     
                 # add this set of images with their field_ID and
                 # filter to the lists of images, field_IDs and filters
@@ -506,8 +502,8 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
                 
 
     if len(table)==0:
-        q.put(genlog.warning ('zero field IDs with sufficient number of '
-                              'good images to process'))
+        genlog.warning ('zero field IDs with sufficient number of good images '
+                        'to process')
         logging.shutdown()
         return
 
@@ -524,9 +520,9 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
         result = pool_func_alt (prep_ref, list_of_imagelists, obj_list,
                                 filt_list, radec_list)
     except Exception as e:
-        q.put(genlog.error (traceback.format_exc()))
-        q.put(genlog.error ('exception was raised during [pool_func_alt]: {}'
-                            .format(e)))
+        genlog.error (traceback.format_exc())
+        genlog.error ('exception was raised during [pool_func_alt]: {}'
+                      .format(e))
         raise RuntimeError
 
 
@@ -535,15 +531,15 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
 
     if make_colfig:
 
-        q.put(genlog.info ('preparing color figures'))
+        genlog.info ('preparing color figures')
 
         # also prepare color figures
         try:
             result = pool_func_copy (prep_colfig, objs_uniq, filters_colfig)
         except Exception as e:
-            q.put(genlog.error (traceback.format_exc()))
-            q.put(genlog.error ('exception was raised during [pool_func_copy]: {}'
-                                .format(e)))
+            genlog.error (traceback.format_exc())
+            genlog.error ('exception was raised during [pool_func_copy]: {}'
+                          .format(e))
             raise RuntimeError
 
         
@@ -560,7 +556,7 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
 
     # unnest nested list_2pack
     list_2pack = list(chain.from_iterable(list_2pack))
-    q.put(genlog.info ('list of images to fpack: {}'.format(list_2pack)))
+    genlog.info ('list of images to fpack: {}'.format(list_2pack))
 
     # use [pool_func_copy] to process the list
     result = pool_func_copy (fpack_copy, list_2pack)
@@ -597,9 +593,9 @@ def fpack_copy (filename):
                 subprocess.call(cmd)
 
     except Exception as e:
-        q.put(genlog.info(traceback.format_exc()))
-        q.put(genlog.error('exception was raised in fpacking of image {} {}'
-                           .format(filename,e)))
+        genlog.info (traceback.format_exc())
+        genlog.error ('exception was raised in fpacking of image {} {}'
+                      .format(filename,e))
 
 
 ################################################################################
@@ -618,11 +614,11 @@ def pool_func_copy (func, filelist, *args):
         pool.close()
         pool.join()
         results = [r.get() for r in results]
-        #q.put(logger.info('result from pool.apply_async: {}'.format(results)))
+        #logger.info('result from pool.apply_async: {}'.format(results)))
     except Exception as e:
-        q.put(genlog.info(traceback.format_exc()))
-        q.put(genlog.error('exception was raised during [pool.apply_async({})]: {}'
-                           .format(func, e)))
+        genlog.info (traceback.format_exc())
+        genlog.error ('exception was raised during [pool.apply_async({})]: {}'
+                      .format(func, e))
         raise SystemExit
         
 
@@ -643,13 +639,13 @@ def pool_func_alt (func, list_of_imagelists, *args):
         pool.close()
         pool.join()
         results = [r.get() for r in results]
-        #q.put(genlog.info('result from pool.apply_async: {}'.format(results)))
+        #genlog.info ('result from pool.apply_async: {}'.format(results))
         return results
         
     except Exception as e:
-        q.put(genlog.info(traceback.format_exc()))
-        q.put(genlog.error('exception was raised during [pool.apply_async({})]: {}'
-                          .format(func, e)))
+        genlog.info (traceback.format_exc())
+        genlog.error ('exception was raised during [pool.apply_async({})]: {}'
+                      .format(func, e))
         raise RuntimeError
     
 
@@ -686,21 +682,21 @@ def header2table (filenames):
                     with fits.open(filename) as hdulist:
                         h = hdulist[-1].header
             except Exception as e:
-                q.put (genlog.warning('trouble reading header; skipping image {}'
-                                      .format(filename)))
+                genlog.warning ('trouble reading header; skipping image {}'
+                                .format(filename))
                 continue
                         
         else:
-            q.put(genlog.warning('file does not exist; skipping image {}'
-                                 .format(filename)))
+            genlog.warning ('file does not exist; skipping image {}'
+                            .format(filename))
             continue
 
 
         # check if all keywords present before appending to table
         mask_key = [key not in h for key in keys]
         if np.any(mask_key):
-            q.put(genlog.warning('keyword(s) {} not in header; skipping image {}'
-                                 .format(np.array(keys)[mask_key], filename)))
+            genlog.warning ('keyword(s) {} not in header; skipping image {}'
+                            .format(np.array(keys)[mask_key], filename))
             continue
 
 
@@ -717,8 +713,8 @@ def header2table (filenames):
                 catname = filename.replace('.fits', '_cat.fits')
             # if it doesn't exist, continue with the next
             if not os.path.isfile(catname):
-                q.put(genlog.warning('catalog file {} does not exist; skipping '
-                                     'image {}'.format(catname, filename)))
+                genlog.warning ('catalog file {} does not exist; skipping '
+                                'image {}'.format(catname, filename))
                 continue
 
             # read header
@@ -735,8 +731,8 @@ def header2table (filenames):
                 key = 'QC-FLAG'
                 if key in h_cat:
                     h[key] = h_cat[key]
-                    #q.put(genlog.info('h[{}]: {}, h_cat[{}]: {}'
-                    #                  .format(key, h[key], key, h_cat[key])))
+                    #genlog.info ('h[{}]: {}, h_cat[{}]: {}'
+                    #             .format(key, h[key], key, h_cat[key]))
                 # need to copy the qc-red??, qc-ora??, qc-yel?? as well
                 qc_col = ['red', 'orange', 'yellow']
                 for col in qc_col:
@@ -745,9 +741,8 @@ def header2table (filenames):
                         key = '{}{}'.format(key_base, i)
                         if key in h_cat:
                             h[key] = h_cat[key]
-                            #q.put(genlog.info('h[{}]: {}, h_cat[{}]: {}'
-                            #                  .format(key, h[key], key,
-                            #                          h_cat[key])))
+                            #genlog.info ('h[{}]: {}, h_cat[{}]: {}'
+                            #             .format(key, h[key], key, h_cat[key]))
                             
 
         # check if flag of particular colour was set in the
@@ -773,8 +768,8 @@ def header2table (filenames):
                     # all of the flags' keywords were due to image subtraction
                     # stage, so promote the QC-FLAG
                     h['QC-FLAG'] = qc_col[qc_col.index(col)+1]
-                    q.put(genlog.info('updating QC-FLAG from {} to {} for image {}'
-                                      .format(col, h['QC-FLAG'], filename)))
+                    genlog.info ('updating QC-FLAG from {} to {} for image {}'
+                                 .format(col, h['QC-FLAG'], filename))
 
 
 
@@ -827,8 +822,8 @@ def prep_colfig (field_ID, filters):
         exists, image = already_exists(image, get_filename=True)
         
         if not exists:
-            q.put (genlog.info('{} does not exist; not able to prepare color '
-                               'figure for field_ID {}'.format(image, field_ID)))
+            genlog.info ('{} does not exist; not able to prepare color '
+                         'figure for field_ID {}'.format(image, field_ID))
             return
         else:
             
@@ -847,9 +842,9 @@ def prep_colfig (field_ID, filters):
             if key in header:
                 images_zp.append(header[key])
             else:
-                q.put (genlog.info('missing header keyword {}; not able to '
-                                   'prepare color figure for field_ID {}'
-                                   .format(key, field_ID)))
+                genlog.info ('missing header keyword {}; not able to '
+                             'prepare color figure for field_ID {}'
+                             .format(key, field_ID))
                 return
             
     # scaling
@@ -890,8 +885,8 @@ def prep_ref (imagelist, field_ID, filt, radec):
     # same as the input [imagelist]
     exists, ref_fits_temp = already_exists (ref_fits_out, get_filename=True)
     if exists:
-        q.put (genlog.info('reference image {} already exists; checking if it '
-                          'needs updating'.format(ref_fits_out)))
+        genlog.info ('reference image {} already exists; checking if it '
+                     'needs updating'.format(ref_fits_out))
         # read header
         header_ref = read_hdulist (ref_fits_temp, get_data=False, get_header=True)
         # check how many images were used
@@ -913,11 +908,11 @@ def prep_ref (imagelist, field_ID, filt, radec):
                          for image in imagelist]
         if set(imagelist_new) == set(imagelist_used):
             # same sets of images, return
-            q.put (genlog.info ('imagelist_new: {}'.format(imagelist_new)))
-            q.put (genlog.info ('imagelist_used: {}'.format(imagelist_used)))
-            q.put (genlog.info ('reference image of {} in filter {} with same '
-                                'set of images already present; skipping'
-                                .format(field_ID, filt)))
+            genlog.info ('imagelist_new: {}'.format(imagelist_new))
+            genlog.info ('imagelist_used: {}'.format(imagelist_used))
+            genlog.info ('reference image of {} in filter {} with same '
+                         'set of images already present; skipping'
+                         .format(field_ID, filt))
             return
 
         
@@ -958,14 +953,12 @@ def prep_ref (imagelist, field_ID, filt, radec):
                    log = log)
 
     except Exception as e:
-        q.put (genlog.info (traceback.format_exc()))
-        q.put (genlog.error ('exception was raised during [imcombine]: {}'
-                            .format(e)))
         log.info (traceback.format_exc())
         log.error ('exception was raised during [imcombine]: {}'.format(e))
+        close_log(log, logfile)
         raise RuntimeError
-                
-        
+
+
     # run zogy on newly prepared reference image
     try:
         zogy_processed = False
@@ -974,20 +967,18 @@ def prep_ref (imagelist, field_ID, filt, radec):
             set_file='set_zogy', log=log, verbose=None,
             nthread=get_par(set_br.nthread,tel), telescope=tel)
     except Exception as e:
-        q.put (genlog.info(traceback.format_exc()))
-        q.put (genlog.error('exception was raised during reference [optimal_subtraction]: {}'
-                           .format(e)))
         log.info (traceback.format_exc())
-        log.error ('exception was raised during reference [optimal_subtraction]: {}'
-                   .format(e))
+        log.error ('exception was raised during reference [optimal_subtraction]: '
+                   '{}'.format(e))
 
     else:
         zogy_processed = True
 
     finally:
         if not zogy_processed:
-            q.put (genlog.error('due to exception: returning without copying reference files'))
-            log.error ('due to exception: returning without copying reference files')
+            log.error ('due to exception: returning without copying reference '
+                       'files')
+            close_log(log, logfile)
             return
 
     log.info('zogy_processed: {}'.format(zogy_processed))
@@ -1093,40 +1084,12 @@ def prep_ref (imagelist, field_ID, filt, radec):
         else:
             log.info('encountered red flag; not using image: {} as reference'
                      .format(ref_fits))
-            
-        
-################################################################################
 
-def tune_gain (data, header):
 
-    # master flat name from header
-    mflat = header['MFLAT-F']
-
-    # extract yyyymmdd from name
-    mdate = mflat.split('_')[1]
-
-    # infer full path to the master flat and its read header
-    red_path = get_par(set_bb.red_dir,tel)
-    mpath = '{}/{}/{}/{}/flat'.format(red_path, mdate[0:4], mdate[4:6], mdate[6:8])
-    header_master = read_hdulist ('{}/{}'.format(mpath, mflat),
-                                  get_data=False, get_header=True)
+    close_log(log, logfile)
+    return
     
-    # infer the data sections and number of channels
-    __, __, __, __, data_sec_red = define_sections(data.shape)
-    nchans = np.shape(data_sec_red)[0]
-
-    # loop channels and apply the gain correction factors
-    for i_chan in range(nchans):
-        factor =  header_master['GAINCF{}'.format(i_chan)]
-        data[data_sec_red[i_chan]] *= header_master[factor]
-
-        log.info('gain tuned with correction factor {} for channel {}'
-                 .format(factor, i_chan))
-
         
-    return data
-
-
 ################################################################################
 
 def imcombine (field_ID, imagelist, outputfile, combine_type, overwrite=True,
