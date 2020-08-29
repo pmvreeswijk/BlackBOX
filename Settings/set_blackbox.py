@@ -72,7 +72,7 @@ for tel in ['ML1', 'BG2', 'BG3', 'BG4']:
     tmp_dir[tel] = '{}/{}/tmp'.format(tmp_dir_base, tel)
 
 # name endings of files to keep for the reference and new images
-img_reduce_exts = ['_red.fits', '_mask.fits', '_red.log']
+img_reduce_exts = ['_red.fits', '_mask.fits', '_hdr.fits', '_red.log']
 cat_extract_exts = ['_cat.fits', '_mini.fits', '_psf.fits', '_psfex.cat']
 trans_extract_exts = ['_D.fits', '_Scorr.fits', '_trans_limmag.fits', '_trans.fits']
 all_2keep = img_reduce_exts + cat_extract_exts
