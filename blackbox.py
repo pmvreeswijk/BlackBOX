@@ -73,7 +73,7 @@ keywords_version = '0.10.0'
 
 def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
                   recursive=None, imgtypes=None, filters=None, image=None, 
-                  image_list=None, master_date=None, slack=None):
+                  image_list=None, master_date=None):
     
 
     """Function that processes MeerLICHT or BlackGEM images, performs
@@ -118,18 +118,12 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          obeying S/N constraints, such that ldac catalog has reasonable
          size?
 
-    (57) save header as separate fits file; for now, just save one
-         header file for each of the reduced image, full-source and
-         transient catalogs.
-
     (64) after subtraction of a background with a gradient, the
          standard deviation must be different; find a good way to
          improve the STD estimate
 
     (65) Exception while adding S-FWHM to the image header: 
          "ValueError: Floating point nan values are not allowed in FITS headers"
-
-
 
     (80) make a short summary of the night when the night mode is
          finishing, which could be emailed to a list of people
@@ -146,6 +140,14 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          - possibly including an "observing" log with some main header 
            keywords such as 
            OBJECT, DATE-OBS, EXPTIME, FILTER, AIRMASS, S-SEEING, QC-FLAG
+
+    (81) masterflats are currently only made for nights where individual
+         flats are available, and if not enough flats are available,
+         a nearby alternative is searched for. On IDIA that is fine, but
+         for Google that alternativee flat needs to be copied over.
+
+    (82) ref image folder contains full _bkg_std image; can the mini
+         image be used for this instead?
 
 
     Done:
@@ -506,6 +508,10 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          is provided with --image option, which will be used in Google
          Cloud
 
+    (57) save header as separate fits file
+         --> for now, just save one header file for the reduced image,
+             with the name _red_hdr.fits
+
     (58) Danielle noticed that tmp folders are not always deleted
          when blackbox_reduce does not reach its end and fixed this
 
@@ -615,9 +621,22 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          --> introduced close_log function to properly close log
              when returning from blackbox_reduce
 
+    (83) issue: if reduced image was created and cat_extract was run,
+         then the reduced image will be background subtracted in the
+         source-extractor step. However, when forcing reprocessing of
+         cat_extract, the mini_std image will currently get deleted
+         (it is listed among the cat_extract_exts), but that will lead
+         to an exception because the mini_std image is needed in
+         prep_optimal_subtraction because the background cannot be
+         determined again (it was already subtracted). So do not
+         delete the mini_std image; can this be done by adding the
+         "_mini.fits" extension with the img_reduce_exts?
+         --> moved mini extension from img_reduce_exts to
+             cat_extract_exts
+
     """
-    
-    
+
+
     global tel, filts, types
     tel = telescope
     filts = filters
@@ -625,7 +644,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     if imgtypes is not None:
         types = imgtypes.lower()
 
-        
+
     if get_par(set_zogy.timing,tel):
         t_run_blackbox = time.time()
         
@@ -642,7 +661,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     genlog = create_log (genlogfile)
     
     genlog.info ('processing mode:      {}'.format(mode))
-    genlog.info ('log file:             {}'.format(genlogfile))
+    genlog.info ('general log file:     {}'.format(genlogfile))
     genlog.info ('number of processes:  {}'.format(get_par(set_bb.nproc,tel)))
     genlog.info ('number of threads:    {}'.format(get_par(set_bb.nthread,tel)))
     genlog.info ('switch img_reduce:    {}'
@@ -1003,6 +1022,7 @@ def pool_func (func, filelist, *args):
         genlog.info (traceback.format_exc())
         genlog.error ('exception was raised during [pool.apply_async({})]: {}'
                       .format(func, e))
+        logging.shutdown()
         raise SystemExit
 
     return results
@@ -1158,7 +1178,7 @@ def create_jpg (filename):
               
             # read input image
             data, header = read_hdulist(filename, get_header=True)
-        
+
             imgtype = header['imagetyp'].lower()
             file_str = image_jpg.split('/')[-1].split('.jpg')[0]
             if imgtype == 'object':
@@ -1181,7 +1201,7 @@ def create_jpg (filename):
             f.set_title(title)
             #f.add_grid()
             #f.set_theme('pretty')
-            f.save(image_jpg)
+            f.save(image_jpg, adjust_bbox=False)
             f.close()
             
 
@@ -1391,7 +1411,6 @@ def blackbox_reduce (filename):
         
         # and reference image
         ref_path = '{}/{}'.format(get_par(set_bb.ref_dir,tel), obj)
-        make_dir (ref_path, lock=lock)
         ref_fits_out = '{}/{}_{}_red.fits'.format(ref_path, tel, filt)
         
         ref_present, ref_fits_temp = already_exists (ref_fits_out,
@@ -1436,9 +1455,6 @@ def blackbox_reduce (filename):
 
 
 
-    # make log defined below global - not needed anymore
-    #global log
-    
 
     # check if reduction steps could be skipped
     file_present, fits_out_present = already_exists (fits_out, get_filename=True)
@@ -1448,9 +1464,9 @@ def blackbox_reduce (filename):
         # for non-object images, there is no mask
         mask_present = True
 
-    # if reduced file (and possible mask), and both img_reduce and
-    # force_reproc_new flags are not both set to True, reduction can
-    # be skipped
+    # if reduced file and its possible mask exist, and both img_reduce
+    # and force_reproc_new flags are not both set to True, reduction
+    # can be skipped
     if (file_present and mask_present and
         not (get_par(set_bb.img_reduce,tel) and
              get_par(set_bb.force_reproc_new,tel))):
@@ -1459,14 +1475,14 @@ def blackbox_reduce (filename):
                         'skipping its reduction'
                         .format(imgtype, fits_out_present.split('/')[-1]))
 
+        # create a logger that will append the log commands to [logfile]
+        log = create_log (logfile)
+
         # copy relevant files to tmp folder for object images
         if imgtype == 'object':
             result = copy_files2keep(new_base, tmp_base,
                                      get_par(set_bb.img_reduce_exts,tel),
-                                     move=False)
-
-        # create a logger that will append the log commands to [logfile]
-        log = create_log (logfile)
+                                     move=False, log=log)
 
         do_reduction = False
 
@@ -1885,6 +1901,9 @@ def blackbox_reduce (filename):
         fits.writeto(new_fits_mask, data_mask.astype('uint8'), header_mask,
                      overwrite=True)
 
+        # also write separate header fits file
+        hdulist = fits.HDUList(fits.PrimaryHDU(header=header))
+        hdulist.writeto(new_fits.replace('.fits', '_hdr.fits'), overwrite=True)
 
         # check quality control
         qc_flag = run_qc_check (header, tel, log=log)
@@ -1958,24 +1977,27 @@ def blackbox_reduce (filename):
         new_list = glob.glob('{}*'.format(new_base))
         ext_list = []
 
-        if get_par(set_bb.cat_extract,tel):
-            ext_list += get_par(set_bb.cat_extract_exts,tel)
-            text = 'cat_extract'
-            
         if get_par(set_bb.trans_extract,tel):
+            # if [trans_extract] is set to True, both the cat_extract
+            # and trans_extract products should be present, even when
+            # [cat_extract] is set to False
+            ext_list += get_par(set_bb.cat_extract_exts,tel)
             ext_list += get_par(set_bb.trans_extract_exts,tel)
-            if get_par(set_bb.cat_extract,tel):
-                text += 'and trans_extract'
-            else:
-                text = 'trans_extract'
+            text = 'cat_extract and trans_extract'
+
+        elif get_par(set_bb.cat_extract,tel):
+            ext_list += get_par(set_bb.cat_extract_exts,tel)
+            text = 'cat_extract'            
+
                 
         present = (np.array([ext in fn for ext in ext_list for fn in new_list])
                    .reshape(len(ext_list),-1).sum(axis=1))
 
         if np.all(present):
+
             log.info ('all {} data products already present in reduced folder, '
                       'nothing left to do for {}'.format(text, filename))
-
+            
             if do_reduction:
                 close_log(log, logfile)
                 return fits_out
@@ -1984,6 +2006,10 @@ def blackbox_reduce (filename):
                 return None
 
         else:
+
+            log.info ('copying existing {} data products from reduced to tmp '
+                      'folder to avoid repeating processing steps for {}'
+                      .format(text, filename))
 
             # otherwise, copy cat_extract products and trans_extract
             # to tmp folder and continue
@@ -2001,10 +2027,27 @@ def blackbox_reduce (filename):
 
         # if cat_extract=True then remove all cat and trans products
         if get_par(set_bb.cat_extract,tel):
+
+            log.info ('forced reprocessing is switched on: removing all '
+                      'existing cat_extract and trans_extract products for {}'
+                      .format(filename))
+
             ext_list += get_par(set_bb.cat_extract_exts,tel)
             ext_list += get_par(set_bb.trans_extract_exts,tel)
 
+            # if img_reduce is False, copy mini images to the tmp
+            # folder because it is needed as the background was
+            # already subtracted from the reduced image
+            if not get_par(set_bb.img_reduce,tel):
+                result = copy_files2keep(new_base, tmp_base, ['_mini.fits'],
+                                         move=False, log=log)
+
+
         elif get_par(set_bb.trans_extract,tel):
+
+            log.info ('forced reprocessing is switched on: removing all existing '
+                      'trans_extract products for {}'.format(filename))
+
             # only remove trans_extract products
             ext_list += get_par(set_bb.trans_extract_exts,tel)
 
@@ -2024,14 +2067,25 @@ def blackbox_reduce (filename):
         lock.release()
 
 
+    # if trans_extract is True while img_reduce is False, delete the
+    # jpg previously created, as it may include the background which
+    # is removed in trans_extract
+    if get_par(set_bb.cat_extract,tel) and not get_par(set_bb.img_reduce,tel):
+        jpgfile = '{}_red.jpg'.format(new_base)
+        if os.path.isfile(jpgfile):
+            os.remove (jpgfile)
+
+
     # before continuing, zipped files in tmp folder need to be
     # unzipped/funpacked for optimal_subtraction to process them
     tmp_files = glob.glob('{}*.fz'.format(tmp_base))
-    for tmp_file in tmp_files:
-        # and funpack/unzip if necessary
-        tmp_file = unzip(tmp_file)
+    if len(tmp_files) > 0:
+        log.info ('unpacking files in tmp folder for {}'.format(filename))
+        for tmp_file in tmp_files:
+            # and funpack/unzip if necessary
+            tmp_file = unzip(tmp_file)
 
-
+            
     # run zogy's [optimal_subtraction]
     ##################################
     log.info ('running optimal image subtraction')
@@ -2139,6 +2193,10 @@ def blackbox_reduce (filename):
         with fits.open(new_fits, 'update') as hdulist:
             hdulist[0].header = header_optsub
 
+        # also write separate header fits file
+        hdulist = fits.HDUList(fits.PrimaryHDU(header=header_optsub))
+        hdulist.writeto(new_fits.replace('.fits', '_hdr.fits'), overwrite=True)
+
         # copy the set of files [all_2keep] to the reduced directory
         result = copy_files2keep(tmp_base, new_base, 
                                  get_par(set_bb.all_2keep,tel), move=False,
@@ -2206,7 +2264,10 @@ def blackbox_reduce (filename):
         with fits.open(new_fits, 'update') as hdulist:
             hdulist[0].header = header_optsub
 
-            
+        # also write separate header fits file
+        hdulist = fits.HDUList(fits.PrimaryHDU(header=header_optsub))
+        hdulist.writeto(new_fits.replace('.fits', '_hdr.fits'), overwrite=True)
+
         # copy the set of files [all_2keep] to the reduced
         # directory for future building of new reference image
         result = copy_files2keep(tmp_base, new_base, 
@@ -2216,10 +2277,11 @@ def blackbox_reduce (filename):
         if qc_flag == 'red':
             # also copy dummy transient catalog in case of red flag
             result = copy_files2keep(tmp_base, new_base, ['_trans.fits'],
-                                     log=log)
+                                     move=False, log=log)
             clean_tmp(tmp_base)
         else:
             # now move [ref_2keep] to the reference directory
+            make_dir (ref_path, lock=lock)
             ref_base = ref_fits_out.split('_red.fits')[0]
             result = copy_files2keep(tmp_base, ref_base,
                                      get_par(set_bb.ref_2keep,tel),
@@ -2233,10 +2295,10 @@ def blackbox_reduce (filename):
         if qc_flag != 'red':
             log.info('finished making reference image: {}'.format(ref_fits_out))
         else:
-            print (header)
-            log.info('encountered red flag; not using image: {} (original name: {}) '
-                     'as reference'.format(header['REDFILE'], header['ORIGFILE']))
-            
+            log.info('encountered red flag; not using image: {} (original name: '
+                     '{}) as reference'
+                     .format(header_optsub['REDFILE'], header_optsub['ORIGFILE']))
+
     else:
 
         # make symbolic links to all files in the reference
@@ -2333,14 +2395,16 @@ def blackbox_reduce (filename):
                                     header_optsub[key], header_optsub.comments[key])
 
                                 
-
         # update reduced image header with full-source catalog header
         with fits.open(fits_tmp_cat) as hdulist:
             header_cat = hdulist[-1].header        
         with fits.open(new_fits, 'update') as hdulist:
             hdulist[0].header = header_cat
-        
-                    
+
+        # also write separate header fits file
+        hdulist = fits.HDUList(fits.PrimaryHDU(header=header_cat))
+        hdulist.writeto(new_fits.replace('.fits', '_hdr.fits'), overwrite=True)
+
         # copy selected output files to new directory
         result = copy_files2keep(tmp_base, new_base,
                                  get_par(set_bb.new_2keep,tel),
@@ -2357,6 +2421,123 @@ def blackbox_reduce (filename):
     
     return fits_out
 
+
+################################################################################
+
+def create_obslog (date, tel=None):
+
+    # extract table with various observables/keywords from the headers
+    # of all raw/reduced files of a particular (evening) date,
+    # e.g. ORIGFILE, IMAGETYP, DATE-OBS, PROGNAME, PROGID, OBJECT,
+    # FILTER, EXPTIME, RA, DEC, AIRMASS, FOCUSPOS, image quality
+    # (PSF-FWHM), QC-FLAG, ..
+
+    date_eve = ''.join(e for e in date if e.isdigit())
+    if len(date_eve) != 8:
+        genlog.error ('input date to function create_obslog needs to consist of '
+                      'at least 8 digits, yyyymmdd, where the year, month and '
+                      'day can be connected with any type of character, e.g. '
+                      'yyyy/mm/dd or yyyy-mm-dd, etc.')
+        return
+
+
+    date_dir = '{}/{}/{}'.format(date_eve[0:4], date_eve[4:6], date_eve[6:8])
+    red_path = get_par(set_bb.red_dir,tel)
+    full_path = '{}/{}'.format(red_path, date_dir)
+
+    # collect biases, darks, flats and science frames in different lists
+    filenames = []
+    filenames.append(glob.glob('{}/bias/{}*.fits*'.format(full_path, tel)))
+    filenames.append(glob.glob('{}/dark/{}*.fits*'.format(full_path, tel)))
+    filenames.append(glob.glob('{}/flat/{}*.fits*'.format(full_path, tel)))
+    filenames.append(glob.glob('{}/{}*_red.fits*'.format(full_path, tel)))
+
+    # clean up [filenames]
+    filenames = [f for sublist in filenames for f in sublist]
+    
+    # keywords to add to table
+    keys = ['ORIGFILE', 'IMAGETYP', 'DATE-OBS', 'PROGNAME', 'PROGID', 'OBJECT',
+            'FILTER', 'EXPTIME', 'RA', 'DEC', 'AIRMASS', 'FOCUSPOS',
+            'S-SEEING', 'QC-FLAG', 'QC-RED1', 'QC-RED2', 'QC-RED3']
+    formats = {'ORIGFILE': '{:<}',
+               'DATE-OBS': '{:.19}',
+               'EXPTIME': '{:.1f}',              
+               'RA': '{:.3f}',
+               'DEC': '{:.3f}',
+               'AIRMASS': '{:.3f}',
+               'S-SEEING': '{:.4}'
+               }
+
+    # loop input list of filenames
+    rows = []
+    for filename in filenames:
+
+        # read file header
+        header = read_hdulist (filename, get_data=False, get_header=True)
+
+        # prepare row of filename and header values
+        row = []
+        for key in keys:
+            if key in header:
+                row.append(header[key])
+            else:
+                row.append(' ')
+
+        # append to rows
+        rows.append(row)
+
+        
+    # create table from rows
+    names = []
+    for i_key, key in enumerate(keys):
+        names.append(key)
+
+    if len(rows) == 0:
+        # rows without entries: create empty table
+        table = Table(names=names)
+    else: 
+        table = Table(rows=rows, names=names)
+
+    # order by DATE-OBS
+    index_sort = np.argsort(table['DATE-OBS'])
+    table = table[index_sort]
+
+    # write table to ASCII file
+    obslog_name = '{}/{}/{}.obslog'.format(red_path, date_dir, date_eve)
+    ascii.write (table, obslog_name, format='fixed_width', formats=formats,
+                 overwrite=True)
+
+    # additional info:
+    # - any raw files that were not reduced?
+    # - list any observing gaps, in fractional UT hours
+    # - using above gaps, list fraction of night that telescope was observing
+    # - list average exposure overhead in seconds
+    
+    # for MeerLICHT, save the Sutherland weather page as a screen
+    # shot, and add it as attachment to the mail
+
+    if False:
+        png_name = '{}/{}/{}_SAAOweather.png'.format(red_path, date_dir, date_eve)
+        cmd = ['firefox', '--screenshot', png_name, 'https://suthweather.saao.ac.za']
+        subprocess.call(cmd)
+
+        # also email the obslog with the weather page as attachment to a
+        # list of interested people
+
+        # send email
+        subject = '{} obslog {})'.format(tel, date_eve)
+        reply_to = 'p.vreeswijk\@astro.ru.nl'
+        recipients = 'p.vreeswijk\@astro.ru.nl'
+        
+        os.environ['NAME'] = 'ML/BG obslogs'
+        cmd = 'mail -s \"{}\" -r {} -A {} {} < {}'.format(subject, reply_to,
+                                                          recipients, png_name,
+                                                          obslog_name)
+        call(cmd, shell=True)
+    
+
+    return
+        
 
 ################################################################################
     
@@ -2483,7 +2664,7 @@ def get_flatstats (data, header, data_mask, tel=None, log=None):
     else:
         rstd_max = 'None'
 
-    header['RSTD-MAX'] = (rstd_max, 'maximum relative sigma (STD) of subimages')
+    header['RSTD-MAX'] = (rstd_max, 'max. relative sigma (STD) of subimages')
 
 
     if get_par(set_zogy.timing,tel):
@@ -2838,10 +3019,6 @@ def cosmics_corr (data, header, data_mask, header_mask, log=None):
     #    sigfrac=get_par(set_bb.sigfrac,tel), objlim=get_par(set_bb.objlim,tel),
     #    niter=get_par(set_bb.niter,tel),
     #    readnoise=header['RDNOISE'], satlevel=np.inf)
-    #
-    #print 'np.sum(data_mask!=0)', np.sum(data_mask!=0)
-    #print 'np.sum(mask_cr)', np.sum(mask_cr)
-    #print 'np.sum((mask_cr) & (data_mask==0))', np.sum((mask_cr) & (data_mask==0))
     
     # add pixels affected by cosmic rays to [data_mask]
     data_mask[mask_cr==1] += get_par(set_zogy.mask_value['cosmic ray'],tel)
@@ -3580,9 +3757,10 @@ def check_header2 (header, filename):
                          ra_deg, dec_deg) > 10./60:
                 genlog.error ('input header field ID, RA and DEC combination '
                               'is inconsistent (>10\') with definition of field '
-                              'IDs\nheader field ID: {}, RA    : {:.4f}, '
-                              'DEC    : {:.4f}\nvs.    field ID: {}, RA{:4s}: '
-                              '{:.4f}, DEC{:4s}: {:.4f} in {}\nnot processing {}'
+                              'IDs\n'
+                              'header field ID: {}, RA{:4s}: {:.4f}, '
+                              'DEC{:4s}: {:.4f}\nvs.    field ID: {}, RA    : '
+                              '{:.4f}, DEC    : {:.4f} in {}\nnot processing {}'
                               .format(obj, key_ext, ra_deg, key_ext, dec_deg,
                                       table_ID['ID'][i_ID], table_ID['RA'][i_ID],
                                       table_ID['DEC'][i_ID], mlbg_fieldIDs,
@@ -3974,7 +4152,7 @@ def set_header(header, filename):
     #arcfile = '{}.{}'.format(tel, date_obs_str)
     #edit_head(header, 'ARCFILE', value=arcfile, comments='Archive filename')
     edit_head(header, 'ORIGFILE', value=filename.split('/')[-1].split('.fits')[0],
-              comments='ABOT filename')
+              comments='ABOT name')
 
     
     edit_head(header, 'OBSERVER', value='None', dtype=str,
@@ -4940,12 +5118,10 @@ if __name__ == "__main__":
     params.add_argument('--image', type=str, default=None, help='Only process this particular image (requires full path); default=None')
     params.add_argument('--image_list', type=str, default=None, help='Process images listed in ASCII file with this name; default=None')
     params.add_argument('--master_date', type=str, default=None, help='Create master file of type(s) [imgtypes] and filter(s) [filters] for this(these) date(s) (e.g. 2019 or 2019/10 or 2019-10-14); default=None')
-    params.add_argument('--slack', default=True, help='Upload messages for night mode to slack; default=True')
     args = params.parse_args()
 
     run_blackbox (telescope=args.telescope, mode=args.mode, date=args.date, 
                   read_path=args.read_path, recursive=args.recursive, 
                   imgtypes=args.imgtypes, filters=args.filters, image=args.image,
-                  image_list=args.image_list, master_date=args.master_date, 
-                  slack=args.slack)
+                  image_list=args.image_list, master_date=args.master_date)
 
