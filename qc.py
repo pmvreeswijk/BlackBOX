@@ -289,14 +289,18 @@ def qc_check (header, telescope='ML1', keywords=None, cat_type=None,
     for col in colors:
         if col in colors_out[mask]:
             qc_flag = col
-            
-    # add info on the general flag and worst flag to the input header
-    if cat_type == 'trans':
-        header['TQC-FLAG'] = (qc_flag, 'transient QC flag (green|yellow|orange|red)')
-    else:
-        header['QC-FLAG'] = (qc_flag, 'QC flag (green|yellow|orange|red)')
 
         
+    # if dummy catalog is not defined, add info on the general flag
+    # and transient flag to the input header
+    if cat_dummy is None:
+        if cat_type == 'trans':
+            header['TQC-FLAG'] = (qc_flag, 'transient QC flag '
+                                  '(green|yellow|orange|red)')
+        else:
+            header['QC-FLAG'] = (qc_flag, 'QC flag (green|yellow|orange|red)')
+
+
     if qc_flag != 'green':
         mask_col = (colors_out == qc_flag)
         prev_col = colors[colors.index(qc_flag)-1]
@@ -307,8 +311,8 @@ def qc_check (header, telescope='ML1', keywords=None, cat_type=None,
             else:
                 header['QC-{}{}'.format(qc_flag[0:3].upper(), ncol+1)] = (
                     key_col, '{} range: {}'.format(prev_col, dict_range_ok[key_col]))
-                
-                
+
+
     # if qc_flag is red and [cat_dummy] is provided then make dummy
     # catalog; the header['QC-FLAG'] requirement is in case cat_type
     # is 'trans' and no transient red QC flag is detected; in that
