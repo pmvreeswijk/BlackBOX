@@ -786,7 +786,9 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
  
         else:
             # use [pool_func] to process list of files
-            filenames_reduced = pool_func (try_blackbox_reduce, filenames)
+            filenames_reduced = pool_func (blackbox_reduce, filenames,
+                                           log=genlog,
+                                           nproc=get_par(set_bb.nproc,tel))
 
 
         #snapshot2 = tracemalloc.take_snapshot()
@@ -852,11 +854,12 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     list_2pack = prep_packlist (date, image, filenames_reduced[0])
     if image is None:
         # use [pool_func] to process the list
-        results = pool_func (fpack, list_2pack)
+        results = pool_func (fpack, list_2pack, genlog,
+                             log=genlog, nproc=get_par(set_bb.nproc,tel))
     else:
         # process list one by one
         for file_2pack in list_2pack:
-            fpack (file_2pack)
+            fpack (file_2pack, genlog)
 
 
     # create jpg images for all reduced frames
@@ -866,11 +869,13 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     list_2jpg = prep_jpglist (date, image, filenames_reduced[0])
     if image is None:
         # use [pool_func] to process the list
-        results = pool_func (create_jpg, list_2jpg)
+        results = pool_func (create_jpg, list_2jpg, genlog,
+                             log=genlog, nproc=get_par(set_bb.nproc,tel))
+
     else:
         # process list one by one
         for file_2jpg in list_2jpg:
-            create_jpg (file_2jpg)
+            create_jpg (file_2jpg, genlog)
 
 
     if get_par(set_zogy.timing,tel):
@@ -947,7 +952,8 @@ def create_masters (mdate=None, run_fpack=True, run_create_jpg=True):
     # use [pool_func] to process list of masters; pick_alt is set to
     # False as there is no need to look for an alternative master flat
     list_fits_master = pool_func (master_prep, list_masters, data_shape, False,
-                                  genlog)
+                                  genlog,
+                                  log=genlog, nproc=get_par(set_bb.nproc,tel))
 
 
     if get_par(set_zogy.timing,tel):
@@ -959,7 +965,8 @@ def create_masters (mdate=None, run_fpack=True, run_create_jpg=True):
     list_masters_existing = [f for f in list_masters if os.path.isfile(f)]
     if run_fpack:
         genlog.info ('fpacking master frames')
-        results = pool_func (fpack, list_masters_existing)
+        results = pool_func (fpack, list_masters_existing, genlog,
+                             log=genlog, nproc=get_par(set_bb.nproc,tel))
 
 
     # use [pool_func] to create jpegs
@@ -968,7 +975,9 @@ def create_masters (mdate=None, run_fpack=True, run_create_jpg=True):
         if run_fpack:
             list_masters_existing = ['{}.fz'.format(f)
                                      for f in list_masters_existing]
-        results = pool_func (create_jpg, list_masters_existing)
+
+        results = pool_func (create_jpg, list_masters_existing, genlog,
+                             log=genlog, nproc=get_par(set_bb.nproc,tel))
 
         
     if get_par(set_zogy.timing,tel):
@@ -1002,11 +1011,11 @@ def already_exists (filename, get_filename=False):
 
 ################################################################################
 
-def pool_func (func, filelist, *args):
+def pool_func (func, filelist, *args, log=None, nproc=1):
 
     try:
         results = []
-        pool = Pool(get_par(set_bb.nproc,tel))
+        pool = Pool(nproc)
         for filename in filelist:
             args_temp = [filename]
             for arg in args:
@@ -1017,16 +1026,19 @@ def pool_func (func, filelist, *args):
         pool.close()
         pool.join()
         results = [r.get() for r in results]
-        #genlog.info ('result from pool.apply_async: {}'.format(results))
+        #if genlog is not None:
+        #    genlog.info ('result from pool.apply_async: {}'.format(results))
     except Exception as e:
-        genlog.info (traceback.format_exc())
-        genlog.error ('exception was raised during [pool.apply_async({})]: {}'
-                      .format(func, e))
+        if log is not None:
+            log.info (traceback.format_exc())
+            log.error ('exception was raised during [pool.apply_async({})]: {}'
+                       .format(func, e))
+            
         logging.shutdown()
         raise SystemExit
 
     return results
-    
+
 
 ################################################################################
 
@@ -1085,7 +1097,7 @@ def prep_packlist (date, image, filename):
 
 ################################################################################
 
-def fpack (filename):
+def fpack (filename, log=None):
 
     """Fpack fits images; skip fits tables"""
 
@@ -1118,10 +1130,11 @@ def fpack (filename):
                 subprocess.call(cmd)
 
     except Exception as e:
-        genlog.info (traceback.format_exc())
-        genlog.error ('exception was raised in fpacking of image {}: {}'
-                      .format(filename,e))
-
+        if log is not None:
+            log.info (traceback.format_exc())
+            log.error ('exception was raised in fpacking of image {}: {}'
+                       .format(filename,e))
+            
 
 ################################################################################
 
@@ -1164,7 +1177,7 @@ def prep_jpglist (date, image, filename):
 
 ################################################################################
 
-def create_jpg (filename):
+def create_jpg (filename, log=None):
 
     """Create jpg image from fits"""
 
@@ -1173,8 +1186,9 @@ def create_jpg (filename):
         image_jpg = '{}.jpg'.format(filename.split('.fits')[0])
 
         if not os.path.isfile(image_jpg):
-            
-            genlog.info ('saving {} to {}'.format(filename, image_jpg))
+
+            if log is not None:
+                log.info ('saving {} to {}'.format(filename, image_jpg))
               
             # read input image
             data, header = read_hdulist(filename, get_header=True)
@@ -1206,9 +1220,10 @@ def create_jpg (filename):
             
 
     except Exception as e:
-        genlog.info (traceback.format_exc())
-        genlog.error ('exception was raised in creating jpg of image {}: {}'
-                      .format(filename,e))
+        if log is not None:
+            log.info (traceback.format_exc())
+            log.error ('exception was raised in creating jpg of image {}: {}'
+                       .format(filename,e))
 
 
 ################################################################################
@@ -5057,7 +5072,7 @@ def action(queue):
 
             if process:
                 # if fits file was read fine, process it
-                filename_reduced = try_blackbox_reduce (filename)
+                filename_reduced = blackbox_reduce (filename)
                 filenames_reduced.append(filename_reduced)
                 
             else:
