@@ -22,7 +22,8 @@ import aplpy
 
 from blackbox import date2mjd, str2bool, unzip
 from blackbox import get_par, already_exists, copy_files2keep
-from blackbox import create_log, close_log, define_sections, fpack, make_dir
+from blackbox import create_log, close_log, define_sections, make_dir
+from blackbox import pool_func, fpack, create_jpg
 from qc import qc_check, run_qc_check
 
 import set_zogy
@@ -288,17 +289,12 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
         list_of_filelists.append(filenames[index[i]:index[i+1]])
         
 
-    # use function pool_func_alt to read headers from files
+    # use function pool_func_lists to read headers from files
     # using multiple processes and write them to a table
-    try:
-        results = pool_func_alt (header2table, list_of_filelists)
-        # stack separate tables in results
-        table = vstack(results)
-    except Exception as e:
-        genlog.error (traceback.format_exc())
-        genlog.error ('exception was raised during [pool_func_alt]: {}'
-                            .format(e))
-        raise RuntimeError
+    results = pool_func_lists (header2table, list_of_filelists,
+                               log=genlog, nproc=get_par(set_bb.nproc,tel))
+    # stack separate tables in results
+    table = vstack(results)
 
 
     genlog.info ('number of files with all required keywords: {}'
@@ -512,40 +508,33 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
     # ----------------------------
 
     # feed the lists that were created above to the multiprocessing
-    # helper function [pool_func_alt] that will arrange each
+    # helper function [pool_func_lists] that will arrange each
     # process to call [prep_ref] to prepare the reference image
     # for a particular field and filter combination, using
     # the [imcombine] function 
-    try:
-        result = pool_func_alt (prep_ref, list_of_imagelists, obj_list,
-                                filt_list, radec_list)
-    except Exception as e:
-        genlog.error (traceback.format_exc())
-        genlog.error ('exception was raised during [pool_func_alt]: {}'
-                      .format(e))
-        raise RuntimeError
+    result = pool_func_lists (prep_ref, list_of_imagelists, obj_list,
+                              filt_list, radec_list,
+                              log=genlog, nproc=get_par(set_bb.nproc,tel))
 
 
     # make color figures
     # ------------------
-
     if make_colfig:
-
         genlog.info ('preparing color figures')
-
         # also prepare color figures
         try:
-            result = pool_func_copy (prep_colfig, objs_uniq, filters_colfig)
+            result = pool_func (prep_colfig, objs_uniq, filters_colfig, genlog,
+                                log=genlog, nproc=get_par(set_bb.nproc,tel))
         except Exception as e:
             genlog.error (traceback.format_exc())
-            genlog.error ('exception was raised during [pool_func_copy]: {}'
+            genlog.error ('exception was raised during [pool_func]: {}'
                           .format(e))
             raise RuntimeError
 
         
     # fpack reference fits files
     # --------------------------
-
+    genlog.info ('fpacking reference fits images')
     ref_dir = get_par(set_bb.ref_dir,tel)
     list_2pack = []
     for field_ID in objs_uniq:
@@ -556,79 +545,41 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
 
     # unnest nested list_2pack
     list_2pack = list(chain.from_iterable(list_2pack))
-    genlog.info ('list of images to fpack: {}'.format(list_2pack))
 
-    # use [pool_func_copy] to process the list
-    result = pool_func_copy (fpack_copy, list_2pack)
+    # use [pool_func] to process the list
+    result = pool_func (fpack, list_2pack, genlog,
+                        log=genlog, nproc=get_par(set_bb.nproc,tel))
 
-    
+
+    # create jpg images for reference frames
+    # --------------------------------------
+    genlog.info ('creating jpg images')
+    # create list of files to jpg
+    list_2jpg = []
+    for field_ID in objs_uniq:
+        ref_path = '{}/{:0>5}'.format(ref_dir, field_ID)
+        ref_path = '{}_alt4'.format(ref_path)
+        list_2jpg.append(glob.glob('{}/*_red.fits.fz'.format(ref_path)))
+
+    # unnest nested list_2pack
+    list_2jpg = list(chain.from_iterable(list_2jpg))
+
+    # use [pool_func] to process the list
+    result = pool_func (create_jpg, list_2jpg, genlog,
+                        log=genlog, nproc=get_par(set_bb.nproc,tel))
+
+
     logging.shutdown()
     return
     
     
 ################################################################################
 
-def fpack_copy (filename):
-
-    """Fpack fits images; skip fits tables"""
-
-    try:
-    
-        # fits check if extension is .fits and not an LDAC fits file
-        if filename.split('.')[-1] == 'fits' and '_ldac.fits' not in filename:
-            header = read_hdulist(filename, get_data=False, get_header=True,
-                                  ext_name_indices=0)
-
-            # check if it is an image
-            if header['NAXIS']==2:
-                # determine if integer or float image
-                if header['BITPIX'] > 0:
-                    cmd = ['fpack', '-D', '-Y', '-v', filename]
-                else:
-                    if 'Scorr' in filename or 'limmag' in filename:
-                        quant = 1
-                    else:
-                        quant = 16
-                    cmd = ['fpack', '-q', str(quant), '-D', '-Y', '-v', filename]
-                subprocess.call(cmd)
-
-    except Exception as e:
-        genlog.info (traceback.format_exc())
-        genlog.error ('exception was raised in fpacking of image {} {}'
-                      .format(filename,e))
-
-
-################################################################################
-
-def pool_func_copy (func, filelist, *args):
-
-    try:
-        results = []
-        pool = Pool(get_par(set_br.nproc,tel))
-        for filename in filelist:
-            args_temp = [filename]
-            for arg in args:
-                args_temp.append(arg)
-            results.append(pool.apply_async(func, args_temp))
-
-        pool.close()
-        pool.join()
-        results = [r.get() for r in results]
-        #logger.info('result from pool.apply_async: {}'.format(results)))
-    except Exception as e:
-        genlog.info (traceback.format_exc())
-        genlog.error ('exception was raised during [pool.apply_async({})]: {}'
-                      .format(func, e))
-        raise SystemExit
-        
-
-################################################################################
-
-def pool_func_alt (func, list_of_imagelists, *args):
+def pool_func_lists (func, list_of_imagelists, *args, log=None, nproc=1):
     
     try:
         results = []
-        pool = Pool(get_par(set_br.nproc,tel))
+        pool = Pool(nproc)
         for nlist, filelist in enumerate(list_of_imagelists):
             args_temp = [filelist]
             for arg in args:
@@ -639,13 +590,16 @@ def pool_func_alt (func, list_of_imagelists, *args):
         pool.close()
         pool.join()
         results = [r.get() for r in results]
-        #genlog.info ('result from pool.apply_async: {}'.format(results))
+        #if log is not None:
+        #    log.info ('result from pool.apply_async: {}'.format(results))
         return results
         
     except Exception as e:
-        genlog.info (traceback.format_exc())
-        genlog.error ('exception was raised during [pool.apply_async({})]: {}'
-                      .format(func, e))
+        if log is not None:
+            log.info (traceback.format_exc())
+            log.error ('exception was raised during [pool.apply_async({})]: {}'
+                       .format(func, e))
+
         raise RuntimeError
     
 
@@ -800,7 +754,7 @@ def header2table (filenames):
 
 ################################################################################
 
-def prep_colfig (field_ID, filters):
+def prep_colfig (field_ID, filters, log=None):
     
     # determine reference directory and file
     ref_path = '{}/{:0>5}'.format(get_par(set_bb.ref_dir,tel), field_ID)
@@ -822,9 +776,10 @@ def prep_colfig (field_ID, filters):
         exists, image = already_exists(image, get_filename=True)
         
         if not exists:
-            genlog.info ('{} does not exist; not able to prepare color '
-                         'figure for field_ID {}'.format(image, field_ID))
-            return
+            if log is not None:
+                log.info ('{} does not exist; not able to prepare color '
+                          'figure for field_ID {}'.format(image, field_ID))
+                return
         else:
             
             # add to image_rgb list (unzip if needed)
@@ -842,9 +797,10 @@ def prep_colfig (field_ID, filters):
             if key in header:
                 images_zp.append(header[key])
             else:
-                genlog.info ('missing header keyword {}; not able to '
-                             'prepare color figure for field_ID {}'
-                             .format(key, field_ID))
+                if log is not None:
+                    genlog.info ('missing header keyword {}; not able to '
+                                 'prepare color figure for field_ID {}'
+                                 .format(key, field_ID))
                 return
             
     # scaling
