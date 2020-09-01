@@ -46,7 +46,7 @@ center_type = 'median'
 
 # background subtraction method; options: 'blackbox', 'auto',
 # 'manual', 'constant', 'none'
-back_type = 'new'
+back_type = 'blackbox'
 
 # N.B.: the background boxsize and filtersize are taken from the ZOGY
 # settings file!
@@ -55,8 +55,12 @@ back_type = 'new'
 # Select subset to combine in case of many images of the same field/filter
 #===============================================================================
 
-# maximum number of images to combine
-subset_nmax = 20
+# nmin1: bare minimum number of images to combine
+# nmin2: number of available images * subset_frac needs to be higher
+#        than nmin2 before images are cut
+subset_nmin = (2, 30)
+# fraction of available images to combine
+subset_frac = 0.5
 # header keyword on which to sort if number of images exceeds
 # [subset_max]; N.B.: keyword value needs to be an integer or float in
 # order to be able to sort

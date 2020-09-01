@@ -3,6 +3,7 @@ from zogy import *
 
 import re, fnmatch
 from itertools import chain
+import math
 
 from astropy.coordinates import Angle
 from astropy.table import vstack
@@ -31,7 +32,7 @@ import set_buildref as set_br
 import set_blackbox as set_bb
 
 
-__version__ = '0.5.1'
+__version__ = '0.6.0'
 
 
 ################################################################################
@@ -73,12 +74,6 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
 
     (21) reference image specific logfile is not being created; why
          not? Perhaps due to switching off logging stream handler?
-
-    (22) if set_buildref.center_type is not set to 'grid', the images
-         produced in the different filters will be slightly offset,
-         also resulting in a colour figure that is off.  Improve this
-         by taking the mean or median RA/DEC of all images of the
-         field, not just for that filter.
 
 
     Done:
@@ -231,6 +226,12 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
              header2table if QC-[flag colour] start with 'Z-', 'T-' or
              'V-'
 
+    (22) if set_buildref.center_type is not set to 'grid', the images
+         produced in the different filters will be slightly offset,
+         also resulting in a colour figure that is off.  Improve this
+         by taking the mean or median RA/DEC of all images of the
+         field, not just for that filter -- done!
+
     """
     
 
@@ -267,7 +268,8 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
     genlog.info ('qc_flag_max:    {}'.format(qc_flag_max))
     genlog.info ('seeing_max:     {}'.format(seeing_max))
     genlog.info ('make_colfig:    {}'.format(make_colfig))
-    genlog.info ('filters_colfig: {}'.format(filters_colfig))
+    if make_colfig:
+        genlog.info ('filters_colfig: {}'.format(filters_colfig))
 
     
     t0 = time.time()
@@ -460,13 +462,16 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
 
         for filt in filts_uniq:
             mask = (mask_obj & (table['FILTER'] == filt))
-            ntrue = np.sum(mask)
+            nfiles = np.sum(mask)
             genlog.info ('number of files left for {} in filter {}: {}'
-                         .format(obj, filt, ntrue))
-            if ntrue > 1:
-                nmax = get_par(set_br.subset_nmax,tel)
-                if ntrue > nmax:
-                    # more images available than [set_br.subset_nmax];
+                         .format(obj, filt, nfiles))
+            nmin1, nmin2 = get_par(set_br.subset_nmin,tel)
+            if nfiles > nmin1:
+                if nfiles > nmin2:
+                    nselect = max(
+                        math.ceil(nfiles*get_par(set_br.subset_frac,tel)), nmin2)
+
+                    # more images available than nmin2;
                     # select subset of images, sorted by header
                     # keyword also defined in settings file
                     key_sort = get_par(set_br.subset_key,tel)
@@ -476,17 +481,17 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
                     if not get_par(set_br.subset_lowend,tel):
                         indices_sort = indices_sort[::-1]
                     # threshold value
-                    threshold = table[key_sort][mask][indices_sort[nmax]]
+                    threshold = table[key_sort][mask][indices_sort[nselect]]
                     print ('threshold: {}'.format(threshold))
                     # update mask
                     if get_par(set_br.subset_lowend,tel):
                         mask &= (table[key_sort] < threshold)
                     else:
                         mask &= (table[key_sort] > threshold)
-                    genlog.info ('selected following subset of {} images '
-                                 'for field_ID {}, filter: {}, based on '
-                                 'header keyword: {}:\n{}'
-                                 .format(nmax, obj, filt, key_sort,table[mask]))
+                    genlog.info ('selected following subset of {} images for '
+                                 'field_ID {}, filter: {}, based on header '
+                                 'keyword: {}:\n{}'.format(nselect, obj, filt,
+                                                           key_sort, table[mask]))
                     
                 # add this set of images with their field_ID and
                 # filter to the lists of images, field_IDs and filters
