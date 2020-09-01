@@ -61,8 +61,8 @@ tnow = Time.now()
 tnow.ut1  
 
 
-__version__ = '0.10.0'
-keywords_version = '0.10.0'
+__version__ = '1.0.0'
+keywords_version = '1.0.0'
 
 #def init(l):
 #    global lock
@@ -148,6 +148,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
     (82) ref image folder contains full _bkg_std image; can the mini
          image be used for this instead?
+
 
 
     Done:
@@ -634,6 +635,9 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          --> moved mini extension from img_reduce_exts to
              cat_extract_exts
 
+    (84) skip FWHM source-extractor run if S-FWHM and S-FWSTD in header?
+
+
     """
 
 
@@ -786,7 +790,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
  
         else:
             # use [pool_func] to process list of files
-            filenames_reduced = pool_func (blackbox_reduce, filenames,
+            filenames_reduced = pool_func (try_blackbox_reduce, filenames,
                                            log=genlog,
                                            nproc=get_par(set_bb.nproc,tel))
 
@@ -1943,9 +1947,10 @@ def blackbox_reduce (filename):
             # copy selected output files to new directory and remove tmp folder
             # corresponding to the object image
             result = copy_files2keep(tmp_base, new_base,
-                                     get_par(set_bb.all_2keep,tel), move=False,
+                                     get_par(set_bb.all_2keep,tel),
+                                     move=~get_par(set_bb.keep_tmp,tel),
                                      log=log)
-            clean_tmp(tmp_base)
+            clean_tmp(tmp_path)
             close_log(log, logfile)
             return fits_out
 
@@ -1975,12 +1980,14 @@ def blackbox_reduce (filename):
             # files to new directory and clean up tmp folder if needed
             result = copy_files2keep(tmp_base, new_base,
                                      get_par(set_bb.img_reduce_exts,tel),
-                                     move=False, log=log)
-            clean_tmp(tmp_base)
+                                     move=~get_par(set_bb.keep_tmp,tel),
+                                     log=log)
+            clean_tmp(tmp_path)
             close_log(log, logfile)
             return fits_out
 
         else:
+            clean_tmp(tmp_path)
             close_log(log, logfile)
             return None
 
@@ -2013,11 +2020,12 @@ def blackbox_reduce (filename):
             log.info ('all {} data products already present in reduced folder, '
                       'nothing left to do for {}'.format(text, filename))
             
+            clean_tmp(tmp_path)
+            close_log(log, logfile)
+
             if do_reduction:
-                close_log(log, logfile)
                 return fits_out
             else:
-                close_log(log, logfile)
                 return None
 
         else:
@@ -2146,80 +2154,7 @@ def blackbox_reduce (filename):
     log.info('has reference image: {} been made already?: {}'
              .format(ref_fits_out, ref_present))
                          
-
-    # in case transient extraction step is switched off
-    if not get_par(set_bb.trans_extract,tel):
-
-        log.info('set_bb.trans_extract={}; processing new image only, '
-                 'without comparison to ref image'
-                 .format(get_par(set_bb.trans_extract,tel)))
-        log.info('new_fits: {}'.format(new_fits))
-        log.info('new_fits_mask: {}'.format(new_fits_mask))
-
-        try:
-            zogy_processed = False
-            header_optsub = optimal_subtraction(
-                new_fits=new_fits, new_fits_mask=new_fits_mask, 
-                set_file='set_zogy', log=log, verbose=None,
-                nthread=get_par(set_bb.nthread,tel), telescope=tel)
-        except Exception as e:
-            log.info(traceback.format_exc())
-            log.error('exception was raised during [optimal_subtraction] for '
-                      'new-only image {}: {}'.format(new_fits, e))
-        else:
-            zogy_processed = True
-        finally:
-            if not zogy_processed:
-                # copy selected output files to red directory and remove tmp folder
-                # corresponding to the image
-                log.warning ('due to exception, only copy image reduction products')
-                result = copy_files2keep(tmp_base, new_base,
-                                         get_par(set_bb.img_reduce_exts,tel),
-                                         move=False, log=log)
-                clean_tmp(tmp_base)
-                close_log(log, logfile)
-                return None
-
-            else:
-                # feed [header_optsub] to [run_qc_check], and make
-                # dummy catalogs if there is a red flag
-                qc_flag = run_qc_check (header_optsub, tel, log=log)
-                if qc_flag=='red':
-                    log.error('red QC flag in [header_optsub] returned by new-only '
-                              '[optimal_subtraction]; making dummy catalogs')
-                    run_qc_check (header_optsub, tel, cat_type='new',
-                                  cat_dummy=fits_tmp_cat, log=log)
-                    run_qc_check (header_optsub, tel, cat_type='trans',
-                                  cat_dummy=fits_tmp_trans, log=log)
-
-                else:
-                    # update catalog header with latest qc-flags
-                    with fits.open(fits_tmp_cat, 'update') as hdulist:
-                        #for key in hdulist[-1].header:
-                        #    if 'QC' in key:
-                        #        del hdulist[-1].header[key]
-                        for key in header_optsub:
-                            if 'QC' in key:
-                                hdulist[-1].header[key] = (
-                                    header_optsub[key], header_optsub.comments[key])
-
-
-        # update reduced image header with extended header from ZOGY [header_optsub]
-        with fits.open(new_fits, 'update') as hdulist:
-            hdulist[0].header = header_optsub
-
-        # also write separate header fits file
-        hdulist = fits.HDUList(fits.PrimaryHDU(header=header_optsub))
-        hdulist.writeto(new_fits.replace('.fits', '_hdr.fits'), overwrite=True)
-
-        # copy the set of files [all_2keep] to the reduced directory
-        result = copy_files2keep(tmp_base, new_base, 
-                                 get_par(set_bb.all_2keep,tel), move=False,
-                                 log=log)
-        clean_tmp(tmp_base)
-
-
-    elif not ref_present:
+    if not ref_present:
         # update [ref_ID_filt] queue with a tuple with this OBJECT
         # and FILTER combination
         ref_ID_filt.put((obj, filt))
@@ -2248,9 +2183,18 @@ def blackbox_reduce (filename):
                 log.warning ('due to exception, only copy image reduction products')
                 result = copy_files2keep(tmp_base, new_base,
                                          get_par(set_bb.img_reduce_exts,tel),
-                                         move=False, log=log)
-                clean_tmp(tmp_base)
+                                         move=~get_par(set_bb.keep_tmp,tel),
+                                         log=log)
+
+                # before leaving, remove this reference ID
+                # and filter combination from the [ref_ID_filt] queue
+                log.info ('removing reference ID and filter combination from '
+                          'the [ref_ID_filt] queue')
+                result = check_ref(ref_ID_filt, (obj, filt), method='remove')
+
+                clean_tmp(tmp_path)
                 close_log(log, logfile)
+        
                 return None
 
             else:
@@ -2275,44 +2219,91 @@ def blackbox_reduce (filename):
                                     header_optsub[key], header_optsub.comments[key])
 
 
-        # update reduced image header with extended header from ZOGY [header_optsub]
-        with fits.open(new_fits, 'update') as hdulist:
-            hdulist[0].header = header_optsub
-
-        # also write separate header fits file
-        hdulist = fits.HDUList(fits.PrimaryHDU(header=header_optsub))
-        hdulist.writeto(new_fits.replace('.fits', '_hdr.fits'), overwrite=True)
-
-        # copy the set of files [all_2keep] to the reduced
-        # directory for future building of new reference image
-        result = copy_files2keep(tmp_base, new_base, 
-                                 get_par(set_bb.all_2keep,tel), move=False,
-                                 log=log)
-
-        if qc_flag == 'red':
-            # also copy dummy transient catalog in case of red flag
-            result = copy_files2keep(tmp_base, new_base, ['_trans.fits'],
-                                     move=False, log=log)
-            clean_tmp(tmp_base)
-        else:
-            # now move [ref_2keep] to the reference directory
+        if qc_flag != 'red':
+            # move [ref_2keep] to the reference directory
             make_dir (ref_path, lock=lock)
             ref_base = ref_fits_out.split('_red.fits')[0]
             result = copy_files2keep(tmp_base, ref_base,
                                      get_par(set_bb.ref_2keep,tel),
+                                     # need to copy instead of move,
+                                     # as copying of some of the same
+                                     # files in list_2keep is done
+                                     # further down below
                                      move=False, log=log)
-            clean_tmp(tmp_base)
-            
+
         # now that reference is built, remove this reference ID
         # and filter combination from the [ref_ID_filt] queue
+        log.info ('removing reference ID and filter combination from '
+                  'the [ref_ID_filt] queue')
         result = check_ref(ref_ID_filt, (obj, filt), method='remove')
-
+        
         if qc_flag != 'red':
             log.info('finished making reference image: {}'.format(ref_fits_out))
         else:
             log.info('encountered red flag; not using image: {} (original name: '
                      '{}) as reference'
                      .format(header_optsub['REDFILE'], header_optsub['ORIGFILE']))
+
+
+
+    # in case transient extraction step is switched off
+    elif not get_par(set_bb.trans_extract,tel):
+    
+        log.info('set_bb.trans_extract={}; processing new image only, '
+                 'without comparison to ref image'
+                 .format(get_par(set_bb.trans_extract,tel)))
+        log.info('new_fits: {}'.format(new_fits))
+        log.info('new_fits_mask: {}'.format(new_fits_mask))
+
+        try:
+            zogy_processed = False
+            header_optsub = optimal_subtraction(
+                new_fits=new_fits, new_fits_mask=new_fits_mask, 
+                set_file='set_zogy', log=log, verbose=None,
+                nthread=get_par(set_bb.nthread,tel), telescope=tel)
+        except Exception as e:
+            log.info(traceback.format_exc())
+            log.error('exception was raised during [optimal_subtraction] for '
+                      'new-only image {}: {}'.format(new_fits, e))
+        else:
+            zogy_processed = True
+        finally:
+            if not zogy_processed:
+                # copy selected output files to red directory and remove tmp folder
+                # corresponding to the image
+                log.warning ('due to exception, only copy image reduction products')
+                result = copy_files2keep(tmp_base, new_base,
+                                         get_par(set_bb.img_reduce_exts,tel),
+                                         move=~get_par(set_bb.keep_tmp,tel),
+                                         log=log)
+                clean_tmp(tmp_path)
+                close_log(log, logfile)
+                return None
+
+            else:
+                # feed [header_optsub] to [run_qc_check], and make
+                # dummy catalogs if there is a red flag
+                qc_flag = run_qc_check (header_optsub, tel, log=log)
+                if qc_flag=='red':
+                    log.error('red QC flag in [header_optsub] returned by new-only '
+                              '[optimal_subtraction]; making dummy catalogs')
+                    run_qc_check (header_optsub, tel, cat_type='new',
+                                  cat_dummy=fits_tmp_cat, log=log)
+                    run_qc_check (header_optsub, tel, cat_type='trans',
+                                  cat_dummy=fits_tmp_trans, log=log)
+
+                else:
+                    # update catalog header with latest qc-flags
+                    with fits.open(fits_tmp_cat, 'update') as hdulist:
+                        #for key in hdulist[-1].header:
+                        #    if 'QC' in key:
+                        #        del hdulist[-1].header[key]
+                        for key in header_optsub:
+                            if 'QC' in key:
+                                hdulist[-1].header[key] = (
+                                    header_optsub[key], header_optsub.comments[key])
+
+
 
     else:
 
@@ -2369,8 +2360,9 @@ def blackbox_reduce (filename):
                 log.warning ('due to exception, only copy image reduction products')
                 result = copy_files2keep(tmp_base, new_base,
                                          get_par(set_bb.img_reduce_exts,tel),
-                                         move=False, log=log)
-                clean_tmp(tmp_base)
+                                         move=~get_par(set_bb.keep_tmp,tel),
+                                         log=log)
+                clean_tmp(tmp_path)
                 close_log(log, logfile)
                 return None
 
@@ -2409,23 +2401,38 @@ def blackbox_reduce (filename):
                                 hdulist[-1].header[key] = (
                                     header_optsub[key], header_optsub.comments[key])
 
-                                
-        # update reduced image header with full-source catalog header
-        with fits.open(fits_tmp_cat) as hdulist:
-            header_cat = hdulist[-1].header        
-        with fits.open(new_fits, 'update') as hdulist:
-            hdulist[0].header = header_cat
 
-        # also write separate header fits file
-        hdulist = fits.HDUList(fits.PrimaryHDU(header=header_cat))
-        hdulist.writeto(new_fits.replace('.fits', '_hdr.fits'), overwrite=True)
 
-        # copy selected output files to new directory
-        result = copy_files2keep(tmp_base, new_base,
-                                 get_par(set_bb.new_2keep,tel),
-                                 move=False, log=log)
-        clean_tmp(tmp_base)
+    # update reduced image header with extended header from ZOGY [header_optsub]
+    with fits.open(new_fits, 'update') as hdulist:
+        hdulist[0].header = header_optsub
 
+
+    # also write separate header fits file
+    hdulist = fits.HDUList(fits.PrimaryHDU(header=header_optsub))
+    hdulist.writeto(new_fits.replace('.fits', '_hdr.fits'), overwrite=True)
+
+
+    # list of files to copy/move to reduced folder
+    list_2keep = []
+    if get_par(set_bb.img_reduce,tel):
+        list_2keep += get_par(set_bb.img_reduce_exts,tel)
+    if get_par(set_bb.cat_extract,tel):
+        list_2keep += get_par(set_bb.cat_extract_exts,tel)
+    if ref_present:
+        if get_par(set_bb.trans_extract,tel):
+            list_2keep += get_par(set_bb.trans_extract_exts,tel)
+    else:
+        # in case of a red flag when reference image was being
+        # prepared, also copy the dummy transient cat
+        if not get_par(set_bb.trans_extract,tel) and qc_flag == 'red':
+            list_2keep += ['_trans.fits']
+
+    result = copy_files2keep(tmp_base, new_base, list_2keep,
+                             # if tmp folder is cleaned up afterwards,
+                             # move the files instead of copying
+                             move=~get_par(set_bb.keep_tmp,tel), log=log)
+    clean_tmp(tmp_path)
 
 
     if get_par(set_zogy.timing,tel):
@@ -2835,21 +2842,22 @@ def make_dir (path, empty=False, put_lock=True, lock=None):
 
 ################################################################################
 
-def clean_tmp(temp_base):
+def clean_tmp (tmp_path):
 
     """ Function that removes the tmp folder corresponding to the
         reduced image / reference image if [set_bb.keep_tmp] not True.
     """
 
     lock.acquire()
-    # change to [run_dir]
-    if get_par(set_zogy.make_plots,tel):
-        os.chdir(get_par(set_bb.run_dir,tel))
-    # and delete [temp_path] if [set_bb.keep_tmp] not True
-    temp_path = temp_base.rsplit('/',1)[0]
-    if not get_par(set_bb.keep_tmp,tel) and os.path.isdir(temp_path):
-        shutil.rmtree(temp_path)
+    # and delete [tmp_path] folder if [set_bb.keep_tmp] not True
+    if not get_par(set_bb.keep_tmp,tel) and os.path.isdir(tmp_path):
+        shutil.rmtree(tmp_path)
+
     lock.release()
+
+    # if making plots, change directory from tmp_path to run_dir
+    #if get_par(set_zogy.make_plots,tel):
+    #    os.chdir(get_par(set_bb.run_dir,tel))
 
     return
 
@@ -2863,9 +2871,13 @@ def copy_files2keep (src_base, dest_base, ext2keep, move=True,
     extensions [ext2keep] to files with base name [dest_base] with the
     same extensions. The base names should include the full path.
     """
-    
+
+    # select unique entries in input [ext2keep]
+    ext2keep = list(set(ext2keep))
+
     # list of all files starting with [src_base]
     src_files = glob.glob('{}*'.format(src_base))
+
     # loop this list
     for src_file in src_files:
         # determine file string following [src_base] 
@@ -2891,21 +2903,20 @@ def copy_files2keep (src_base, dest_base, ext2keep, move=True,
                             if log is not None:
                                 log.info('removing existing {}'
                                          .format(file_2remove))
-                            
+
                     # move or copy file
                     if not move:
-                        shutil.copyfile(src_file, dest_file)
                         if log is not None:
                             log.info('copying {} to {}'.
                                      format(src_file, dest_file))
+                        shutil.copyfile(src_file, dest_file)
                     else:
-                        shutil.move(src_file, dest_file)
                         if log is not None:
                             log.info('moving {} to {}'
                                      .format(src_file, dest_file))
-                    
-                        
-                        
+                        shutil.move(src_file, dest_file)
+
+
     return
 
 
@@ -5072,7 +5083,7 @@ def action(queue):
 
             if process:
                 # if fits file was read fine, process it
-                filename_reduced = blackbox_reduce (filename)
+                filename_reduced = try_blackbox_reduce (filename)
                 filenames_reduced.append(filename_reduced)
                 
             else:
