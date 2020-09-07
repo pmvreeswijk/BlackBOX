@@ -51,6 +51,14 @@ iers.conf.iers_auto_url = (
     'https://storage.googleapis.com/blackbox-auxdata/timing/finals2000A.all')
 iers.conf.iers_auto_url_mirror = 'http://maia.usno.navy.mil/ser7/finals2000A.all'
 
+# to send email
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email.mime.text import MIMEText
+from email.utils import formatdate
+from email import encoders
+
 #from pympler import tracker
 #import tracemalloc
 #tracemalloc.start()
@@ -122,33 +130,10 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          standard deviation must be different; find a good way to
          improve the STD estimate
 
-    (65) Exception while adding S-FWHM to the image header: 
-         "ValueError: Floating point nan values are not allowed in FITS headers"
-
-    (80) make a short summary of the night when the night mode is
-         finishing, which could be emailed to a list of people
-
-         - how many non-red bias frames were taken?
-         - how many flat frames were taken in each filter?
-         - how many non-red flat frames were taken in each filter?
-         - how many science exposures were taken?
-         - total science exposure time of the night?
-         - how many science exposures were flagged red?
-         - total non-red science exposure time of the night?
-         - compare these times to total time that dome was open? how?
-
-         - possibly including an "observing" log with some main header 
-           keywords such as 
-           OBJECT, DATE-OBS, EXPTIME, FILTER, AIRMASS, S-SEEING, QC-FLAG
-
     (81) masterflats are currently only made for nights where individual
          flats are available, and if not enough flats are available,
          a nearby alternative is searched for. On IDIA that is fine, but
          for Google that alternativee flat needs to be copied over.
-
-    (82) ref image folder contains full _bkg_std image; can the mini
-         image be used for this instead?
-
 
 
     Done:
@@ -535,6 +520,9 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          --> keep them; IMAFLAGS_ISO is ingested into the database
              and can be used there to (de-)select objects
 
+    (65) Exception while adding S-FWHM to the image header: 
+         "ValueError: Floating point nan values are not allowed in FITS headers"
+
     (66) update zogy.py so that reduced images are background subtracted
 
     (67) check if things go ok if one of the images do not contain
@@ -622,6 +610,25 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          --> introduced close_log function to properly close log
              when returning from blackbox_reduce
 
+    (80) make a short summary of the night when the night mode is
+         finishing, which could be emailed to a list of people
+
+         - how many non-red bias frames were taken?
+         - how many flat frames were taken in each filter?
+         - how many non-red flat frames were taken in each filter?
+         - how many science exposures were taken?
+         - total science exposure time of the night?
+         - how many science exposures were flagged red?
+         - total non-red science exposure time of the night?
+         - compare these times to total time that dome was open? how?
+
+         - possibly including an "observing" log with some main header 
+           keywords such as 
+           OBJECT, DATE-OBS, EXPTIME, FILTER, AIRMASS, S-SEEING, QC-FLAG
+
+    (82) ref image folder contains full _bkg_std image; can the mini
+         image be used for this instead?
+
     (83) issue: if reduced image was created and cat_extract was run,
          then the reduced image will be background subtracted in the
          source-extractor step. However, when forcing reprocessing of
@@ -637,6 +644,9 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
     (84) skip FWHM source-extractor run if S-FWHM and S-FWSTD in header?
 
+    (85) header S-BKG is now set to 0 exactly; is that ok or actually
+         determine it?
+         --> this is not determined instead of forced to 0
 
     """
 
@@ -718,7 +728,12 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
                              .format(read_path))
             logging.shutdown()
             return
-        
+
+        else:
+            # infer date from readpath: [some path]/yyyy/mm/dd in case
+            # input read_path is defined but input date is not
+            date = read_path.split('/')[-3:]
+
     
     # create global lock instance that can be used in [blackbox_reduce] for
     # certain blocks/functions to be accessed by one process at a time
@@ -843,6 +858,9 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
         genlog.info ('stopping time reached, exiting night mode')
         observer.stop() #stop observer
         observer.join() #join observer
+
+        # create and email obslog
+        create_obslog (date, email=True, tel=tel, log=genlog)
 
 
     if get_par(set_zogy.timing,tel):
@@ -2106,13 +2124,13 @@ def blackbox_reduce (filename):
         log.info ('unpacking files in tmp folder for {}'.format(filename))
         for tmp_file in tmp_files:
             # and funpack/unzip if necessary
-            tmp_file = unzip(tmp_file)
+            tmp_file = unzip(tmp_file, put_lock=False)
 
-            
+
     # run zogy's [optimal_subtraction]
     ##################################
     log.info ('running optimal image subtraction')
-        
+
     # using the function [check_ref], check if the reference image
     # with the same header OBJECT and FILTER as the currently
     # processed image happens to be made right now, using a lock
@@ -2320,7 +2338,7 @@ def blackbox_reduce (filename):
             if make_symlink:
                 # and funpack/unzip if necessary (before symbolic link
                 # to avoid unpacking multiple times during the same night)
-                ref_file = unzip(ref_file)
+                ref_file = unzip(ref_file, put_lock=False)
                 # create symbolic link
                 os.symlink(ref_file, '{}/{}'.format(tmp_path,
                                                     ref_file.split('/')[-1]))
@@ -2328,7 +2346,7 @@ def blackbox_reduce (filename):
                 # alternatively, copy the file to tmp_path
                 ref_file_tmp = shutil.copy2 (ref_file, tmp_path)
                 # and unzip if needed
-                unzip(ref_file_tmp)
+                unzip(ref_file_tmp, put_lock=False)
 
 
         ref_fits = '{}/{}'.format(tmp_path, ref_fits_out.split('/')[-1])
@@ -2446,20 +2464,26 @@ def blackbox_reduce (filename):
 
 ################################################################################
 
-def create_obslog (date, tel=None):
-
+def create_obslog (date, email=True, tel=None, log=None):
+    
     # extract table with various observables/keywords from the headers
     # of all raw/reduced files of a particular (evening) date,
     # e.g. ORIGFILE, IMAGETYP, DATE-OBS, PROGNAME, PROGID, OBJECT,
     # FILTER, EXPTIME, RA, DEC, AIRMASS, FOCUSPOS, image quality
     # (PSF-FWHM), QC-FLAG, ..
+    #
+    # if email==True, also send an email to people that are
+    # interested; the email parameters such as sender, recipients,
+    # etc., can be defined in BlackBOX settings file
 
+    
     date_eve = ''.join(e for e in date if e.isdigit())
     if len(date_eve) != 8:
-        genlog.error ('input date to function create_obslog needs to consist of '
-                      'at least 8 digits, yyyymmdd, where the year, month and '
-                      'day can be connected with any type of character, e.g. '
-                      'yyyy/mm/dd or yyyy-mm-dd, etc.')
+        if log is not None:
+            log.error ('input date to function create_obslog needs to consist of '
+                       'at least 8 digits, yyyymmdd, where the year, month and '
+                       'day can be connected with any type of character, e.g. '
+                       'yyyy/mm/dd or yyyy-mm-dd, etc.')
         return
 
 
@@ -2537,30 +2561,93 @@ def create_obslog (date, tel=None):
     
     # for MeerLICHT, save the Sutherland weather page as a screen
     # shot, and add it as attachment to the mail
+    if tel=='ML1':
+        try:
+            png_name = '{}/{}/{}_SAAOweather.png'.format(red_path, date_dir,
+                                                         date_eve)
+            cmd = ['firefox', '--screenshot', png_name,
+                   'https://suthweather.saao.ac.za']
+            subprocess.call(cmd)
+        except Exception as e:
+            if log is not None:
+                log.error ('exception occurred while making screenshot of SAAO '
+                           'weather page (https://suthweather.saao.ac.za): {}'
+                           .format(e))
+    else:
+        png_name = None
 
-    if False:
-        png_name = '{}/{}/{}_SAAOweather.png'.format(red_path, date_dir, date_eve)
-        cmd = ['firefox', '--screenshot', png_name, 'https://suthweather.saao.ac.za']
-        subprocess.call(cmd)
 
-        # also email the obslog with the weather page as attachment to a
-        # list of interested people
-
-        # send email
-        subject = '{} obslog {})'.format(tel, date_eve)
-        reply_to = 'p.vreeswijk\@astro.ru.nl'
-        recipients = 'p.vreeswijk\@astro.ru.nl'
+    if email:
+        # email the obslog (with the weather page for MeerLICHT as
+        # attachment) to a list of interested people
         
-        os.environ['NAME'] = 'ML/BG obslogs'
-        cmd = 'mail -s \"{}\" -r {} -A {} {} < {}'.format(subject, reply_to,
-                                                          recipients, png_name,
-                                                          obslog_name)
-        call(cmd, shell=True)
-    
+        # subject
+        subject = '{} obslog {})'.format(tel, date_dir.replace('/','-'))
+        
+        try:
+            send_email (get_par(set_bb.recipients,tel), subject, obslog_name,
+                        attachment=png_name,
+                        sender=get_par(set_bb.sender,tel),
+                        reply_to=get_par(set_bb.reply_to,tel),
+                        smtp_server=get_par(set_bb.smtp_server,tel),
+                        port=get_par(set_bb.port,tel),
+                        use_SSL=get_par(set_bb.use_SSL,tel))
+        except Exception as e:
+            if log is not None:
+                log.error ('exception occurred during sending of email: {}'
+                           .format(e))
+
 
     return
-        
 
+
+################################################################################
+
+def send_email (recipients, subject, body,
+                attachment=None,
+                sender='Radboud GW Alert <scheduler@blackgem.org>',
+                reply_to='p.vreeswijk@astro.ru.nl',
+                smtp_server='smtp-relay.gmail.com',
+                port=465, use_SSL=True):
+
+    if use_SSL:
+        smtpObj = smtplib.SMTP_SSL(smtp_server, port)
+    else:
+        smtpObj = smtplib.SMTP(smtp_server, port)
+        
+    smtpObj.ehlo()
+    send_from = sender
+    send_to = recipients.split(',')
+    msg = MIMEMultipart()
+    msg['from'] = send_from
+    msg['to'] = recipients
+    msg['reply-to'] = reply_to
+    msg['date'] = formatdate(localtime=True)
+    msg['subject'] = subject
+
+    if body is None:
+        text = ''
+    elif os.path.isfile(body):
+        with open(body, 'r') as f:
+            text = f.read()
+    else:
+        text = body
+        
+    msg.attach( MIMEText(text) )
+
+    if attachment is not None:
+        if os.path.isfile(attachment):
+            part = MIMEBase('application', "octet-stream")
+            part.set_payload( open(attachment,"rb").read() )
+            encoders.encode_base64(part)
+            part.add_header('Content-Disposition', 'attachment; filename={}'
+                            .format(os.path.basename(attachment)))
+            msg.attach(part)
+	
+    smtpObj.sendmail(send_from, send_to, msg.as_string())
+    smtpObj.close()
+
+    
 ################################################################################
     
 def get_flatstats (data, header, data_mask, tel=None, log=None):

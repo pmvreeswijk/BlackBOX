@@ -76,7 +76,7 @@ img_reduce_exts = ['_red.fits', '_mask.fits', '_hdr.fits', '_red.log']
 cat_extract_exts = ['_cat.fits', '_mini.fits', '_psf.fits', '_psfex.cat']
 trans_extract_exts = ['_D.fits', '_Scorr.fits', '_trans_limmag.fits', '_trans.fits']
 all_2keep = img_reduce_exts + cat_extract_exts
-ref_2keep = ['_ldac.fits', '_weights.fits'] + all_2keep
+ref_2keep = ['_ldac.fits'] + all_2keep
 new_2keep = trans_extract_exts + all_2keep
 
 #===============================================================================
@@ -162,3 +162,17 @@ flat_norm_sec = {'ML1': tuple([slice(6600,9240), slice(5280,7920)])}
 ny, nx = 2, 8
 # and size of data section in each channel
 ysize_chan, xsize_chan = 5280, 1320
+
+#===============
+# Email settings
+#===============
+# for ML: sender apparently needs to contain <@astro.ru.nl> for emails
+# to actually arrive at Radboud; not relevant for BG/Google Cloud
+sender = {'ML1': 'MeerLICHT night log <p.vreeswijk@astro.ru.nl>',
+          'BG': 'BlackGEM night log'}
+# comma-separated email addresses of recipients
+recipients = 'p.vreeswijk@astro.ru.nl'
+reply_to = 'p.vreeswijk@astro.ru.nl'
+smtp_server = {'ML1': 'localhost', 'BG': 'smtp-relay.gmail.com'}
+port = {'ML1': 0, 'BG': 465}
+use_SSL = {'ML1': False, 'BG': True}
