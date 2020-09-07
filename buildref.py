@@ -64,17 +64,29 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
          could be improved by considering those pixels with less than
          certain amount of images (e.g. 3) as edge pixels.
 
-    (19) reduce size of bkg and bkg_std images in output directory
-         by creating mini images; N.B.: currently the function mini2back
-         uses the background box size from the zogy settings file - it 
-         would be better to use the value saved in the header of the mini
-         images, as the background box size with which a mini image was 
-         made may not be the same as the currently set value in the 
-         settings file.
-
     (21) reference image specific logfile is not being created; why
          not? Perhaps due to switching off logging stream handler?
 
+    (23) could OR mask be made using Swarp directly instead of first
+         SWarping each and every mask and combining them outside of
+         SWarp? Different options:
+
+         - make OR combination of the masks and compare it to the
+           output WEIGHTOUT_NAME from the image combination, which is
+           the output background standard deviation image. If a pixel
+           was masked in all images, then it should have a 0 in the
+           output weight image. For those pixels, use the OR combined
+           mask value for the combined mask image, otherwise set it to
+           zero
+           --> doesn't work because saturated and saturated-connected
+               pixels are not flagged in weights image, as otherwise
+               the reference image will have holes in it
+
+         - make OR and MIN combination of the masks. Wherever MIN 
+           is not zero, use the OR combation
+           --> this appears to work fine, but problem seems to occur
+               when remapping each mask individually; the combined
+               mask seems to be offset in that case
 
     Done:
     -----
@@ -217,6 +229,14 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
          - header keyword on which to sort the best images, e.g.
            LIMMAG or S-SEEING
 
+    (19) reduce size of bkg_std image in output directory by creating
+         mini image; N.B.: currently the function mini2back uses the
+         background box size from the zogy settings file - it would be
+         better to use the value saved in the header of the mini
+         images, as the background box size with which a mini image
+         was made may not be the same as the currently set value in
+         the settings file.
+
     (20) need to include images in the co-adds that were flagged red
          based on their comparison with the reference image; i.e. the
          image itself is fine, but the image subtraction did not go
@@ -319,21 +339,29 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
             if start:
                 mjd -= 365.25 * 10
         else:
-            # if specific date is specified, convert it to mjd
+            # if date string is less than 8 characters, assume it is
+            # relative wrt now/today
             if len(date) < 8:
                 mjd = mjd_now + round(float(date))
-            # otherwise assume date is relative wrt now/today
             else:
+                # otherwise convert date string to mjd
                 date = re.sub(',|-|\.|\/', '', date)
                 mjd = date2mjd ('{}'.format(date), time_str='12:00')
 
         return mjd
 
+
     mjd_now = int(Time.now().mjd) + 0.5
     mjd_start = set_date (date_start)
     mjd_end = set_date (date_end, start=False)
     # select relevant table entries
-    mask = ((table['MJD-OBS'] >= mjd_start) & (table['MJD-OBS'] <= mjd_end))
+    if mjd_end >= mjd_start:
+        mask = ((table['MJD-OBS'] >= mjd_start) & (table['MJD-OBS'] <= mjd_end))
+    else:
+        # if mjd_start is greater than mjd_end, then select images
+        # beyond mjd_start and before mjd_end
+        mask = ((table['MJD-OBS'] >= mjd_start) | (table['MJD-OBS'] <= mjd_end))
+
     table = table[mask]
     genlog.info ('number of files left (date_start/end cut): {}'
                  .format(len(table)))
@@ -900,7 +928,7 @@ def prep_ref (imagelist, field_ID, filt, radec):
     # run imcombine
     log.info('running imcombine; outputfile: {}'.format(ref_fits))
 
-    try: 
+    try:
         imcombine (field_ID, imagelist, ref_fits, get_par(set_br.combine_type,tel),
                    masktype_discard = get_par(set_br.masktype_discard,tel),
                    tempdir = tmp_path,
@@ -909,6 +937,7 @@ def prep_ref (imagelist, field_ID, filt, radec):
                    back_type = get_par(set_br.back_type,tel),
                    back_size = get_par(set_zogy.bkg_boxsize,tel),
                    back_filtersize = get_par(set_zogy.bkg_filtersize,tel),
+                   remap_each = False,
                    swarp_cfg = get_par(set_zogy.swarp_cfg,tel),
                    nthreads = get_par(set_br.nthread,tel),
                    log = log)
@@ -969,8 +998,8 @@ def prep_ref (imagelist, field_ID, filt, radec):
     result = copy_files2keep(tmp_base, ref_base, get_par(set_bb.ref_2keep,tel),
                              move=False, log=log)
     # include full background and background standard deviation images
-    bkg_2keep = ['_bkg.fits', '_bkg_std.fits']
-    result = copy_files2keep(tmp_base, ref_base, bkg_2keep, move=False, log=log)
+    #bkg_2keep = ['_bkg.fits', '_bkg_std.fits']
+    #result = copy_files2keep(tmp_base, ref_base, bkg_2keep, move=False, log=log)
     
 
     # also build a couple of alternative reference images for
@@ -1053,12 +1082,12 @@ def prep_ref (imagelist, field_ID, filt, radec):
         
 ################################################################################
 
-def imcombine (field_ID, imagelist, outputfile, combine_type, overwrite=True,
+def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
                masktype_discard=None, tempdir='.temp',
                ra_center=None, dec_center=None, use_wcs_center=True,
                back_type='auto', back_default=0,
                back_size=120, back_filtersize=3, resample_suffix='_resamp.fits',
-               remap_each=True, remap_suffix='_remap.fits', swarp_cfg=None,
+               remap_each=False, remap_suffix='_remap.fits', swarp_cfg=None,
                nthreads=0, log=None):
 
 
@@ -1107,24 +1136,25 @@ def imcombine (field_ID, imagelist, outputfile, combine_type, overwrite=True,
         log.info ('{} images selected to combine'.format(len(imagelist)))
         
         
-    if os.path.isfile(outputfile) and not overwrite:
+    if os.path.isfile(fits_out) and not overwrite:
         raise RuntimeError ('output image {} already exist'
-                            .format(outputfile))
+                            .format(fits_out))
 
-    # if outputmask already exists, raise error
-    outputmask = outputfile.replace('red.fits', 'mask.fits')
-    if os.path.isfile(outputfile) and not overwrite:
+    # if fits_mask_out already exists, raise error
+    fits_mask_out = fits_out.replace('red.fits', 'mask.fits')
+    if os.path.isfile(fits_out) and not overwrite:
         raise RuntimeError ('output image {} already exist'
-                            .format(outputfile))
+                            .format(fits_out))
     
     # if output background standard deviation image (=sqrt(1/weights
     # image)) already exists, raise error
-    output_bkg_std = outputfile.replace('.fits', '_bkg_std.fits')
-    if os.path.isfile(output_bkg_std) and not overwrite:
+    fits_bkg_std = fits_out.replace('.fits', '_bkg_std.fits')
+    fits_bkg_std_mini = fits_out.replace('.fits', '_bkg_std_mini.fits')
+    if os.path.isfile(fits_bkg_std) and not overwrite:
         raise RuntimeError ('output background STD image {} already exist'
-                            .format(output_bkg_std))
-    
-    
+                            .format(fits_bkg_std))
+
+
     # clean up or make temporary directory if it is not the current directory '.'
     if tempdir[-1]=='/':
         tempdir = tempdir[0:-1]
@@ -1452,13 +1482,14 @@ def imcombine (field_ID, imagelist, outputfile, combine_type, overwrite=True,
         weights_names = np.append(weights_names, weights_temp)
 
 
-        if remap_each:
-            # save mask image in temp folder
-            mask_temp = image_temp.replace('red.fits', 'mask.fits')
-            fits.writeto(mask_temp, data_mask, header=header_mask, overwrite=True)
-            # add to array of names
-            mask_names = np.append(mask_names, mask_temp)
-        
+        # save mask image in temp folder
+        mask_temp = image_temp.replace('red.fits', 'mask.fits')
+        # add WCS of image to mask header
+        header_mask += header
+        fits.writeto(mask_temp, data_mask, header=header_mask, overwrite=True)
+        # add to array of names
+        mask_names = np.append(mask_names, mask_temp)
+
 
     # for the new reference image, adopt the size of the first image
     # for the moment; could expand that to a bigger image while using
@@ -1510,13 +1541,13 @@ def imcombine (field_ID, imagelist, outputfile, combine_type, overwrite=True,
            '-COMBINE_TYPE', combine_type.upper(),
            #'-WEIGHT_IMAGE', ','.join(weights_names),
            '-WEIGHT_SUFFIX', '_weights.fits',
-           '-WEIGHTOUT_NAME', output_bkg_std,
+           '-WEIGHTOUT_NAME', fits_bkg_std,
            '-WEIGHT_TYPE', 'MAP_WEIGHT',
            '-RESCALE_WEIGHTS', 'N',
            '-CENTER_TYPE', 'MANUAL',
            '-CENTER', radec_str,
            '-IMAGE_SIZE', size_str,
-           '-IMAGEOUT_NAME', outputfile,
+           '-IMAGEOUT_NAME', fits_out,
            '-RESAMPLE_DIR', tempdir,
            '-RESAMPLE_SUFFIX', resample_suffix,
            '-RESAMPLING_TYPE', 'LANCZOS3',
@@ -1548,8 +1579,8 @@ def imcombine (field_ID, imagelist, outputfile, combine_type, overwrite=True,
     log.info ('executing SWarp command:\n{}'.format(cmd_str))
     result = subprocess.call(cmd)
         
-    # update header of outputfile
-    data_out, header_out = read_hdulist(outputfile, get_header=True)
+    # update header of fits_out
+    data_out, header_out = read_hdulist(fits_out, get_header=True)
 
     # with RA and DEC
     header_out['RA'] = (ra_center, '[deg] telescope right ascension')
@@ -1639,43 +1670,139 @@ def imcombine (field_ID, imagelist, outputfile, combine_type, overwrite=True,
     header_out['DATEFILE'] = (ut_now, 'UTC date of writing file')
     header_out['R-DATE'] = (ut_now, 'time stamp reference image creation')
     # write file
-    fits.writeto(outputfile, data_out.astype('float32'), header_out, overwrite=True)
+    fits.writeto(fits_out, data_out.astype('float32'), header_out, overwrite=True)
     
 
-    # replace output combined weights image with background standard
-    # deviation values
-    data_weights, header_weights = read_hdulist(output_bkg_std, get_header=True)
+    # convert combined weights image to standard deviation and save as
+    # mini image
+    data_weights, header_weights = read_hdulist(fits_bkg_std, get_header=True)
     mask_nonzero = (data_weights != 0)
     data_bkg_std = data_weights
     data_bkg_std[mask_nonzero] = 1./np.sqrt(data_weights[mask_nonzero])
     # replace zeros with median
     data_bkg_std[~mask_nonzero] = np.median(data_bkg_std[mask_nonzero])
 
+    # convert this to a bkg_std_mini image to save disk space; see
+    # also function [get_back] in zogy.py
+    bkg_boxsize = get_par(set_zogy.bkg_boxsize,tel)
+    # reshape
+    nxsubs = int(refimage_xsize / bkg_boxsize)
+    nysubs = int(refimage_ysize / bkg_boxsize)
+    data_bkg_std_reshaped = data_bkg_std.reshape(
+        nysubs,bkg_boxsize,-1,bkg_boxsize).swapaxes(1,2).reshape(nysubs,nxsubs,-1)
+    # take the non-clipped nanmedian along 2nd axis
+    mini_median = np.nanmedian (data_bkg_std_reshaped, axis=2)
+    # update header with [set_zogy.bkg_boxsize]
+    header_weights['BKG-SIZE'] = (bkg_boxsize, '[pix] background boxsize used '
+                                  'to create this image')
     # write file
-    header_weights['COMMENT'] = 'combined weights image was converted to STD image: std=1/sqrt(w)'
+    header_weights['COMMENT'] = ('combined weights image was converted to STD '
+                                 'image: std=1/sqrt(w)')
     header_weights['DATEFILE'] = (ut_now, 'UTC date of writing file')
-    fits.writeto(output_bkg_std, data_bkg_std.astype('float32'), header_weights,
-                 overwrite=True)
+    fits.writeto(fits_bkg_std_mini, mini_median.astype('float32'),
+                 header_weights, overwrite=True)
 
 
-    # not needed anymore
-    if False:
-        # if background was subtracted, write zero-valued background image
-        # for use in zogy
-        if bkg_sub:
-            output_bkg = outputfile.replace('.fits', '_bkg.fits')
-            data_bkg = np.zeros(data_bkg_std.shape, dtype='float32')
-            fits.writeto(output_bkg, data_bkg, overwrite=True)
+    if not remap_each:
 
+        # run SWarp twice on mask image with combine_type OR and MIN
+        fits_mask_OR = fits_mask_out.replace('mask', 'mask_OR')
+        cmd = ['swarp', ','.join(mask_names),
+               '-c', swarp_cfg,
+               '-COMBINE', 'Y',
+               '-COMBINE_TYPE', 'OR',
+               '-WEIGHT_TYPE', 'NONE',
+               '-CENTER_TYPE', 'MANUAL',
+               '-CENTER', radec_str,
+               '-IMAGE_SIZE', size_str,
+               '-IMAGEOUT_NAME', fits_mask_OR,
+               '-RESAMPLE_DIR', tempdir,
+               '-RESAMPLE_SUFFIX', resample_suffix,
+               '-RESAMPLING_TYPE', 'NEAREST',
+               # GAIN_KEYWORD cannot be GAIN, as the value of GAIN1 is then adopted
+               '-GAIN_KEYWORD', 'whatever',
+               '-GAIN_DEFAULT', '1.0',
+               '-SATLEV_KEYWORD', get_par(set_zogy.key_satlevel,tel),
+               '-SUBTRACT_BACK', 'N',
+               '-FSCALE_KEYWORD', 'FSCALE',
+               '-FSCALE_DEFAULT', '1.0',
+               '-FSCALASTRO_TYPE', 'FIXED',
+               '-VERBOSE_TYPE', 'FULL',
+               '-NTHREADS', str(nthreads),
+               '-WRITE_FILEINFO', 'Y',
+               '-WRITE_XML', 'N',
+               '-VMEM_DIR', '.',
+               '-VMEM_MAX', str(4096),
+               '-MEM_MAX', str(4096),
+               '-DELETE_TMPFILES', 'N',
+               '-NOPENFILES_MAX', '256']
+        
+        cmd_str = ' '.join(cmd)
+        log.info ('executing SWarp command:\n{}'.format(cmd_str))
+        result = subprocess.call(cmd)
+        
+
+        fits_mask_MIN = fits_mask_out.replace('mask', 'mask_MIN')
+        cmd = ['swarp', ','.join(mask_names),
+               '-c', swarp_cfg,
+               '-COMBINE', 'Y',
+               '-COMBINE_TYPE', 'MIN',
+               '-WEIGHT_TYPE', 'NONE',
+               '-CENTER_TYPE', 'MANUAL',
+               '-CENTER', radec_str,
+               '-IMAGE_SIZE', size_str,
+               '-IMAGEOUT_NAME', fits_mask_MIN,
+               '-RESAMPLE_DIR', tempdir,
+               '-RESAMPLE_SUFFIX', resample_suffix,
+               '-RESAMPLING_TYPE', 'NEAREST',
+               # GAIN_KEYWORD cannot be GAIN, as the value of GAIN1 is then adopted
+               '-GAIN_KEYWORD', 'whatever',
+               '-GAIN_DEFAULT', '1.0',
+               '-SATLEV_KEYWORD', get_par(set_zogy.key_satlevel,tel),
+               '-SUBTRACT_BACK', 'N',
+               '-FSCALE_KEYWORD', 'FSCALE',
+               '-FSCALE_DEFAULT', '1.0',
+               '-FSCALASTRO_TYPE', 'FIXED',
+               '-VERBOSE_TYPE', 'FULL',
+               '-NTHREADS', str(nthreads),
+               '-WRITE_FILEINFO', 'Y',
+               '-WRITE_XML', 'N',
+               '-VMEM_DIR', '.',
+               '-VMEM_MAX', str(4096),
+               '-MEM_MAX', str(4096),
+               '-DELETE_TMPFILES', 'N',
+               '-NOPENFILES_MAX', '256']
+        
+        cmd_str = ' '.join(cmd)
+        log.info ('executing SWarp command:\n{}'.format(cmd_str))
+        result = subprocess.call(cmd)
+
+        # read OR and MIN output masks
+        data_mask_OR = (read_hdulist(fits_mask_OR, get_header=False)
+                        +0.5).astype('uint8')
+        data_mask_MIN = (read_hdulist(fits_mask_MIN, get_header=False)
+                         +0.5).astype('uint8')
     
-    if remap_each:
+        # now, wherever mask_MIN is not zero, implying that none of the
+        # pixel values in the cube were valid, replace it with the OR mask
+        data_mask_comb = data_mask_MIN
+        index_nonzero = np.nonzero(data_mask_MIN)
+        data_mask_comb[index_nonzero] = data_mask_OR[index_nonzero]
+        
+        # write combined mask to fits image 
+        fits.writeto(fits_mask_out, data_mask_comb, overwrite=overwrite)
+    
+
+    else:
+        # remapping each individual image if needed
+        
         # median image weight
         weights_mean[nimage] = np.median(data_weights)
-
+        
         log.info ('remapping individual images')
         
         # also SWarp individual images, e.g. for colour combination
-        refimage = outputfile
+        refimage = fits_out
         header_refimage = read_hdulist(refimage, get_data=False, get_header=True)
 
         # initialize combined mask
@@ -1698,12 +1825,12 @@ def imcombine (field_ID, imagelist, outputfile, combine_type, overwrite=True,
                 
                 if not os.path.isfile(image_remap):
                     try:
-                        result = run_remap_local (refimage, image, image_remap,
-                                                  [refimage_ysize,refimage_xsize],
-                                                  1.0, log, config=swarp_cfg,
-                                                  resample='N', resample_dir=tempdir,
-                                                  resample_suffix=resample_suffix,
-                                                  nthreads=nthreads)
+                        result = run_remap (refimage, image, image_remap,
+                                            (refimage_ysize,refimage_xsize),
+                                            log=log, config=swarp_cfg,
+                                            resample='N', resample_dir=tempdir,
+                                            resample_suffix=resample_suffix,
+                                            nthreads=nthreads)
                     except Exception as e:
                         log.error (traceback.format_exc())
                         log.error ('exception was raised during [run_remap]: {}'
@@ -1721,29 +1848,23 @@ def imcombine (field_ID, imagelist, outputfile, combine_type, overwrite=True,
                 
                 log.info ('processing mask: {}'.format(image_mask))
                 
-                # first need to update header of mask with header
-                # of corresponding image
-                header_image = read_hdulist(image, get_data=False, get_header=True)
                 data_mask, header_mask = read_hdulist(image_mask, get_header=True)
-                header = header_mask + header_image
-                fits.writeto(image_mask, data_mask, header=header, overwrite=True)
 
                 t_temp = time.time()
                 image_mask_remap = image_mask.replace('.fits', remap_suffix) 
                 if not os.path.isfile(image_mask_remap):
 
                     try:
-                        result = run_remap_local (refimage, image_mask, image_mask_remap,
-                                                  [refimage_ysize,refimage_xsize],
-                                                  gain=1.0, log=log,
-                                                  config=swarp_cfg,
-                                                  resampling_type='NEAREST',
-                                                  resample_dir=tempdir,
-                                                  resample_suffix=resample_suffix,
-                                                  dtype=data_mask.dtype.name,
-                                                  value_edge=32,
-                                                  nthreads=nthreads,
-                                                  oversampling=0)
+                        result = run_remap (refimage, image_mask, image_mask_remap,
+                                            (refimage_ysize,refimage_xsize),
+                                            log=log, config=swarp_cfg,
+                                            resampling_type='NEAREST',
+                                            resample_dir=tempdir,
+                                            resample_suffix=resample_suffix,
+                                            dtype=data_mask.dtype.name,
+                                            value_edge=32,
+                                            nthreads=nthreads,
+                                            oversampling=0)
                                                   
                     except Exception as e:
                         log.error (traceback.format_exc())
@@ -1769,9 +1890,10 @@ def imcombine (field_ID, imagelist, outputfile, combine_type, overwrite=True,
                         return (x,y) 
                     
                     global wcs_mask, wcs_ref
-                    wcs_mask = WCS(header)
+                    wcs_mask = WCS(header_mask)
                     wcs_ref = WCS(header_refimage)
-                    data_mask_remap_alt = ndimage.geometric_transform(data_mask, trans_func)
+                    data_mask_remap_alt = ndimage.geometric_transform(data_mask,
+                                                                      trans_func)
 
                     # write to image
                     fits.writeto(image_mask.replace('.fits','_alt4'+remap_suffix),
@@ -1810,13 +1932,16 @@ def imcombine (field_ID, imagelist, outputfile, combine_type, overwrite=True,
         data_mask_comb[mask_zero] = 0
                 
         # write combined mask to fits image 
-        fits.writeto(outputmask, data_mask_comb, overwrite=overwrite)
+        fits.writeto(fits_mask_out, data_mask_comb, overwrite=overwrite)
         
         # feed resampled images to function [buildref_optimal]
         #result = buildref_optimal(imagelist)
 
+
     log.info ('wall-time spent in imcombine: {}s'.format(time.time()-t0))
 
+    return
+    
 
 ################################################################################
 
@@ -1860,6 +1985,7 @@ def run_remap_local (image_new, image_ref, image_out, image_out_size,
     run_alt = True
     
     if timing: t = time.time()
+
     log.info('executing run_remap')
 
     header_new = read_hdulist (image_new, get_data=False, get_header=True)
