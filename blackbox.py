@@ -2500,12 +2500,16 @@ def create_obslog (date, email=True, tel=None, log=None):
 
     # clean up [filenames]
     filenames = [f for sublist in filenames for f in sublist]
+
+    # maximum filename length for column format
+    max_length = max([len(f.strip()) for f in filenames])
     
     # keywords to add to table
     keys = ['ORIGFILE', 'IMAGETYP', 'DATE-OBS', 'PROGNAME', 'PROGID', 'OBJECT',
             'FILTER', 'EXPTIME', 'RA', 'DEC', 'AIRMASS', 'FOCUSPOS',
             'S-SEEING', 'QC-FLAG', 'QC-RED1', 'QC-RED2', 'QC-RED3']
-    formats = {'ORIGFILE': '{:<}',
+    formats = {#'ORIGFILE': '{:60}',
+               #'IMAGETYP': '{:<8}',
                'DATE-OBS': '{:.19}',
                'EXPTIME': '{:.1f}',              
                'RA': '{:.3f}',
@@ -2549,9 +2553,10 @@ def create_obslog (date, email=True, tel=None, log=None):
     table = table[index_sort]
 
     # write table to ASCII file
-    obslog_name = '{}/{}/{}.obslog'.format(red_path, date_dir, date_eve)
-    ascii.write (table, obslog_name, format='fixed_width', formats=formats,
-                 overwrite=True)
+    obslog_name = '{}/{}/{}_obslog.txt'.format(red_path, date_dir, date_eve)
+    ascii.write (table, obslog_name, format='fixed_width_two_line',
+                 delimiter_pad=' ', position_char=' ',
+                 formats=formats, overwrite=True)
 
     # additional info:
     # - any raw files that were not reduced?
@@ -2582,11 +2587,11 @@ def create_obslog (date, email=True, tel=None, log=None):
         # attachment) to a list of interested people
         
         # subject
-        subject = '{} obslog {})'.format(tel, date_dir.replace('/','-'))
+        subject = '{} obslog {}'.format(tel, date_dir.replace('/','-'))
         
         try:
-            send_email (get_par(set_bb.recipients,tel), subject, obslog_name,
-                        attachment=png_name,
+            send_email (get_par(set_bb.recipients,tel), subject, None,
+                        attachments='{},{}'.format(obslog_name, png_name),
                         sender=get_par(set_bb.sender,tel),
                         reply_to=get_par(set_bb.reply_to,tel),
                         smtp_server=get_par(set_bb.smtp_server,tel),
@@ -2604,7 +2609,7 @@ def create_obslog (date, email=True, tel=None, log=None):
 ################################################################################
 
 def send_email (recipients, subject, body,
-                attachment=None,
+                attachments=None,
                 sender='Radboud GW Alert <scheduler@blackgem.org>',
                 reply_to='p.vreeswijk@astro.ru.nl',
                 smtp_server='smtp-relay.gmail.com',
@@ -2635,14 +2640,16 @@ def send_email (recipients, subject, body,
         
     msg.attach( MIMEText(text) )
 
-    if attachment is not None:
-        if os.path.isfile(attachment):
-            part = MIMEBase('application', "octet-stream")
-            part.set_payload( open(attachment,"rb").read() )
-            encoders.encode_base64(part)
-            part.add_header('Content-Disposition', 'attachment; filename={}'
-                            .format(os.path.basename(attachment)))
-            msg.attach(part)
+    if attachments is not None:
+        att_list = attachments.split(',')
+        for attachment in att_list:
+            if os.path.isfile(attachment):
+                part = MIMEBase('application', "octet-stream")
+                part.set_payload( open(attachment,"rb").read() )
+                encoders.encode_base64(part)
+                part.add_header('Content-Disposition', 'attachment; filename={}'
+                                .format(os.path.basename(attachment)))
+                msg.attach(part)
 	
     smtpObj.sendmail(send_from, send_to, msg.as_string())
     smtpObj.close()
