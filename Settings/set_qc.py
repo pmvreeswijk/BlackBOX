@@ -305,7 +305,7 @@ qc_range = {
         'Z-SCSTD' : {'default':'None', 'val_type': 'sigma',   'val_range': [ (1, 0.15) ],                       'key_type': 'trans', 'comment': 'sigma (STD) Scorr full image'},
         'T-NTRANS': {'default':'None', 'val_type': 'skip',    'val_range': [ (100, 200) ],                      'key_type': 'trans', 'comment': 'number of >= [T-NSIGMA]-sigma transients (pre-vetting)'},
         'T-FTRANS': {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 0.005) ],                      'key_type': 'trans', 'comment': 'ntrans/nobject ratio: T-NTRANS / NOBJECTS in new image'},
-        
+
         # N.B.: these limmags below are assuming 6 sigma, as set by transient_nsigma in ZOGY settings file        
         # if that 6 sigma changes, these number need updating with correction: -2.5*log10(nsigma/6)!
         'T-LMAG' :  {'default':'None', 'val_type': 'min_max', 'val_range': {'u': [ (18.7, 22.0), (18.4, 22.0), (18.0, 22.0) ],
@@ -334,15 +334,16 @@ qc_range = {
         'AIRMASSC': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'comment': 'Airmass at image center'},
         'RA-CNTR':  {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'comment': 'RA (ICRS) at image center (astrometry.net)'},
         'DEC-CNTR': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'comment': 'DEC (ICRS) at image center (astrometry.net)'},
-        'LIMFLUX':  {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'comment': '[e-/s] full-frame n-sigma limiting flux'},
+        
+        'NSIGMA':   {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'comment': '[sigma] input source detection threshold'},
 
-        'DUMMYCAT': {'default': False, 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'comment': 'dummy catalog without actual sources?'},
-        'QC-FLAG':  {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'comment': 'QC flag color (green|yellow|orange|red)'},
-        'TQC-FLAG': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'trans',  'comment': 'transient QC flag (green|yellow|orange|red)'},
+        'DUMCAT':   {'default': False, 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'comment': 'dummy catalog without sources?'},
+        'TDUMCAT':  {'default': False, 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'comment': 'dummy transient catalog without sources?'},
+        'QC-FLAG':  {'default':'red',  'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'comment': 'QC flag color (green|yellow|orange|red)'},
+        'TQC-FLAG': {'default':'red',  'val_type': 'skip',    'val_range': None,                                'key_type': 'trans',  'comment': 'transient QC flag (green|yellow|orange|red)'},
 
-        'Z-FPEMED': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'trans', 'comment': '[e-/s] median Fpsferr full image'},
-        'Z-FPESTD': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'trans', 'comment': '[e-/s] sigma (STD) Fpsferr full image'},
-        'T-LFLUX':  {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'trans', 'comment': '[e-/s] full-frame transient [T-NSIGMA]-sigma limit. flux'},
+        'T-NSIGMA': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'trans',  'comment': '[sigma] input transient detection threshold'},
+
         #
         
     },
