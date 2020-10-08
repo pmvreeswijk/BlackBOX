@@ -88,6 +88,21 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
                when remapping each mask individually; the combined
                mask seems to be offset in that case
 
+    (24) check if exptime time in output image is correct if not all
+         images have the same exposure times; how is this done with
+         the clipped method?? SWarp manual says exptime keyword is
+         being propagated, where "EXPTIME: Sum of exposure times in
+         the part of the coadd with the most overlaps", but at the
+         moment the header EXPTIME is replaced by the mean of all
+         exposure times.
+
+         Weighting does not seem to take into account the input
+         exposure times. E.g. background standard deviation of
+         an exposure of e.g. 120s will be higher than that of a
+         60s exposure, and so its weights will be less, while it
+         should have more weight than a 60s exposure.
+
+    
     Done:
     -----
 
@@ -572,7 +587,7 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
     list_2pack = []
     for field_ID in objs_uniq:
         ref_path = '{}/{:0>5}'.format(ref_dir, field_ID)
-        ref_path = '{}_alt4'.format(ref_path)
+        #ref_path = '{}_alt4'.format(ref_path)
         list_2pack.append(glob.glob('{}/*.fits'.format(ref_path)))
         list_2pack.append(glob.glob('{}/Old/*.fits'.format(ref_path)))
 
@@ -591,7 +606,7 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
     list_2jpg = []
     for field_ID in objs_uniq:
         ref_path = '{}/{:0>5}'.format(ref_dir, field_ID)
-        ref_path = '{}_alt4'.format(ref_path)
+        #ref_path = '{}_alt4'.format(ref_path)
         list_2jpg.append(glob.glob('{}/*_red.fits.fz'.format(ref_path)))
 
     # unnest nested list_2pack
@@ -793,7 +808,7 @@ def prep_colfig (field_ID, filters, log=None):
     ref_path = '{}/{:0>5}'.format(get_par(set_bb.ref_dir,tel), field_ID)
     # for the moment, add _alt to this path to separate it from
     # existing reference images
-    ref_path = '{}_alt4'.format(ref_path)
+    #ref_path = '{}_alt4'.format(ref_path)
 
     # header keyword to use for scaling (e.g. PC-ZP or LIMMAG)
     key = 'LIMMAG'
@@ -864,7 +879,7 @@ def prep_ref (imagelist, field_ID, filt, radec):
     ref_path = '{}/{:0>5}'.format(get_par(set_bb.ref_dir,tel), field_ID)
     # for the moment, add _alt to this path to separate it from
     # existing reference images
-    ref_path = '{}_alt4'.format(ref_path)
+    #ref_path = '{}_alt4'.format(ref_path)
     
     make_dir (ref_path, lock=lock)
     ref_fits_out = '{}/{}_{}_red.fits'.format(ref_path, tel, filt)
@@ -907,9 +922,10 @@ def prep_ref (imagelist, field_ID, filt, radec):
         
     # prepare temporary folder; for the moment, add _alt to this path
     # to separate it from existing reference images.
-    tmp_path = ('{}/{:0>5}_alt4/{}'
+    tmp_path = ('{}/{:0>5}/{}'
                 .format(get_par(set_bb.tmp_dir,tel), field_ID,
                         ref_fits_out.split('/')[-1].replace('.fits','')))
+
     make_dir (tmp_path, empty=True, lock=lock)
 
     # names of output fits and its mask
@@ -1218,14 +1234,15 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
     exptimes = np.zeros(nimages)
     mjds = np.zeros(nimages)
     weights_mean = np.zeros(nimages)
-    
-    
+
+
     # initialize image_names that refer to fits images in [tempdir]
     image_names = np.array([])
     weights_names = np.array([])
-    if remap_each:
-        mask_names = np.array([])
+    mask_names = np.array([])
 
+    # list to record image headers in
+    headers_list = []
 
     # loop input list of images
     for nimage, image in enumerate(imagelist):
@@ -1236,6 +1253,9 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
         # read input image data and header
         data, header = read_hdulist(image, get_header=True)
 
+        # add header to list of headers
+        headers_list.append(header)
+        
         # read corresponding mask image
         image_mask = image.replace('red.fits', 'mask.fits')
         data_mask, header_mask = read_hdulist(image_mask, get_header=True,
@@ -1524,15 +1544,27 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
         back_type_SWarp = 'manual'
 
 
-    # keywords to copy from original image to reference
-    keys2copy = ['BUNIT', 'XBINNING', 'YBINNING',
-                 'RADESYS', 'EPOCH',
-                 'OBJECT', 'IMAGETYP', 'FILTER', 'EXPTIME',
-                 'SITELAT', 'SITELONG', 'ELEVATIO',
-                 'CCD-ID', 'CONTROLL', 'DETSPEED', 
-                 'CCD-NW', 'CCD-NH',
-                 'ORIGIN', 'TELESCOP', 'INSTRUME', 
-                 'OBSERVER', 'ABOTVER']
+    # keywords to copy from input images to reference: add all
+    # keywords that are the same between the images, but avoid copying
+    # keywords like NAXIS1, BITPIX, etc.
+    for i_head, head in enumerate(headers_list):
+        if i_head == 0:
+            # start with the first header
+            head_tmp = head
+        else:
+            # only keep keywords in head_tmp that are also in head and
+            # with the same value
+            head_tmp = {key:head_tmp[key] for key in head_tmp
+                        if key in head and head_tmp[key]==head[key]}
+
+    keys2copy = list(head_tmp.keys())
+    keys2avoid = ['SIMPLE', 'NAXIS', 'NAXIS1', 'NAXIS2', 'BITPIX', 
+                  'CTYPE1', 'CUNIT1', 'CRVAL1', 'CRPIX1', 'CD1_1', 'CD1_2',
+                  'CTYPE2', 'CUNIT2', 'CRVAL2', 'CRPIX2', 'CD2_1', 'CD2_2']
+
+    # use sets to remove keys2avoid
+    keys2copy = list(set(keys2copy).difference(set(keys2avoid)))
+                  
 
     # run SWarp
     cmd = ['swarp', ','.join(image_names),
@@ -1595,15 +1627,21 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
         header_out['RDNOISE'] = (rdnoise, '[e-] effective read-out noise')
         header_out['SATURATE'] = (saturate, '[e-] effective saturation threshold')
         header_out['EXPTIME'] = (exptime, '[s] effective exposure time')
-        header_out['DATE-OBS'] = (Time(mjd, format='mjd').isot, 'average date of observation')
+        header_out['DATE-OBS'] = (Time(mjd, format='mjd').isot, 'average date '
+                                  'of observation')
         header_out['MJD-OBS'] = (mjd, '[days] average MJD')
+
     else:
         date_obs = Time(mjd, format='mjd').isot
         header_out.set('GAIN', gain, '[e-/ADU] effective gain', after='DEC')
-        header_out.set('RDNOISE', rdnoise, '[e-] effective read-out noise', after='GAIN')
-        header_out.set('SATURATE', saturate, '[e-] effective saturation threshold', after='RDNOISE')
-        header_out.set('EXPTIME', exptime, '[s] effective exposure time', after='SATURATE')
-        header_out.set('DATE-OBS', date_obs, 'average date of observation', after='EXPTIME')
+        header_out.set('RDNOISE', rdnoise, '[e-] effective read-out noise',
+                       after='GAIN')
+        header_out.set('SATURATE', saturate, '[e-] effective saturation '
+                       'threshold', after='RDNOISE')
+        header_out.set('EXPTIME', exptime, '[s] effective exposure time',
+                       after='SATURATE')
+        header_out.set('DATE-OBS', date_obs, 'average date of observation',
+                       after='EXPTIME')
         header_out.set('MJD-OBS', mjd, '[days] average MJD', after='DATE-OBS')
 
     
@@ -1896,7 +1934,7 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
                                                                       trans_func)
 
                     # write to image
-                    fits.writeto(image_mask.replace('.fits','_alt4'+remap_suffix),
+                    fits.writeto(image_mask.replace('.fits',remap_suffix),
                                  data_mask_remap_alt)
                     
                     log.info ('wall-time spent in remapping alt mask: {}'
