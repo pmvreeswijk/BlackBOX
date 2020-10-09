@@ -135,6 +135,25 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          a nearby alternative is searched for. On IDIA that is fine, but
          for Google that alternativee flat needs to be copied over.
 
+  * (86) need to redefine QC ranges for keywords introduced in v1.0,
+         such as RDIF-MAX and RSTD-MAX and their equivalents PC-MZPD
+         and PC-MZPS for the zeropoint variation across the subimages.
+    
+    (87) Change in full-source and reference catalogs:
+         - XWIN_IMAGE --> X_POS
+         - YWIN_IMAGE --> Y_POS
+         - ERRX2WINIMAGE --> XVAR_POS
+         - ERRY2WINIMAGE --> YVAR_POS
+         - ERRXYWINIMAGE --> XYCOV_POS
+         - FWHM_IMAGE --> FWHM
+         - delete FLUX_MAX from full-source catalog
+
+         Change in transient catalog:
+         - ML_PROB_REAL --> CLASS_REAL
+
+    (88) Danielle noticed that headers of reference images are not
+         complete anymore; need to improve this in buildref.py
+
 
     Done:
     -----
@@ -2172,11 +2191,73 @@ def blackbox_reduce (filename):
     log.info('has reference image: {} been made already?: {}'
              .format(ref_fits_out, ref_present))
                          
-    if not ref_present:
+
+    # in case transient extraction step is switched off, run zogy on
+    # new image only
+    if not get_par(set_bb.trans_extract,tel):
+        
+        log.info('set_bb.trans_extract={}; processing new image only, '
+                 'without comparison to ref image'
+                 .format(get_par(set_bb.trans_extract,tel)))
+        log.info('new_fits: {}'.format(new_fits))
+        log.info('new_fits_mask: {}'.format(new_fits_mask))
+
+        try:
+            zogy_processed = False
+            header_optsub = optimal_subtraction(
+                new_fits=new_fits, new_fits_mask=new_fits_mask, 
+                set_file='set_zogy', log=log, verbose=None,
+                nthread=get_par(set_bb.nthread,tel), telescope=tel)
+        except Exception as e:
+            log.info(traceback.format_exc())
+            log.error('exception was raised during [optimal_subtraction] for '
+                      'new-only image {}: {}'.format(new_fits, e))
+        else:
+            zogy_processed = True
+        finally:
+            if not zogy_processed:
+                # copy selected output files to red directory and remove tmp folder
+                # corresponding to the image
+                log.warning ('due to exception, only copy image reduction products')
+                result = copy_files2keep(tmp_base, new_base,
+                                         get_par(set_bb.img_reduce_exts,tel),
+                                         move=~get_par(set_bb.keep_tmp,tel),
+                                         log=log)
+                clean_tmp(tmp_path)
+                close_log(log, logfile)
+                return None
+
+            else:
+                # feed [header_optsub] to [run_qc_check], and make
+                # dummy catalogs if there is a red flag
+                qc_flag = run_qc_check (header_optsub, tel, log=log)
+                if qc_flag=='red':
+                    log.error('red QC flag in [header_optsub] returned by new-only '
+                              '[optimal_subtraction]; making dummy catalogs')
+                    run_qc_check (header_optsub, tel, cat_type='new',
+                                  cat_dummy=fits_tmp_cat, log=log)
+                    run_qc_check (header_optsub, tel, cat_type='trans',
+                                  cat_dummy=fits_tmp_trans, log=log)
+
+                else:
+                    # update catalog header with latest qc-flags
+                    with fits.open(fits_tmp_cat, 'update') as hdulist:
+                        #for key in hdulist[-1].header:
+                        #    if 'QC' in key:
+                        #        del hdulist[-1].header[key]
+                        for key in header_optsub:
+                            if 'QC' in key:
+                                hdulist[-1].header[key] = (
+                                    header_optsub[key], header_optsub.comments[key])
+
+
+
+    elif not ref_present:
+
         # update [ref_ID_filt] queue with a tuple with this OBJECT
         # and FILTER combination
         ref_ID_filt.put((obj, filt))
-        
+
         log.info('making reference image: {}'.format(ref_fits_out))
         log.info('new_fits: {}'.format(new_fits))
         log.info('new_fits_mask: {}'.format(new_fits_mask))
@@ -2261,65 +2342,6 @@ def blackbox_reduce (filename):
             log.info('encountered red flag; not using image: {} (original name: '
                      '{}) as reference'
                      .format(header_optsub['REDFILE'], header_optsub['ORIGFILE']))
-
-
-
-    # in case transient extraction step is switched off
-    elif not get_par(set_bb.trans_extract,tel):
-    
-        log.info('set_bb.trans_extract={}; processing new image only, '
-                 'without comparison to ref image'
-                 .format(get_par(set_bb.trans_extract,tel)))
-        log.info('new_fits: {}'.format(new_fits))
-        log.info('new_fits_mask: {}'.format(new_fits_mask))
-
-        try:
-            zogy_processed = False
-            header_optsub = optimal_subtraction(
-                new_fits=new_fits, new_fits_mask=new_fits_mask, 
-                set_file='set_zogy', log=log, verbose=None,
-                nthread=get_par(set_bb.nthread,tel), telescope=tel)
-        except Exception as e:
-            log.info(traceback.format_exc())
-            log.error('exception was raised during [optimal_subtraction] for '
-                      'new-only image {}: {}'.format(new_fits, e))
-        else:
-            zogy_processed = True
-        finally:
-            if not zogy_processed:
-                # copy selected output files to red directory and remove tmp folder
-                # corresponding to the image
-                log.warning ('due to exception, only copy image reduction products')
-                result = copy_files2keep(tmp_base, new_base,
-                                         get_par(set_bb.img_reduce_exts,tel),
-                                         move=~get_par(set_bb.keep_tmp,tel),
-                                         log=log)
-                clean_tmp(tmp_path)
-                close_log(log, logfile)
-                return None
-
-            else:
-                # feed [header_optsub] to [run_qc_check], and make
-                # dummy catalogs if there is a red flag
-                qc_flag = run_qc_check (header_optsub, tel, log=log)
-                if qc_flag=='red':
-                    log.error('red QC flag in [header_optsub] returned by new-only '
-                              '[optimal_subtraction]; making dummy catalogs')
-                    run_qc_check (header_optsub, tel, cat_type='new',
-                                  cat_dummy=fits_tmp_cat, log=log)
-                    run_qc_check (header_optsub, tel, cat_type='trans',
-                                  cat_dummy=fits_tmp_trans, log=log)
-
-                else:
-                    # update catalog header with latest qc-flags
-                    with fits.open(fits_tmp_cat, 'update') as hdulist:
-                        #for key in hdulist[-1].header:
-                        #    if 'QC' in key:
-                        #        del hdulist[-1].header[key]
-                        for key in header_optsub:
-                            if 'QC' in key:
-                                hdulist[-1].header[key] = (
-                                    header_optsub[key], header_optsub.comments[key])
 
 
 
@@ -3822,7 +3844,7 @@ def check_header1 (header, filename):
 
 
     # check if filename contains 'test'
-    if True:
+    if False:
         if 'test' in filename.lower():
             genlog.warning ('filename contains string \'test\'; '
                             'not processing {}'.format(filename))
@@ -3969,11 +3991,8 @@ def set_header(header, filename):
     edit_head(header, 'EPOCH', value=2015.5,
               comments='Coordinate reference epoch')
 
-    if 'DOMEAZ' in header:
-        edit_head(header, 'DOMEAZ', comments='[deg] Dome azimuth (N=0;E=90)')
-    else:
-        edit_head(header, 'DOMEAZ', value='None',
-                  comments='[deg] Dome azimuth (N=0;E=90)')
+    edit_head(header, 'DOMEAZ', value='None',
+              comments='[deg] Dome azimuth (N=0;E=90)')
     
     # RA
     if 'RA' in header:
@@ -4059,13 +4078,11 @@ def set_header(header, filename):
         mjd_obs = Time(date_obs, format='isot').mjd
         
         
-    if 'GPSSTART' not in header:
-        edit_head(header, 'GPSSTART', value='None',
-                  comments='GPS timing start of opening shutter')
-    if 'GPSEND' not in header:
-        edit_head(header, 'GPSEND', value='None',
-                  comments='GPS timing end of opening shutter')
-    if 'GPS-SHUT' not in header and imgtype == 'object':
+    edit_head(header, 'GPSSTART', value='None',
+              comments='GPS timing start of opening shutter')
+    edit_head(header, 'GPSEND', value='None',
+              comments='GPS timing end of opening shutter')
+    if imgtype == 'object':
         edit_head(header, 'GPS-SHUT', value='None',
                   comments='[s] Shutter time:(GPSEND-GPSSTART)-EXPTIME')
 
@@ -4131,8 +4148,16 @@ def set_header(header, filename):
     # but seems to have disappeared during the 2nd half of March 2019
     if 'RA' in header:
         lha_deg = lst_deg - ra_deg
+        # PaulG noticed some lha_deg values are between -340 and -360
+        # and between +340 and +360:
+        if lha_deg < -180:
+            lha_deg += 360
+        elif lha_deg >= 180:
+            lha_deg -= 360
+
         edit_head(header, 'HA', value=lha_deg,
                   comments='[deg] Local hour angle (=LST-RA)')
+
 
     # Weather headers required for Database
     edit_head(header, 'CL-BASE',  value='None', dtype=float,
@@ -4150,7 +4175,7 @@ def set_header(header, filename):
     edit_head(header, 'T-PIER',   value='None', dtype=float,
               comments='[C] CilSense1 temperature pier')
     edit_head(header, 'T-DOME',   value='None', dtype=float,
-              comments='CilSense2 temperature dome')
+              comments='[C] CilSense2 temperature dome')
     edit_head(header, 'T-ROOF',   value='None', dtype=float,
               comments='[C] Reinhardt temperature roof')
     edit_head(header, 'T-AIRCO',  value='None', dtype=float,
@@ -4176,9 +4201,9 @@ def set_header(header, filename):
     edit_head(header, 'T-CRYWIN', value='None', dtype=float,
               comments='[C] Temperature Cryostat window')
     edit_head(header, 'T-CRYGET', value='None', dtype=float,
-              comments='[C] Temperature Cryostat getter')
+              comments='[K] Temperature Cryostat getter')
     edit_head(header, 'T-CRYCP',  value='None', dtype=float,
-              comments='[C] Temperature Cryostat cold plate')
+              comments='[K] Temperature Cryostat cold plate')
     edit_head(header, 'PRES-CRY', value='None', dtype=float,
               comments='[bar] Cryostat vacuum pressure')
     edit_head(header, 'WINDAVE',  value='None', dtype=float,
