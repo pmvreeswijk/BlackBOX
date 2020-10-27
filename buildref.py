@@ -2,7 +2,7 @@
 from zogy import *
 
 import re, fnmatch
-from itertools import chain
+import itertools
 import math
 
 from astropy.coordinates import Angle
@@ -39,7 +39,7 @@ __version__ = '0.6.0'
 
 def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
               filters=None, qc_flag_max=None, seeing_max=None,
-              make_colfig=False, filters_colfig='iqu'):
+              make_colfig=False, filters_colfig='iqu', extension=None):
 
 
     """Module to consider one specific or all available field IDs within
@@ -102,7 +102,14 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
          60s exposure, and so its weights will be less, while it
          should have more weight than a 60s exposure.
 
-    
+    (25) is output weight map (=ML1_[filter]_red_bkg_std_mini.fits.fz)
+         consistent with the noise in the output image? ZOGY returns
+         values around Z-SCSTD~0.8, which may indicate something is
+         not right with the reference image STD image. Comparing one
+         image: actual STD or sigma appears about 10%, which would be
+         about 20% off in variance.
+
+
     Done:
     -----
 
@@ -271,14 +278,15 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
     
 
     global tel, genlog, lock, max_qc_flag, max_seeing, start_date, end_date
-    global time_refstart
+    global time_refstart, ext
     tel = telescope
     lock = Lock()
     max_qc_flag = qc_flag_max
     max_seeing = seeing_max
     start_date = date_start
     end_date = date_end
-
+    ext = extension
+    
     # record starting time to add to header
     time_refstart = Time.now().isot
     
@@ -305,6 +313,7 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
     genlog.info ('make_colfig:    {}'.format(make_colfig))
     if make_colfig:
         genlog.info ('filters_colfig: {}'.format(filters_colfig))
+    genlog.info ('extension:      {}'.format(extension))
 
     
     t0 = time.time()
@@ -315,10 +324,36 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
     
     red_path = get_par(set_bb.red_dir,tel)
     filenames = glob.glob('{}/*/*/*/*_red.fits*'.format(red_path))
-    genlog.info ('total number of files: {}'.format(len(filenames)))
+    nfiles = len(filenames)
+    genlog.info ('total number of files: {}'.format(nfiles))
+
+    # filter this list by converting the date and time contained in
+    # the filenames to MJD and check if this is consistent with the
+    # range specified by the input [date_start] and [date_end]
+    mjd_start = set_date (date_start)
+    mjd_end = set_date (date_end, start=False)
+    # convert dates and times in filenames to MJDs (accurate to the second)
+    mjd_filenames = np.array([date2mjd (f.split('/')[-1].split('_')[1],
+                                        time_str=f.split('/')[-1].split('_')[2])
+                              for f in filenames])
+    # mask of files to include
+    if mjd_end >= mjd_start:
+        if mjd_start == mjd_end:
+            mjd_end += 1
+        mask = ((mjd_filenames >= mjd_start) & (mjd_filenames <= mjd_end))
+    else:
+        # if mjd_start is greater than mjd_end, then select images
+        # beyond mjd_start and before mjd_end
+        mask = ((mjd_filenames >= mjd_start) | (mjd_filenames <= mjd_end))
+
+    # select relevant filenames
+    filenames = list(itertools.compress(filenames, mask))
+    nfiles = len(filenames)
+
+    genlog.info ('number of files left (date_start/end cut): {}'.format(nfiles))
+
 
     # split into [nproc] lists
-    nfiles = len(filenames)
     nproc = get_par(set_br.nproc,tel)
     list_of_filelists = []
     index = np.linspace(0,nfiles,num=nproc+1).astype(int)
@@ -339,49 +374,9 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
     genlog.info ('file headers read in {:.2f}s'.format(time.time()-t0))
 
     
-    # filter table entries based on date, field_ID, filter, qc-flag and seeing
-    # ------------------------------------------------------------------------
+    # filter table entries based on field_ID, filter, qc-flag and seeing
+    # ------------------------------------------------------------------
     
-    # function to set start and end dates
-    def set_date (date, start=True):
-        
-        """helper function to set start/end dates"""
-        
-        # if no date is specified, include all data from 10 years ago
-        # until now
-        if date is None:
-            mjd = mjd_now
-            if start:
-                mjd -= 365.25 * 10
-        else:
-            # if date string is less than 8 characters, assume it is
-            # relative wrt now/today
-            if len(date) < 8:
-                mjd = mjd_now + round(float(date))
-            else:
-                # otherwise convert date string to mjd
-                date = re.sub(',|-|\.|\/', '', date)
-                mjd = date2mjd ('{}'.format(date), time_str='12:00')
-
-        return mjd
-
-
-    mjd_now = int(Time.now().mjd) + 0.5
-    mjd_start = set_date (date_start)
-    mjd_end = set_date (date_end, start=False)
-    # select relevant table entries
-    if mjd_end >= mjd_start:
-        mask = ((table['MJD-OBS'] >= mjd_start) & (table['MJD-OBS'] <= mjd_end))
-    else:
-        # if mjd_start is greater than mjd_end, then select images
-        # beyond mjd_start and before mjd_end
-        mask = ((table['MJD-OBS'] >= mjd_start) | (table['MJD-OBS'] <= mjd_end))
-
-    table = table[mask]
-    genlog.info ('number of files left (date_start/end cut): {}'
-                 .format(len(table)))
-    
-
     # if object (field ID) is specified, which can include the unix
     # wildcards * and ?, select only images with a matching object
     # string
@@ -509,7 +504,9 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
             genlog.info ('number of files left for {} in filter {}: {}'
                          .format(obj, filt, nfiles))
             nmin1, nmin2 = get_par(set_br.subset_nmin,tel)
-            if nfiles > nmin1:
+            if nfiles >= nmin1:
+
+                # select subset if more than nmin2 images are available
                 if nfiles > nmin2:
                     nselect = max(
                         math.ceil(nfiles*get_par(set_br.subset_frac,tel)), nmin2)
@@ -535,7 +532,7 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
                                  'field_ID {}, filter: {}, based on header '
                                  'keyword: {}:\n{}'.format(nselect, obj, filt,
                                                            key_sort, table[mask]))
-                    
+
                 # add this set of images with their field_ID and
                 # filter to the lists of images, field_IDs and filters
                 # to be processed
@@ -543,7 +540,7 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
                 obj_list.append(table['OBJECT'][mask][0])
                 filt_list.append(table['FILTER'][mask][0])
                 radec_list.append(radec)
-                
+
 
     if len(table)==0:
         genlog.warning ('zero field IDs with sufficient number of good images '
@@ -587,12 +584,14 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
     list_2pack = []
     for field_ID in objs_uniq:
         ref_path = '{}/{:0>5}'.format(ref_dir, field_ID)
-        #ref_path = '{}_alt4'.format(ref_path)
+        if ext is not None:
+            ref_path = '{}{}'.format(ref_path, ext)
+
         list_2pack.append(glob.glob('{}/*.fits'.format(ref_path)))
         list_2pack.append(glob.glob('{}/Old/*.fits'.format(ref_path)))
 
     # unnest nested list_2pack
-    list_2pack = list(chain.from_iterable(list_2pack))
+    list_2pack = list(itertools.chain.from_iterable(list_2pack))
 
     # use [pool_func] to process the list
     result = pool_func (fpack, list_2pack, genlog,
@@ -606,11 +605,13 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
     list_2jpg = []
     for field_ID in objs_uniq:
         ref_path = '{}/{:0>5}'.format(ref_dir, field_ID)
-        #ref_path = '{}_alt4'.format(ref_path)
+        if ext is not None:
+            ref_path = '{}{}'.format(ref_path, ext)
+
         list_2jpg.append(glob.glob('{}/*_red.fits.fz'.format(ref_path)))
 
     # unnest nested list_2pack
-    list_2jpg = list(chain.from_iterable(list_2jpg))
+    list_2jpg = list(itertools.chain.from_iterable(list_2jpg))
 
     # use [pool_func] to process the list
     result = pool_func (create_jpg, list_2jpg, genlog,
@@ -621,6 +622,33 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
     return
     
     
+################################################################################
+
+def set_date (date, start=True):
+    
+    """function to convert start/end dates at noon to mjd"""
+    
+    mjd_today_noon = int(Time.now().mjd) + 0.5
+    
+    # if no date is specified, include all data from 20 years ago
+    # until now
+    if date is None:
+        mjd = mjd_today_noon
+        if start:
+            mjd -= 365.25 * 20
+    else:
+        # if date string is less than 8 characters, assume it is
+        # relative wrt now/today
+        if len(date) < 8:
+            mjd = mjd_today_noon + round(float(date))
+        else:
+            # otherwise convert date string to mjd
+            date = re.sub(',|-|\.|\/', '', date)
+            mjd = date2mjd ('{}'.format(date), time_str='12:00')
+
+    return mjd
+
+
 ################################################################################
 
 def pool_func_lists (func, list_of_imagelists, *args, log=None, nproc=1):
@@ -808,7 +836,8 @@ def prep_colfig (field_ID, filters, log=None):
     ref_path = '{}/{:0>5}'.format(get_par(set_bb.ref_dir,tel), field_ID)
     # for the moment, add _alt to this path to separate it from
     # existing reference images
-    #ref_path = '{}_alt4'.format(ref_path)
+    if ext is not None:
+        ref_path = '{}{}'.format(ref_path, ext)
 
     # header keyword to use for scaling (e.g. PC-ZP or LIMMAG)
     key = 'LIMMAG'
@@ -877,10 +906,11 @@ def prep_ref (imagelist, field_ID, filt, radec):
 
     # determine reference directory and file
     ref_path = '{}/{:0>5}'.format(get_par(set_bb.ref_dir,tel), field_ID)
-    # for the moment, add _alt to this path to separate it from
+    # if ext(ension) is defined, add it to this path to separate it from
     # existing reference images
-    #ref_path = '{}_alt4'.format(ref_path)
-    
+    if ext is not None:
+        ref_path = '{}{}'.format(ref_path, ext)
+
     make_dir (ref_path, lock=lock)
     ref_fits_out = '{}/{}_{}_red.fits'.format(ref_path, tel, filt)
     
@@ -1029,18 +1059,18 @@ def prep_ref (imagelist, field_ID, filt, radec):
                             back_size=30, back_filtersize=5):
 
             if back_type == 'auto':
-                ext = '_{}_{}_{}_{}.fits'.format(combine_type, back_type,
-                                                 back_size, back_filtersize)
+                ext_tmp = '_{}_{}_{}_{}.fits'.format(combine_type, back_type,
+                                                     back_size, back_filtersize)
             elif back_type == 'manual':
-                ext = '_{}_{}_{}.fits'.format(combine_type, back_type,
-                                              back_default)
+                ext_tmp = '_{}_{}_{}.fits'.format(combine_type, back_type,
+                                                  back_default)
             elif back_type == 'constant':
-                ext = '_{}_{}_clipmed.fits'.format(combine_type, back_type)
+                ext_tmp = '_{}_{}_clipmed.fits'.format(combine_type, back_type)
 
             else:
-                ext = '_{}_{}.fits'.format(combine_type, back_type)
+                ext_tmp = '_{}_{}.fits'.format(combine_type, back_type)
 
-            ref_fits_temp = ref_fits.replace('.fits', ext)   
+            ref_fits_temp = ref_fits.replace('.fits', ext_tmp)
 
             imcombine (field_ID, imagelist, ref_fits_temp, combine_type,
                        ra_center=ra_center, dec_center=dec_center,
@@ -1150,8 +1180,8 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
         raise RuntimeError ('too few images ({}) selected'.format(len(imagelist)))
     else:
         log.info ('{} images selected to combine'.format(len(imagelist)))
-        
-        
+
+
     if os.path.isfile(fits_out) and not overwrite:
         raise RuntimeError ('output image {} already exist'
                             .format(fits_out))
@@ -1162,14 +1192,15 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
         raise RuntimeError ('output image {} already exist'
                             .format(fits_out))
     
-    # if output background standard deviation image (=sqrt(1/weights
-    # image)) already exists, raise error
-    fits_bkg_std = fits_out.replace('.fits', '_bkg_std.fits')
+    # if output weights or background standard deviation mini image
+    # (=sqrt(1/weights image)) already exists, raise error
+    fits_weights_out = fits_out.replace('.fits', '_weights.fits')
     fits_bkg_std_mini = fits_out.replace('.fits', '_bkg_std_mini.fits')
-    if os.path.isfile(fits_bkg_std) and not overwrite:
-        raise RuntimeError ('output background STD image {} already exist'
-                            .format(fits_bkg_std))
-
+    if (os.path.isfile(fits_weights_out) or os.path.isfile(fits_bkg_std_mini)
+        and not overwrite):
+        raise RuntimeError ('output weights {} or background STD mini image {} '
+                            'already exist'.format(fits_weights_out,
+                                                   fits_bkg_std_mini))
 
     # clean up or make temporary directory if it is not the current directory '.'
     if tempdir[-1]=='/':
@@ -1233,13 +1264,13 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
     saturates = np.zeros(nimages)
     exptimes = np.zeros(nimages)
     mjds = np.zeros(nimages)
-    weights_mean = np.zeros(nimages)
 
 
     # initialize image_names that refer to fits images in [tempdir]
     image_names = np.array([])
-    weights_names = np.array([])
     mask_names = np.array([])
+    # not needed as WEIGHT_SUFFIX can be used
+    #weights_names = np.array([])
 
     # list to record image headers in
     headers_list = []
@@ -1273,7 +1304,7 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
             log.warning('exception was raised when reading header of image {}\n'
                         'not using it in image combination'.format(image, e))
             continue
-
+        
         
         if 'BKG-SUB' in header and header['BKG-SUB']:
             bkg_sub = True
@@ -1301,13 +1332,13 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
                                       log=log, tel=tel, set_zogy=set_zogy)
 
 
-            # read mini background standard deviation image
+            # read mini background STD image
             image_bkg_std_mini = image.replace('red.fits', 'red_bkg_std_mini.fits')
             data_bkg_std_mini, header_bkg_std_mini = read_hdulist(image_bkg_std_mini,
                                                                   get_header=True,
                                                                   dtype='float32')
 
-            # convert mini to full background standard deviation image
+            # convert mini STD to full background STD image
             bkg_boxsize = header_bkg_std_mini['BKG-SIZE']
             data_bkg_std = mini2back (data_bkg_std_mini, data.shape,
                                       order_interp=3,
@@ -1369,16 +1400,30 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
             data_bkg_std = read_hdulist (image_temp_bkg_std, dtype='float32')
 
 
-        
+        if False:
+            # convert data to 1 e-/s images
+            data /= exptime
+            data_bkg_std /= exptime
+            if not bkg_sub:
+                data_bkg /= exptime
+
+            # and other relevant parameters
+            saturate /= exptime
+            rdnoise /= exptime
+            # update header with this new exposure time
+            exptime_orig = exptime
+            exptime = 1
+
+
         # determine weights image (1/variance) 
         # for Poisson noise component, use background image instead of
         # image itself:
         #data_var = data_bkg + rdnoise**2
-        data_var = data_bkg_std**2
-        data_weights = data_var
-        index_nonzero = np.nonzero(data_var)
-        data_weights[index_nonzero] = 1./data_var[index_nonzero]
+        data_weights = data_bkg_std**2
+        index_nonzero = np.nonzero(data_weights)
+        data_weights[index_nonzero] = 1./data_weights[index_nonzero]
 
+            
         if False:
             # alternatively, provide the absolute values of the
             # background RMS map and using WEIGHT_TYPE MAP_RMS below;
@@ -1421,28 +1466,55 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
         mjds[nimage] = mjd_obs
         
         # calculate flux ratio (fscale in SWarp speak) using the
-        # zeropoint difference between image and first image
-        # (i.e. scale the fluxes in image to match those in the first
-        # image), and scale all images to an airmass of 1
+        # zeropoint difference between image and first image,
+        # i.e. scale the fluxes in image to match those in the first
+        # image:
+        #
+        # zp = mag_cal - mag_inst + airmass * k
+        # mag_inst = -2.5*log10(flux/exptime)
+        # zp[0] = mag_cal - mag_inst[0] + A[0]*k
+        # zp[i] = mag_cal - mag_inst[i] + A[i]*k
+        # zp[0] = zp[i] + mag_inst[i] - A[i]*k - mag_inst[0] + A[0]*k
+        # mag_inst[0] - mag_inst[i] = zp[i] - zp[0] - k * (A[i] - A[0])
+        #                           = -2.5 * log10(f[0]/f[i])
+        #                           = -2.5 * log10(fscale)
+        # because: fscale * f[i] = f[0] --> fscale = f[0]/f[i]
+        # so finally: fscale = 10**((mag_inst[0]-mag_inst[i])/-2.5)
+        #
+        # And scale all images to an airmass of 1 by setting A[0]=1
+        # (the 1st and every other image are then all scaled to A=1).
+        #
         # N.B.: this will lead to the reference image having the same
-        # zeropoint as the first image, which may be confusing; could
-        # also scale it to the image with highest zp, but then need
-        # to do a separate loop inferring the zps of all images first,
-        # but that is not that straightforward
-        dmag = zp - zps[0] - extco*(airmass - 1)
+        # zeropoint as the (arbitrary) first image, which may be
+        # confusing; could also scale it to the image with highest zp,
+        # but then need to do a separate loop inferring the zps of all
+        # images first, but that is not that straightforward.
+        dmag = zps[nimage] - zps[0] - extco * (airmasses[nimage] - 1)
         fscale = 10**(dmag/-2.5)
 
         # add fscale to image header
         header['FSCALE'] = (fscale, 'flux ratio wrt to first image and at airmass=1')
-        
+
+        # update these header arrays with fscale
+        rdnoises[nimage] *= fscale 
+        saturates[nimage] *= fscale
+
         # update weights image with scale factor according to Eq. 26
         # or 27 in SWarp manual:
         # N.B.: this is done internally by SWarp!!!
         #data_weights /= fscale**2
 
-        # mean image weight
-        weights_mean[nimage] = np.median(data_weights)
-        
+
+        if False:
+            # when converting output weights image provided by SWarp to a
+            # bkg_std image, the values in it are ~10% higher than the
+            # actual STD in the combined co-added image; make a combined
+            # STD image from the individual STD images to compare with:
+            if nimage==0:
+                data_bkg_var_comb = (fscale * data_bkg_std)**2
+            else:
+                data_bkg_var_comb += (fscale * data_bkg_std)**2
+
         
         # determine and record image centers
         if use_wcs_center:
@@ -1498,14 +1570,18 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
         # save weights image in the temp folder
         weights_temp = image_temp.replace('.fits','_weights.fits')
         fits.writeto(weights_temp, data_weights, overwrite=True)
-        # add to array of weights names
-        weights_names = np.append(weights_names, weights_temp)
+        # add to array of weights names; not needed as WEIGHT_SUFFIX
+        # can be used
+        #weights_names = np.append(weights_names, weights_temp)
 
 
         # save mask image in temp folder
         mask_temp = image_temp.replace('red.fits', 'mask.fits')
         # add WCS of image to mask header
         header_mask += header
+        # set flux scaling to unity
+        header_mask['FSCALE'] = (1.0,
+                                 'flux ratio wrt to first image and at airmass=1')
         fits.writeto(mask_temp, data_mask, header=header_mask, overwrite=True)
         # add to array of names
         mask_names = np.append(mask_names, mask_temp)
@@ -1544,36 +1620,56 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
         back_type_SWarp = 'manual'
 
 
-    # keywords to copy from input images to reference: add all
-    # keywords that are the same between the images, but avoid copying
-    # keywords like NAXIS1, BITPIX, etc.
-    for i_head, head in enumerate(headers_list):
-        if i_head == 0:
-            # start with the first header
-            head_tmp = head
-        else:
-            # only keep keywords in head_tmp that are also in head and
-            # with the same value
-            head_tmp = {key:head_tmp[key] for key in head_tmp
-                        if key in head and head_tmp[key]==head[key]}
+    if False:
 
-    keys2copy = list(head_tmp.keys())
-    keys2avoid = ['SIMPLE', 'NAXIS', 'NAXIS1', 'NAXIS2', 'BITPIX', 
-                  'CTYPE1', 'CUNIT1', 'CRVAL1', 'CRPIX1', 'CD1_1', 'CD1_2',
-                  'CTYPE2', 'CUNIT2', 'CRVAL2', 'CRPIX2', 'CD2_1', 'CD2_2']
+        # keywords to copy from input images to reference: add all
+        # keywords that are the same between the images, but avoid copying
+        # keywords like NAXIS1, BITPIX, etc.
+        for i_head, head in enumerate(headers_list):
+            if i_head == 0:
+                # start with the first header
+                head_tmp = head
+            else:
+                # only keep keywords in head_tmp that are also in head and
+                # with the same value
+                head_tmp = {key:head_tmp[key] for key in head_tmp
+                            if key in head and head_tmp[key]==head[key]}
 
-    # use sets to remove keys2avoid
-    keys2copy = list(set(keys2copy).difference(set(keys2avoid)))
-                  
+        keys2copy = list(head_tmp.keys())
+        keys2avoid = ['SIMPLE', 'NAXIS', 'NAXIS1', 'NAXIS2', 'BITPIX', 'XTENSION', 
+                      'CTYPE1', 'CUNIT1', 'CRVAL1', 'CRPIX1', 'CD1_1', 'CD1_2',
+                      'CTYPE2', 'CUNIT2', 'CRVAL2', 'CRPIX2', 'CD2_1', 'CD2_2',
+                      'EXPTIME', 'GAIN', 'SATURATE']
+
+        # use sets to remove keys2avoid
+        keys2copy = list(set(keys2copy).difference(set(keys2avoid)))
+
+
+    else:
+
+        # instead just define a list of keywords, mostly those created
+        # in [set_header] function in blackbox.py and a few additional
+        # ones defined in blackbox.py, that do not change between
+        # images; the keywords from zogy.py will be added
+        # automatically as the co-added image is put through zogy.py
+        keys2copy = ['XBINNING', 'YBINNING', 'RADESYS', 'EPOCH', 'FLIPSTAT',
+                     'OBJECT', 'IMAGETYP', 'FILTER',
+                     'TIMESYS', 'SITELAT', 'SITELONG', 'ELEVATIO', 'EQUINOX',
+                     'CCD-ID', 'CONTROLL', 'DETSPEED', 'CCD-NW', 'CCD-NH', 'FOCUSPOS', 
+                     'ORIGIN', 'MPC-CODE', 'TELESCOP', 'INSTRUME', 
+                     'OBSERVER', 'ABOTVER', 'PROGNAME', 'PROGID',
+                     'PYTHON-V', 'BB-V', 'KW-V']
+
 
     # run SWarp
     cmd = ['swarp', ','.join(image_names),
            '-c', swarp_cfg,
            '-COMBINE', 'Y',
            '-COMBINE_TYPE', combine_type.upper(),
+           # WEIGHT_IMAGE input is not needed as suffix is defined
            #'-WEIGHT_IMAGE', ','.join(weights_names),
            '-WEIGHT_SUFFIX', '_weights.fits',
-           '-WEIGHTOUT_NAME', fits_bkg_std,
+           '-WEIGHTOUT_NAME', fits_weights_out,
            '-WEIGHT_TYPE', 'MAP_WEIGHT',
            '-RESCALE_WEIGHTS', 'N',
            '-CENTER_TYPE', 'MANUAL',
@@ -1621,29 +1717,20 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
     # with gain, readnoise, saturation level, exptime and mjd-obs
     gain, rdnoise, saturate, exptime, mjd = calc_headers (
         combine_type, gains, rdnoises, saturates, exptimes, mjds)
+
+
+    header_out.set('GAIN', gain, '[e-/ADU] effective gain', after='DEC')
+    header_out.set('RDNOISE', rdnoise, '[e-] effective read-out noise',
+                   after='GAIN')
+    header_out.set('SATURATE', saturate, '[e-] effective saturation '
+                   'threshold', after='RDNOISE')
+    header_out.set('EXPTIME', exptimes[0], '[s] effective exposure time',
+                   after='SATURATE')
+    date_obs = Time(mjd, format='mjd').isot
+    header_out.set('DATE-OBS', date_obs, 'average date of observation',
+                   after='EXPTIME')
+    header_out.set('MJD-OBS', mjd, '[days] average MJD', after='DATE-OBS')
     
-    if False:
-        header_out['GAIN'] = (gain, '[e-/ADU] effective gain')
-        header_out['RDNOISE'] = (rdnoise, '[e-] effective read-out noise')
-        header_out['SATURATE'] = (saturate, '[e-] effective saturation threshold')
-        header_out['EXPTIME'] = (exptime, '[s] effective exposure time')
-        header_out['DATE-OBS'] = (Time(mjd, format='mjd').isot, 'average date '
-                                  'of observation')
-        header_out['MJD-OBS'] = (mjd, '[days] average MJD')
-
-    else:
-        date_obs = Time(mjd, format='mjd').isot
-        header_out.set('GAIN', gain, '[e-/ADU] effective gain', after='DEC')
-        header_out.set('RDNOISE', rdnoise, '[e-] effective read-out noise',
-                       after='GAIN')
-        header_out.set('SATURATE', saturate, '[e-] effective saturation '
-                       'threshold', after='RDNOISE')
-        header_out.set('EXPTIME', exptime, '[s] effective exposure time',
-                       after='SATURATE')
-        header_out.set('DATE-OBS', date_obs, 'average date of observation',
-                       after='EXPTIME')
-        header_out.set('MJD-OBS', mjd, '[days] average MJD', after='DATE-OBS')
-
     
     # buildref version
     header_out['R-V'] = (__version__, 'reference building module version used')
@@ -1684,11 +1771,11 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
     
     val_str = '[{},{}]'.format(start_date, end_date)
     header_out['R-TRANGE'] = (val_str,
-                              '[date/days] use images <= these limits of R-TSTART')
+                              '[date/days wrt R-TSTART] image time range')
     
-    header_out['R-QCMAX'] = (max_qc_flag, 'use images <= this QC flag')
+    header_out['R-QCMAX'] = (max_qc_flag, 'maximum image QC flag')
     
-    header_out['R-SEEMAX'] = (max_seeing, '[arcsec] use images <= this seeing')
+    header_out['R-SEEMAX'] = (max_seeing, '[arcsec] maximum image seeing')
 
     
     # any nan value in the image?
@@ -1709,16 +1796,25 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
     header_out['R-DATE'] = (ut_now, 'time stamp reference image creation')
     # write file
     fits.writeto(fits_out, data_out.astype('float32'), header_out, overwrite=True)
-    
+
 
     # convert combined weights image to standard deviation and save as
     # mini image
-    data_weights, header_weights = read_hdulist(fits_bkg_std, get_header=True)
+    data_weights, header_weights = read_hdulist(fits_weights_out, get_header=True)
     mask_nonzero = (data_weights != 0)
-    data_bkg_std = data_weights
+    data_bkg_std = np.copy(data_weights)
     data_bkg_std[mask_nonzero] = 1./np.sqrt(data_weights[mask_nonzero])
     # replace zeros with median
     data_bkg_std[~mask_nonzero] = np.median(data_bkg_std[mask_nonzero])
+
+
+    if False:
+        # save self-built data_bkg_var_comb as STD image to compare
+        fits_bkg_std_test = fits_out.replace('.fits', '_bkg_std_test.fits')
+        data_bkg_std_test = np.sqrt(data_bkg_var_comb) / nimages
+        fits.writeto(fits_bkg_std_test, data_bkg_std_test.astype('float32'),
+                     header_weights, overwrite=True)
+
 
     # convert this to a bkg_std_mini image to save disk space; see
     # also function [get_back] in zogy.py
@@ -1743,6 +1839,12 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
 
     if not remap_each:
 
+        # name for output weights image in tmp folder; this image is
+        # not relevant for these mask combinations, but SWarp creates
+        # a "coadd.weight.fits" image in the folder where SWarp is run
+        # even if WEIGHT_TYPE set to NONE
+        weights_out = '{}/weights_out_tmp.fits'.format(tempdir)
+
         # run SWarp twice on mask image with combine_type OR and MIN
         fits_mask_OR = fits_mask_out.replace('mask', 'mask_OR')
         cmd = ['swarp', ','.join(mask_names),
@@ -1750,6 +1852,7 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
                '-COMBINE', 'Y',
                '-COMBINE_TYPE', 'OR',
                '-WEIGHT_TYPE', 'NONE',
+               '-WEIGHTOUT_NAME', weights_out,
                '-CENTER_TYPE', 'MANUAL',
                '-CENTER', radec_str,
                '-IMAGE_SIZE', size_str,
@@ -1786,6 +1889,7 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
                '-COMBINE', 'Y',
                '-COMBINE_TYPE', 'MIN',
                '-WEIGHT_TYPE', 'NONE',
+               '-WEIGHTOUT_NAME', weights_out,
                '-CENTER_TYPE', 'MANUAL',
                '-CENTER', radec_str,
                '-IMAGE_SIZE', size_str,
@@ -1833,10 +1937,6 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
 
     else:
         # remapping each individual image if needed
-        
-        # median image weight
-        weights_mean[nimage] = np.median(data_weights)
-        
         log.info ('remapping individual images')
         
         # also SWarp individual images, e.g. for colour combination
@@ -1984,19 +2084,24 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
 ################################################################################
 
 def calc_headers (combine_type, gains, rdnoises, saturates, exptimes, mjds):
-    
+
+    nimages = len(gains)
     gain = np.mean(gains)
     mjd = np.mean(mjds)
     
     if combine_type == 'sum':
+        
         rdnoise = np.sqrt(np.sum(rdnoises**2))
         saturate = np.sum(saturates)
-        exptime = np.sum(exptimes)
+        exptime = exptimes[0] * nimages
         
     else:
-        rdnoise = np.sqrt(np.sum(rdnoises**2)) / len(rdnoises)
-        saturate = np.mean(saturates)
-        exptime = np.mean(exptimes)
+        
+        rdnoise = np.sqrt(np.sum(rdnoises**2)) / nimages
+        saturate = np.amin(saturates)
+        # all images have been scaled in flux to the 1st image, so
+        # effective exposure time is that of the 1st image
+        exptime = exptimes[0]
         
     return gain, rdnoise, saturate, exptime, mjd
 
@@ -2612,12 +2717,12 @@ if __name__ == "__main__":
                         help='Telescope name (ML1, BG2, BG3 or BG4); '
                         'default=\'ML1\'')
     parser.add_argument('--date_start', type=str, default=None,
-                        help='start date to include images, date string '
-                        '(e.g. yyyymmdd) or days relative to now (negative '
+                        help='start date (noon) to include images, date string '
+                        '(e.g. yyyymmdd) or days relative to noon today (negative '
                         'number); default=None')
     parser.add_argument('--date_end', type=str, default=None,
-                        help='end date to include images, date string '
-                        '(e.g. yyyymmdd) or days relative to now (negative '
+                        help='end date (noon) to include images, date string '
+                        '(e.g. yyyymmdd) or days relative to noon today (negative '
                         'number); default=None')
     parser.add_argument('--field_IDs', type=str, default=None,
                         help='only consider images with this(these) field ID(s) '
@@ -2637,6 +2742,9 @@ if __name__ == "__main__":
     parser.add_argument('--filters_colfig', type=str, default='iqu',
                         help='set of 3 filters to use for RGB color figures; '
                         'default=\'uqi\'')
+    parser.add_argument('--extension', type=str, default=None,
+                        help='extension to add to default reference folder name, '
+                        'e.g. _alt; default: None')
 
     
     
@@ -2650,7 +2758,8 @@ if __name__ == "__main__":
               qc_flag_max = args.qc_flag_max,
               seeing_max = args.seeing_max,
               make_colfig = args.make_colfig,
-              filters_colfig = args.filters_colfig)
+              filters_colfig = args.filters_colfig,
+              extension = args.extension)
 
 
 ################################################################################
