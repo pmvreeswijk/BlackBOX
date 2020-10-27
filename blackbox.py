@@ -46,10 +46,17 @@ import aplpy
 # due to regular problems with downloading default IERS file (needed
 # to compute UTC-UT1 corrections for e.g. sidereal time computation),
 # Steven created a mirror of this file in a google storage bucket
-from astropy.utils import iers
-iers.conf.iers_auto_url = (
-    'https://storage.googleapis.com/blackbox-auxdata/timing/finals2000A.all')
-iers.conf.iers_auto_url_mirror = 'http://maia.usno.navy.mil/ser7/finals2000A.all'
+#
+# update on 2020-10-27: url's below not working properly now; default
+# server from which to download finals2000A.all seems to have changed
+# to (the mirror?):
+# ftp://cddis.gsfc.nasa.gov/pub/products/iers/finals2000A.all, which
+# is working fine at the moment, so do not define the url's below.
+if False:
+    from astropy.utils import iers
+    iers.conf.iers_auto_url = (
+        'https://storage.googleapis.com/blackbox-auxdata/timing/finals2000A.all')
+    iers.conf.iers_auto_url_mirror = 'http://maia.usno.navy.mil/ser7/finals2000A.all'
 
 # to send email
 import smtplib
@@ -153,6 +160,30 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
     (88) Danielle noticed that headers of reference images are not
          complete anymore; need to improve this in buildref.py
+
+    (89) exception in fit_moffat_single when object is too close to
+         edge: shapes of arrays are flipped and lead to a broadcast
+         exception
+
+    (90) currently FLUX_AUTO is used for the photometric normalization
+         in PSFEx, which is recorded in the _psfex.cat output ASCII
+         file. That file is used for the determination of the flux
+         ratio of the new and ref image (Fn/Fr, header keyword Z-FNR),
+         i.e.  it is based on FLUX_AUTO, while ideally the optimal
+         flux would be used. One option is to infer the Fn/Fr directly
+         from the difference in zeropoints and airmasses between new
+         and ref, as is done in buildref. At least the global image
+         Fn/Fr can be inferred that way, and also the channels' Fn/Fr.
+         and probably also the flux ratio of each subimage. N.B.: now
+         the PSF stars are used to calculate Fn/Fr; if the zeropoints
+         are used then the photcal stars would be used - not the same.
+
+    (91) when performing PSF to D using function
+         [get_psfoptflux_xycoords], sn and sr are read from header
+         keywords while the actual variances at that position in new
+         and ref should really be used. Also, if fratio is chosen in
+         settings file to be local, the global value is still used
+         here.
 
 
     Done:
@@ -3753,16 +3784,23 @@ def get_closest_biasflat (date_eve, file_type, filt=None):
 def date2mjd (date_str, time_str=None, get_jd=False):
     
     """convert [date_str] and [time_str] to MJD or JD with possible
-    formats: yyyymmdd or yyyy-mm-dd for [date_str] and hh:mm[:ss.s]
-    for [time_str]
+    formats: yyyymmdd or yyyy-mm-dd for [date_str] and hhmmss[.s] or
+    hh:mm[:ss.s] for [time_str]
 
     """
-    
+
     if '-' not in date_str:
-        date_str = '{}-{}-{}'.format(date_str[0:4], date_str[4:6], date_str[6:8])
+        date_str = '{}-{}-{}'.format(date_str[0:4],
+                                     date_str[4:6],
+                                     date_str[6:8])
 
     if time_str is not None:
+        if ':' not in time_str:
+            time_str = '{}:{}:{}'.format(time_str[0:2],
+                                         time_str[2:4],
+                                         time_str[4:])
         date_str = '{} {}'.format(date_str, time_str) 
+
         
     if get_jd:
         return Time(date_str).jd
