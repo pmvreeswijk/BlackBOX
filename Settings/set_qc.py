@@ -338,7 +338,7 @@ qc_range = {
         'NSIGMA':   {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'comment': '[sigma] input source detection threshold'},
 
         'DUMCAT':   {'default': False, 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'comment': 'dummy catalog without sources?'},
-        'TDUMCAT':  {'default': False, 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'comment': 'dummy transient catalog without sources?'},
+        'TDUMCAT':  {'default': False, 'val_type': 'skip',    'val_range': None,                                'key_type': 'trans',   'comment': 'dummy transient catalog without sources?'},
         'QC-FLAG':  {'default':'red',  'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'comment': 'QC flag color (green|yellow|orange|red)'},
         'TQC-FLAG': {'default':'red',  'val_type': 'skip',    'val_range': None,                                'key_type': 'trans',  'comment': 'transient QC flag (green|yellow|orange|red)'},
 
