@@ -339,7 +339,7 @@ def qc_check (header, telescope='ML1', keywords=None, cat_type=None,
                     qc_range[key]['key_type']=='full'):
                     header_dummy[key] = (qc_range[key]['default'],
                                          qc_range[key]['comment'])
-                    
+
 
         # create empty output catalog of type [cat_type] using
         # function [format_cat] in zogy.py
@@ -353,14 +353,18 @@ def qc_check (header, telescope='ML1', keywords=None, cat_type=None,
                                     set_zogy.apphot_radii,telescope),
                                 thumbnail_keys=thumbnail_keys,
                                 thumbnail_size=get_par(
-                                    set_zogy.size_thumbnails,telescope))
+                                    set_zogy.size_thumbnails,telescope),
+                                ML_calc_prob=get_par(
+                                    set_zogy.ML_calc_prob,telescope),
+                                tel=telescope)
         else:
             result = format_cat(None, cat_dummy, cat_type=cat_type,
                                 header_toadd=header_dummy, 
                                 apphot_radii=get_par(
-                                    set_zogy.apphot_radii,telescope))
-            
-            
+                                    set_zogy.apphot_radii,telescope),
+                                tel=telescope)
+
+
     keywords_out = np.array(keywords)[mask].tolist()
     colors_out = np.array(colors_out)[mask].tolist()
 
