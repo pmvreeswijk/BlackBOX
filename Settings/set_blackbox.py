@@ -16,13 +16,13 @@ nthread = 2
 #===============================================================================
 
 # switch on/off different parts
-img_reduce = True
+img_reduce = False
 cat_extract = True
-trans_extract = False
+trans_extract = True
 
 # force re-processing of new image, only for above parts that are
 # switched on
-force_reproc_new = False
+force_reproc_new = True
 
 # subtract master bias
 subtract_mbias = False
@@ -72,8 +72,8 @@ for tel in ['ML1', 'BG2', 'BG3', 'BG4']:
     tmp_dir[tel] = '{}/{}/tmp'.format(tmp_dir_base, tel)
 
 # name endings of files to keep for the reference and new images
-img_reduce_exts = ['_red.fits', '_mask.fits', '_hdr.fits', '_red.log']
-cat_extract_exts = ['_cat.fits', '_mini.fits', '_psf.fits', '_psfex.cat']
+img_reduce_exts = ['_red.fits', '_mask.fits', '_hdr.fits', '_mini.fits', '_red.log']
+cat_extract_exts = ['_cat.fits', '_psf.fits', '_psfex.cat']
 trans_extract_exts = ['_D.fits', '_Scorr.fits', '_trans_limmag.fits', '_trans.fits']
 all_2keep = img_reduce_exts + cat_extract_exts
 ref_2keep = ['_ldac.fits'] + all_2keep
