@@ -47,16 +47,16 @@ import aplpy
 # to compute UTC-UT1 corrections for e.g. sidereal time computation),
 # Steven created a mirror of this file in a google storage bucket
 #
-# update on 2020-10-27: url's below not working properly now; default
+# update on 2020-10-27: urls below not working properly now; default
 # server from which to download finals2000A.all seems to have changed
 # to (the mirror?):
 # ftp://cddis.gsfc.nasa.gov/pub/products/iers/finals2000A.all, which
-# is working fine at the moment, so do not define the url's below.
-if False:
-    from astropy.utils import iers
-    iers.conf.iers_auto_url = (
-        'https://storage.googleapis.com/blackbox-auxdata/timing/finals2000A.all')
-    iers.conf.iers_auto_url_mirror = 'http://maia.usno.navy.mil/ser7/finals2000A.all'
+# is working fine at the moment, so do not define the urls below.
+from astropy.utils import iers
+iers.conf.iers_auto_url = (
+    'https://storage.googleapis.com/blackbox-auxdata/timing/finals2000A.all')
+iers.conf.iers_auto_url_mirror = (
+    'ftp://cddis.gsfc.nasa.gov/pub/products/iers/finals2000A.all')
 
 # to send email
 import smtplib
@@ -689,8 +689,8 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          determined again (it was already subtracted). So do not
          delete the mini_std image; can this be done by adding the
          "_mini.fits" extension with the img_reduce_exts?
-         --> moved mini extension from img_reduce_exts to
-             cat_extract_exts
+         --> moved mini extension from cat_extract_exts to img_reduce_exts
+             
 
     (84) skip FWHM source-extractor run if S-FWHM and S-FWSTD in header?
 
@@ -1265,15 +1265,15 @@ def create_jpg (filename, log=None):
             # read input image
             data, header = read_hdulist(filename, get_header=True)
 
-            imgtype = header['imagetyp'].lower()
+            imgtype = header['IMAGETYP'].lower()
             file_str = image_jpg.split('/')[-1].split('.jpg')[0]
             if imgtype == 'object':
                 title = ('file:{}   object:{}   filter:{}   exptime:{:.1f}s'
-                         .format(file_str, header['object'],
-                                 header['filter'], header['exptime']))
+                         .format(file_str, header['OBJECT'],
+                                 header['FILTER'], header['EXPTIME']))
             else:
                 title = ('file:{}   imgtype:{}   filter:{}'
-                         .format(file_str, header['imagetyp'], header['filter']))
+                         .format(file_str, header['IMAGETYP'], header['FILTER']))
 
             pixelcoords = True
             if pixelcoords:
@@ -2126,12 +2126,15 @@ def blackbox_reduce (filename):
             ext_list += get_par(set_bb.cat_extract_exts,tel)
             ext_list += get_par(set_bb.trans_extract_exts,tel)
 
-            # if img_reduce is False, copy mini images to the tmp
-            # folder because it is needed as the background was
-            # already subtracted from the reduced image
-            if not get_par(set_bb.img_reduce,tel):
-                result = copy_files2keep(new_base, tmp_base, ['_mini.fits'],
-                                         move=False, log=log)
+
+            # currently the mini is added to the img_reduce_exts
+            if False:
+                # if img_reduce is False, copy mini images to the tmp
+                # folder because it is needed as the background was
+                # already subtracted from the reduced image
+                if not get_par(set_bb.img_reduce,tel):
+                    result = copy_files2keep(new_base, tmp_base, ['_mini.fits'],
+                                             move=False, log=log)
 
 
         elif get_par(set_bb.trans_extract,tel):
@@ -2235,7 +2238,7 @@ def blackbox_reduce (filename):
 
         try:
             zogy_processed = False
-            header_optsub = optimal_subtraction(
+            header_new = optimal_subtraction(
                 new_fits=new_fits, new_fits_mask=new_fits_mask, 
                 set_file='set_zogy', log=log, verbose=None,
                 nthread=get_par(set_bb.nthread,tel), telescope=tel)
@@ -2247,9 +2250,10 @@ def blackbox_reduce (filename):
             zogy_processed = True
         finally:
             if not zogy_processed:
-                # copy selected output files to red directory and remove tmp folder
-                # corresponding to the image
-                log.warning ('due to exception, only copy image reduction products')
+                # copy selected output files to red directory and
+                # remove tmp folder corresponding to the image
+                log.warning ('due to exception, only copy image reduction '
+                             'products')
                 result = copy_files2keep(tmp_base, new_base,
                                          get_par(set_bb.img_reduce_exts,tel),
                                          move=~get_par(set_bb.keep_tmp,tel),
@@ -2259,27 +2263,25 @@ def blackbox_reduce (filename):
                 return None
 
             else:
-                # feed [header_optsub] to [run_qc_check], and make
+                # feed [header_new] to [run_qc_check], and make
                 # dummy catalogs if there is a red flag
-                qc_flag = run_qc_check (header_optsub, tel, log=log)
+                qc_flag = run_qc_check (header_new, tel, log=log)
                 if qc_flag=='red':
-                    log.error('red QC flag in [header_optsub] returned by new-only '
+                    log.error('red QC flag in [header_new] returned by new-only '
                               '[optimal_subtraction]; making dummy catalogs')
-                    run_qc_check (header_optsub, tel, cat_type='new',
+                    run_qc_check (header_new, tel, cat_type='new',
                                   cat_dummy=fits_tmp_cat, log=log)
-                    run_qc_check (header_optsub, tel, cat_type='trans',
+                    run_qc_check (header_new, tel, cat_type='trans',
                                   cat_dummy=fits_tmp_trans, log=log)
 
                 else:
-                    # update catalog header with latest qc-flags
+                    # update full-source catalog header with latest
+                    # qc-flags; transient catalog not needed
                     with fits.open(fits_tmp_cat, 'update') as hdulist:
-                        #for key in hdulist[-1].header:
-                        #    if 'QC' in key:
-                        #        del hdulist[-1].header[key]
-                        for key in header_optsub:
+                        for key in header_new:
                             if 'QC' in key:
                                 hdulist[-1].header[key] = (
-                                    header_optsub[key], header_optsub.comments[key])
+                                    header_new[key], header_new.comments[key])
 
 
 
@@ -2296,7 +2298,7 @@ def blackbox_reduce (filename):
         
         try:
             zogy_processed = False
-            header_optsub = optimal_subtraction(
+            header_ref = optimal_subtraction(
                 ref_fits=new_fits, ref_fits_mask=new_fits_mask, 
                 set_file='set_zogy', log=log, verbose=None,
                 nthread=get_par(set_bb.nthread,tel), telescope=tel)
@@ -2308,9 +2310,10 @@ def blackbox_reduce (filename):
             zogy_processed = True
         finally:
             if not zogy_processed:
-                # copy selected output files to red directory and remove tmp folder
-                # corresponding to the image
-                log.warning ('due to exception, only copy image reduction products')
+                # copy selected output files to red directory and
+                # remove tmp folder corresponding to the image
+                log.warning ('due to exception, only copy image reduction '
+                             'products')
                 result = copy_files2keep(tmp_base, new_base,
                                          get_par(set_bb.img_reduce_exts,tel),
                                          move=~get_par(set_bb.keep_tmp,tel),
@@ -2328,25 +2331,26 @@ def blackbox_reduce (filename):
                 return None
 
             else:
-                # feed [header_optsub] to [run_qc_check], and make
+                # feed [header_ref] to [run_qc_check], and make
                 # dummy catalogs if there is a red flag
-                qc_flag = run_qc_check (header_optsub, tel, log=log)
+                qc_flag = run_qc_check (header_ref, tel, log=log)
                 if qc_flag=='red':
-                    log.error('red QC flag in [header_optsub] returned by reference '
-                              '[optimal_subtraction]; making dummy catalogs as if it '
-                              'were a new image')
-                    run_qc_check (header_optsub, tel, cat_type='new',
+                    log.error('red QC flag in [header_ref] returned by reference '
+                              '[optimal_subtraction]; making dummy catalogs as '
+                              'if it were a new image')
+                    run_qc_check (header_ref, tel, cat_type='new',
                                   cat_dummy=fits_tmp_cat, log=log)
-                    run_qc_check (header_optsub, tel, cat_type='trans',
+                    run_qc_check (header_ref, tel, cat_type='trans',
                                   cat_dummy=fits_tmp_trans, log=log)
 
                 else:
-                    # update catalog header with latest qc-flags
+                    # update full-source catalog header with latest
+                    # qc-flags; transient catalog not needed
                     with fits.open(fits_tmp_cat, 'update') as hdulist:
-                        for key in header_optsub:
+                        for key in header_ref:
                             if 'QC' in key:
                                 hdulist[-1].header[key] = (
-                                    header_optsub[key], header_optsub.comments[key])
+                                    header_ref[key], header_ref.comments[key])
 
 
         if qc_flag != 'red':
@@ -2372,12 +2376,14 @@ def blackbox_reduce (filename):
         else:
             log.info('encountered red flag; not using image: {} (original name: '
                      '{}) as reference'
-                     .format(header_optsub['REDFILE'], header_optsub['ORIGFILE']))
+                     .format(header_ref['REDFILE'], header_ref['ORIGFILE']))
 
 
 
     else:
 
+        # block that runs zogy on two images: new and ref
+        
         # make symbolic links to all files in the reference
         # directory with the same filter
         ref_files = glob.glob('{}/{}_{}_*'.format(ref_path, tel, filt))
@@ -2413,7 +2419,7 @@ def blackbox_reduce (filename):
 
         try:
             zogy_processed = False
-            header_optsub = optimal_subtraction(
+            header_new, header_trans = optimal_subtraction(
                 new_fits=new_fits, ref_fits=ref_fits, new_fits_mask=new_fits_mask,
                 ref_fits_mask=ref_fits_mask, set_file='set_zogy', log=log, 
                 verbose=None, nthread=get_par(set_bb.nthread,tel), telescope=tel)
@@ -2426,9 +2432,10 @@ def blackbox_reduce (filename):
             zogy_processed = True
         finally:
             if not zogy_processed:
-                # copy selected output files to red directory and remove tmp folder
-                # corresponding to the image
-                log.warning ('due to exception, only copy image reduction products')
+                # copy selected output files to red directory and
+                # remove tmp folder corresponding to the image
+                log.warning ('due to exception, only copy image reduction '
+                             'products')
                 result = copy_files2keep(tmp_base, new_base,
                                          get_par(set_bb.img_reduce_exts,tel),
                                          move=~get_par(set_bb.keep_tmp,tel),
@@ -2438,56 +2445,62 @@ def blackbox_reduce (filename):
                 return None
 
             else:
-                # feed [header_optsub] to [run_qc_check], and if there
-                # is a red flag: make output dummy catalog and return
-                qc_flag = run_qc_check (header_optsub, tel, log=log)
-                qc_flag_trans = run_qc_check (header_optsub, tel,
-                                              cat_type='trans', log=log)                
-
+                # feed [header_new] to [run_qc_check], and if there
+                # is a red flag: make output dummy catalog
+                qc_flag = run_qc_check (header_new, tel,
+                                        cat_type='new', log=log)
                 if qc_flag=='red':
-                    log.error('red QC flag in [header_optsub] returned by new '
+                    log.error('red QC flag in [header_new] returned by new '
                               'vs. ref [optimal_subtraction]: making dummy '
                               'full-source catalog')
-                    run_qc_check (header_optsub, tel, cat_type='new',
+                    run_qc_check (header_new, tel, cat_type='new',
                                   cat_dummy=fits_tmp_cat, log=log)
                 else:
-                    # update full-source catalog header with latest qc-flags
+                    # update full-source catalog fits header with latest
+                    # qc-flags
                     with fits.open(fits_tmp_cat, 'update') as hdulist:
-                        for key in header_optsub:
+                        for key in header_new:
                             if 'QC' in key:
                                 hdulist[-1].header[key] = (
-                                    header_optsub[key], header_optsub.comments[key])
-                                
-                if qc_flag=='red' or qc_flag_trans=='red':
-                    log.error('red transient QC flag in [header_optsub] returned '
-                              'by new vs ref [optimal_subtraction]: making dummy '
-                              'transient catalog')
-                    run_qc_check (header_optsub, tel, cat_type='trans',
+                                    header_new[key], header_new.comments[key])
+
+                # same for transient catalog
+                header_newtrans = header_new+header_trans
+                tqc_flag = run_qc_check (header_newtrans, tel,
+                                         cat_type='trans', log=log)
+                if qc_flag=='red' or tqc_flag=='red':
+                    log.error('red transient QC flag in [header_newtrans] '
+                              'returned by new vs ref [optimal_subtraction]: '
+                              'making dummy transient catalog')
+                    run_qc_check (header_newtrans, tel, cat_type='trans',
                                   cat_dummy=fits_tmp_trans, log=log)
                 else:
                     # update transient catalog header with latest qc-flags
                     with fits.open(fits_tmp_trans, 'update') as hdulist:
-                        for key in header_optsub:
+                        for key in header_newtrans:
                             if 'QC' in key:
                                 hdulist[-1].header[key] = (
-                                    header_optsub[key], header_optsub.comments[key])
+                                    header_newtrans[key],
+                                    header_newtrans.comments[key])
 
 
 
-    # update reduced image header with extended header from ZOGY [header_optsub]
+    # update reduced image header with extended header_new from ZOGY's
+    # optimal_subtraction
+    header_new['DATEFILE'] = (Time.now().isot, 'UTC date of writing file')
     with fits.open(new_fits, 'update') as hdulist:
-        hdulist[0].header = header_optsub
+        hdulist[-1].header = header_new
 
-
-    # also write separate header fits file
-    hdulist = fits.HDUList(fits.PrimaryHDU(header=header_optsub))
+    # also write separate header fits file with complete header,
+    # i.e. header_new + header_trans
+    hdulist = fits.HDUList(fits.PrimaryHDU(header=header_new+header_trans))
     hdulist.writeto(new_fits.replace('.fits', '_hdr.fits'), overwrite=True)
 
 
-    # list of files to copy/move to reduced folder
-    list_2keep = []
-    if get_par(set_bb.img_reduce,tel):
-        list_2keep += get_par(set_bb.img_reduce_exts,tel)
+    # list of files to copy/move to reduced folder; need to include
+    # the img_reduce products in any case because the header will have
+    # been updated with fresh QC flags
+    list_2keep = get_par(set_bb.img_reduce_exts,tel)
     if get_par(set_bb.cat_extract,tel):
         list_2keep += get_par(set_bb.cat_extract_exts,tel)
     if ref_present:
