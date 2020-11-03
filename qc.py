@@ -388,15 +388,16 @@ def qc_check (header, telescope='ML1', keywords=None, cat_type=None,
             # function [format_cat] in zogy.py
             if cat_type == 'trans' and get_par(set_zogy.save_thumbnails,telescope):
                 # for transient catalog, also produce thumbnail definitions
-                thumbnail_keys = ['THUMBNAIL_RED', 'THUMBNAIL_REF', 'THUMBNAIL_D', 
-                                  'THUMBNAIL_SCORR']
+                keys_thumbnails = ['THUMBNAIL_RED', 'THUMBNAIL_REF',
+                                   'THUMBNAIL_D', 'THUMBNAIL_SCORR']
+                size_thumbnails = get_par(set_zogy.size_thumbnails,telescope)
                 result = format_cat(None, cat_dummy, cat_type=cat_type,
                                     header_toadd=header_dummy, 
                                     apphot_radii=get_par(
                                         set_zogy.apphot_radii,telescope),
-                                    thumbnail_keys=thumbnail_keys,
-                                    thumbnail_size=get_par(
-                                        set_zogy.size_thumbnails,telescope),
+                                    data_thumbnails=None,
+                                    keys_thumbnails=keys_thumbnails,
+                                    size_thumbnails=size_thumbnails,
                                     ML_calc_prob=get_par(
                                         set_zogy.ML_calc_prob,telescope),
                                     tel=telescope)
