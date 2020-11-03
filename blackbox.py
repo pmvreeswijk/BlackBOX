@@ -826,7 +826,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
             # if input parameter [image_list] is defined, 
             # read the ascii files into filenames list
             with open(image_list, 'r') as f:
-                filenames = [name.strip() for name in f]
+                filenames = [name.strip() for name in f if name[0]!='#']
 
 
     # split into 'day' or 'night' mode
@@ -1998,7 +1998,7 @@ def blackbox_reduce (filename):
         # update header with qc-flags
         with fits.open(new_fits, 'update') as hdulist:
             for key in header:
-                if 'QC' in key:
+                if 'QC' in key or 'DUMCAT' in key:
                     hdulist[-1].header[key] = (header[key], header.comments[key])
 
         # if header of object image contains a red flag, create dummy
@@ -2279,7 +2279,7 @@ def blackbox_reduce (filename):
                     # qc-flags; transient catalog not needed
                     with fits.open(fits_tmp_cat, 'update') as hdulist:
                         for key in header_new:
-                            if 'QC' in key:
+                            if 'QC' in key or 'DUMCAT' in key:
                                 hdulist[-1].header[key] = (
                                     header_new[key], header_new.comments[key])
 
@@ -2348,7 +2348,7 @@ def blackbox_reduce (filename):
                     # qc-flags; transient catalog not needed
                     with fits.open(fits_tmp_cat, 'update') as hdulist:
                         for key in header_ref:
-                            if 'QC' in key:
+                            if 'QC' in key or 'DUMCAT' in key:
                                 hdulist[-1].header[key] = (
                                     header_ref[key], header_ref.comments[key])
 
@@ -2460,7 +2460,7 @@ def blackbox_reduce (filename):
                     # qc-flags
                     with fits.open(fits_tmp_cat, 'update') as hdulist:
                         for key in header_new:
-                            if 'QC' in key:
+                            if 'QC' in key or 'DUMCAT' in key:
                                 hdulist[-1].header[key] = (
                                     header_new[key], header_new.comments[key])
 
@@ -2478,7 +2478,7 @@ def blackbox_reduce (filename):
                     # update transient catalog header with latest qc-flags
                     with fits.open(fits_tmp_trans, 'update') as hdulist:
                         for key in header_newtrans:
-                            if 'QC' in key:
+                            if 'QC' in key or 'DUMCAT' in key:
                                 hdulist[-1].header[key] = (
                                     header_newtrans[key],
                                     header_newtrans.comments[key])
