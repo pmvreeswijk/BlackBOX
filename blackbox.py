@@ -104,9 +104,20 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
   * indicates import issue
 
-  * (3) map out and, if possible, decrease the memory consumption of
-        blackbox and zogy - needs to be done on chopper or mlcontrol
-        machine at Radboud, as laptop has too little memory
+  * (3)  map out and, if possible, decrease the memory consumption of
+         blackbox and zogy - needs to be done on chopper or mlcontrol
+         machine at Radboud, as laptop has too little memory
+
+         one possibility to decrease memory usage: write each subimage
+         data_D, data_Scorr, data_Fpsf, data_Fpsferr to fits or numpy
+         files during the zogy loop; afterwards create full images one
+         by one.
+
+         additional step: in prep_optimal_extraction, write subimage
+         arrays data_new, psf_new, data_new_bkg_std, data_new_mask and
+         the correponding reference arrays to disk rather than keep
+         them in RAM. They can then be read in again during the zogy
+         loop.
 
     (12) go through logs, look for errors and exceptions and fix them:
       
@@ -146,21 +157,6 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          such as RDIF-MAX and RSTD-MAX and their equivalents PC-MZPD
          and PC-MZPS for the zeropoint variation across the subimages.
     
-    (87) Change in full-source and reference catalogs:
-         - XWIN_IMAGE --> X_POS
-         - YWIN_IMAGE --> Y_POS
-         - ERRX2WINIMAGE --> XVAR_POS
-         - ERRY2WINIMAGE --> YVAR_POS
-         - ERRXYWINIMAGE --> XYCOV_POS
-         - FWHM_IMAGE --> FWHM
-         - delete FLUX_MAX from full-source catalog
-
-         Change in transient catalog:
-         - ML_PROB_REAL --> CLASS_REAL
-
-    (88) Danielle noticed that headers of reference images are not
-         complete anymore; need to improve this in buildref.py
-
     (89) exception in fit_moffat_single when object is too close to
          edge: shapes of arrays are flipped and lead to a broadcast
          exception
@@ -178,13 +174,22 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          the PSF stars are used to calculate Fn/Fr; if the zeropoints
          are used then the photcal stars would be used - not the same.
 
-    (91) when performing PSF to D using function
+    (91) when performing PSF fit to D using function
          [get_psfoptflux_xycoords], sn and sr are read from header
          keywords while the actual variances at that position in new
          and ref should really be used. Also, if fratio is chosen in
          settings file to be local, the global value is still used
          here.
 
+  * (92) transient extraction not going well in very crowded fields;
+         try an alternative function using Source Extractor
+
+  * (93) related to issue (3): get rid of memory leak, which is very
+         apparent when running with trans_extract=True: each process
+         appears to pick up another 1-2GB when starting on a new
+         image, starting from a peak RAM of about 12.5GB for the 1st
+         image.
+         
 
     Done:
     -----
@@ -697,6 +702,21 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     (85) header S-BKG is now set to 0 exactly; is that ok or actually
          determine it?
          --> this is not determined instead of forced to 0
+
+    (87) Change in full-source and reference catalogs:
+         - XWIN_IMAGE --> X_POS
+         - YWIN_IMAGE --> Y_POS
+         - ERRX2WINIMAGE --> XVAR_POS
+         - ERRY2WINIMAGE --> YVAR_POS
+         - ERRXYWINIMAGE --> XYCOV_POS
+         - FWHM_IMAGE --> FWHM
+         - delete FLUX_MAX from full-source catalog
+
+         Change in transient catalog:
+         - ML_PROB_REAL --> CLASS_REAL
+
+    (88) Danielle noticed that headers of reference images are not
+         complete anymore; need to improve this in buildref.py
 
     """
 
@@ -2240,7 +2260,7 @@ def blackbox_reduce (filename):
             zogy_processed = False
             header_new = optimal_subtraction(
                 new_fits=new_fits, new_fits_mask=new_fits_mask, 
-                set_file='set_zogy', log=log, verbose=None,
+                set_file='set_zogy', log=log, verbose=None, redo=None,
                 nthread=get_par(set_bb.nthread,tel), telescope=tel)
         except Exception as e:
             log.info(traceback.format_exc())
@@ -2300,7 +2320,7 @@ def blackbox_reduce (filename):
             zogy_processed = False
             header_ref = optimal_subtraction(
                 ref_fits=new_fits, ref_fits_mask=new_fits_mask, 
-                set_file='set_zogy', log=log, verbose=None,
+                set_file='set_zogy', log=log, verbose=None, redo=None,
                 nthread=get_par(set_bb.nthread,tel), telescope=tel)
         except Exception as e:
             log.info(traceback.format_exc())
@@ -2422,7 +2442,8 @@ def blackbox_reduce (filename):
             header_new, header_trans = optimal_subtraction(
                 new_fits=new_fits, ref_fits=ref_fits, new_fits_mask=new_fits_mask,
                 ref_fits_mask=ref_fits_mask, set_file='set_zogy', log=log, 
-                verbose=None, nthread=get_par(set_bb.nthread,tel), telescope=tel)
+                verbose=None, redo=None, nthread=get_par(set_bb.nthread,tel),
+                telescope=tel)
         except Exception as e:
             log.info(traceback.format_exc())
             log.error('exception was raised during [optimal_subtraction] for '
@@ -3357,15 +3378,18 @@ def master_prep (fits_master, data_shape, pick_alt=True, log=None):
 
 
     # if this is a forced re-reduction, delete the master if it exists
-    if master_present and get_par(set_bb.force_reproc_new,tel):
-        os.remove(fits_master)
-        # also remove jpg if it exists
-        file_jpg = '{}.jpg'.format(fits_master.split('.fits')[0])
-        if os.path.isfile(file_jpg):
-            os.remove(file_jpg)
-        master_present = False
-        if '.fz' in fits_master:
-            fits_master = fits_master.replace('.fz','')
+    # N.B.: skip this for the moment; better to remove existing master
+    # flats if they need to be redone
+    if False:
+        if master_present and get_par(set_bb.force_reproc_new,tel):
+            os.remove(fits_master)
+            # also remove jpg if it exists
+            file_jpg = '{}.jpg'.format(fits_master.split('.fits')[0])
+            if os.path.isfile(file_jpg):
+                os.remove(file_jpg)
+            master_present = False
+            if '.fz' in fits_master:
+                fits_master = fits_master.replace('.fz','')
 
 
     # check if master bias/flat does not contain any red flags:
@@ -5281,20 +5305,6 @@ class FileWatcher(FileSystemEventHandler, object):
         :param event: new event found
         :type event: event'''
         self._queue.put(event)
-
-
-################################################################################
-
-# from https://stackoverflow.com/questions/15008758/parsing-boolean-values-with-argparse
-def str2bool(v):
-    if isinstance(v, bool):
-        return v
-    if v.lower() in ('yes', 'true', 't', 'y', '1'):
-        return True
-    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
-        return False
-    else:
-        raise argparse.ArgumentTypeError('Boolean value expected.')
 
 
 ################################################################################
