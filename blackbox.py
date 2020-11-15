@@ -1,6 +1,5 @@
 
 import os
-import sys
 import gc
 import pickle
 
@@ -720,7 +719,6 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
     """
 
-
     global tel, filts, types
     tel = telescope
     filts = filters
@@ -754,6 +752,8 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
                  .format(get_par(set_bb.cat_extract,tel)))
     genlog.info ('switch trans_extract: {}'
                  .format(get_par(set_bb.trans_extract,tel)))
+
+    mem_use (label='run_blackbox at start', log=genlog)
 
     # leave right away if none of the main processing switches are on
     if (not get_par(set_bb.img_reduce,tel) and
@@ -1366,6 +1366,7 @@ def blackbox_reduce (filename):
 
     if get_par(set_zogy.timing,tel):
         t_blackbox_reduce = time.time()
+        mem_use (label='blackbox_reduce at start', log=genlog)
 
 
     # just read the header for the moment
@@ -2541,7 +2542,8 @@ def blackbox_reduce (filename):
 
 
     if get_par(set_zogy.timing,tel):
-        log_timing_memory (t0=t_blackbox_reduce, label='blackbox_reduce', log=log)
+        log_timing_memory (t0=t_blackbox_reduce, label='blackbox_reduce at end',
+                           log=log)
 
     log.info('reached the end of function blackbox_reduce')
     close_log(log, logfile)
@@ -3199,7 +3201,9 @@ def cosmics_corr (data, header, data_mask, header_mask, log=None):
 
     if get_par(set_zogy.timing,tel):
         t = time.time()
-    
+
+    mem_use (label='cosmics_corr at start', log=log) 
+        
     # set satlevel to infinite, as input [data_mask] already contains
     # saturated and saturated-connected pixels that will not be considered
     # in the cosmic-ray detection; in fact all masked pixels are excluded
@@ -3217,6 +3221,8 @@ def cosmics_corr (data, header, data_mask, header_mask, log=None):
         #fsmode='convolve', psfmodel='moffat', psffwhm=4, psfsize=13,
         sepmed=get_par(set_bb.sepmed,tel))
 
+    mem_use (label='cosmics_corr just after astroscrappy', log=log) 
+    
     # from astroscrappy 'manual': To reproduce the most similar
     # behavior to the original LA Cosmic (written in IRAF), set inmask
     # = None, satlevel = np.inf, sepmed=False, cleantype='medmask',
@@ -4128,7 +4134,8 @@ def set_header(header, filename):
     # identical to those of the image preceding the bias/dark), then
     # just adopt the original DATE-OBS (=ACQSTART) as the date of
     # observation    
-    if 'GPSSTART' in header and 'GPSEND' in header and imgtype == 'object':
+    if ('GPSSTART' in header and 'GPSEND' in header and
+        (imgtype == 'object' or imgtype == 'flat')):
         
         # replace DATE-OBS with (GPSSTART+GPSEND)/2
         gps_mjd = Time([header['GPSSTART'], header['GPSEND']], format='isot').mjd
