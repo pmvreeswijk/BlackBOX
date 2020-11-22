@@ -139,10 +139,6 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
   * (20) optimal vs. large aperture magnitudes show discrepant values
          at the bright end; why?
 
-    (22) limit PSFEx LDAC catalog to [psfex_nstars] random stars
-         obeying S/N constraints, such that ldac catalog has reasonable
-         size?
-
     (64) after subtraction of a background with a gradient, the
          standard deviation must be different; find a good way to
          improve the STD estimate
@@ -155,30 +151,14 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
   * (86) need to redefine QC ranges for keywords introduced in v1.0,
          such as RDIF-MAX and RSTD-MAX and their equivalents PC-MZPD
          and PC-MZPS for the zeropoint variation across the subimages.
+         - do not flag images red based on LIMMAG or PC-ZP, but
+           provide reasonable ranges for the other colors
+         - but keep flagging red on PC-ZPSTD
+
     
     (89) exception in fit_moffat_single when object is too close to
          edge: shapes of arrays are flipped and lead to a broadcast
          exception
-
-    (90) currently FLUX_AUTO is used for the photometric normalization
-         in PSFEx, which is recorded in the _psfex.cat output ASCII
-         file. That file is used for the determination of the flux
-         ratio of the new and ref image (Fn/Fr, header keyword Z-FNR),
-         i.e.  it is based on FLUX_AUTO, while ideally the optimal
-         flux would be used. One option is to infer the Fn/Fr directly
-         from the difference in zeropoints and airmasses between new
-         and ref, as is done in buildref. At least the global image
-         Fn/Fr can be inferred that way, and also the channels' Fn/Fr.
-         and probably also the flux ratio of each subimage. N.B.: now
-         the PSF stars are used to calculate Fn/Fr; if the zeropoints
-         are used then the photcal stars would be used - not the same.
-
-    (91) when performing PSF fit to D using function
-         [get_psfoptflux_xycoords], sn and sr are read from header
-         keywords while the actual variances at that position in new
-         and ref should really be used. Also, if fratio is chosen in
-         settings file to be local, the global value is still used
-         here.
 
   * (92) transient extraction not going well in very crowded fields;
          try an alternative function using Source Extractor
@@ -188,7 +168,29 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          appears to pick up another 1-2GB when starting on a new
          image, starting from a peak RAM of about 12.5GB for the 1st
          image.
+
+    (94) determination of optimal fluxes could be sped up by using the
+         psf images determined for [get_psf] at the centers of the
+         subimages. And for the PSF fit to D, the subimages P_D could
+         be saved to disk to be used later on in [get_psfoptflux].
+         Downside is that the PSF inferred is not exactly at the
+         source position, but the difference will be very small.
+         Added benefit: the flux ratios are then automatically
+         determined locally or globally - see issue (91)
          
+    (95) when determining flux ratios from optimal fluxes, the ref
+         catalog fluxes are e-/s, whereas the corresponding exptime in
+         the header is 60. And when those ratios are determined, the
+         new catalog fluxes are not yet in e-/s, which is done by
+         [format_cat] at the end. Maybe better to list those catalog
+         fluxes in e- instead of e-/s? See issue (96)
+
+    (96) convert all fluxes except for FLUX_OPT and FLUXERR_OPT 
+         in all output catalogs to AB magnitudes. 
+
+    (97) in ref catalog, include columns A, (B), THETA, CXX, CYY, CXY
+         and remove X2AVE_POS, Y2AVE_POS and XYAVE_POS.
+
 
     Done:
     -----
@@ -293,6 +295,14 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     
   * (21) force orientation in thumbnail images to be approximately
          North up East left
+
+    (22) limit PSFEx LDAC catalog to [psfex_nstars] random stars
+         obeying S/N constraints, such that ldac catalog has reasonable
+         size?
+         --> before [run_psfex] is run the number of input stars is 
+             limited to a random set of 20000; from this PSFEx rejects
+             an additional set of stars and only the stars used by 
+             PSFEx are saved to the ldac catalog
 
     (23) header of output catalog is much more complete than header of
          reduced image; need to update the latter
@@ -716,6 +726,36 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
     (88) Danielle noticed that headers of reference images are not
          complete anymore; need to improve this in buildref.py
+
+    (90) currently FLUX_AUTO is used for the photometric normalization
+         in PSFEx, which is recorded in the _psfex.cat output ASCII
+         file. That file is used for the determination of the flux
+         ratio of the new and ref image (Fn/Fr, header keyword Z-FNR),
+         i.e.  it is based on FLUX_AUTO, while ideally the optimal
+         flux would be used. One option is to infer the Fn/Fr directly
+         from the difference in zeropoints and airmasses between new
+         and ref, as is done in buildref. At least the global image
+         Fn/Fr can be inferred that way, and also the channels' Fn/Fr.
+         and probably also the flux ratio of each subimage. N.B.: now
+         the PSF stars are used to calculate Fn/Fr; if the zeropoints
+         are used then the photcal stars would be used - not the same.
+         --> added possibility to use optimal fluxes from the new and
+             ref catalogs instead of the FLUX_AUTO; this option can
+             now be selected through the input parameter [use_optflux]
+             which is set to True by default. The global flux ratio
+             is also determined from the zeropoint difference just
+             after get_fratio_dxdy is executed, but that is currently
+             switched off.
+
+    (91) when performing PSF fit to D using function [get_psfoptflux],
+         sn and sr are read from header keywords while the actual
+         variances at that position in new and ref should really be
+         used.  
+         --> proper error image of D is now supplied to
+             [get_optflux_xy]
+         Also, if fratio is chosen in settings file to be local, the
+         global value is still used here.
+         --> this will be improved when issue (94) is implemented
 
     """
 
@@ -2261,7 +2301,7 @@ def blackbox_reduce (filename):
             zogy_processed = False
             header_new = optimal_subtraction(
                 new_fits=new_fits, new_fits_mask=new_fits_mask, 
-                set_file='set_zogy', log=log, verbose=None, redo=None,
+                set_file='set_zogy', log=log, verbose=None, redo_new=None,
                 nthread=get_par(set_bb.nthread,tel), telescope=tel)
         except Exception as e:
             log.info(traceback.format_exc())
@@ -2321,7 +2361,7 @@ def blackbox_reduce (filename):
             zogy_processed = False
             header_ref = optimal_subtraction(
                 ref_fits=new_fits, ref_fits_mask=new_fits_mask, 
-                set_file='set_zogy', log=log, verbose=None, redo=None,
+                set_file='set_zogy', log=log, verbose=None, redo_ref=None,
                 nthread=get_par(set_bb.nthread,tel), telescope=tel)
         except Exception as e:
             log.info(traceback.format_exc())
@@ -2443,8 +2483,8 @@ def blackbox_reduce (filename):
             header_new, header_trans = optimal_subtraction(
                 new_fits=new_fits, ref_fits=ref_fits, new_fits_mask=new_fits_mask,
                 ref_fits_mask=ref_fits_mask, set_file='set_zogy', log=log, 
-                verbose=None, redo=None, nthread=get_par(set_bb.nthread,tel),
-                telescope=tel)
+                verbose=None, redo_new=None, redo_ref=None,
+                nthread=get_par(set_bb.nthread,tel), telescope=tel)
         except Exception as e:
             log.info(traceback.format_exc())
             log.error('exception was raised during [optimal_subtraction] for '
