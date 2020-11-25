@@ -832,8 +832,9 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
             return
 
     else:
-        # if it is provided but does not exist, exit
-        if not os.path.isdir(read_path):
+        # if it is provided but does not exist, exit unless in night
+        # mode in which case it will be created below
+        if not os.path.isdir(read_path) and mode != 'night':
             genlog.critical ('[read_path] directory provided does not exist:\n{}'
                              .format(read_path))
             logging.shutdown()
@@ -932,6 +933,11 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
         # if in night mode, check if anything changes in input directory
         # and if there is a new file, feed it to [blackbox_reduce]
 
+        # [read_path] folder may not exist yet (e.g. no data have yet
+        # been synced to it), which will cause watchdog to break, so
+        # make sure it exists
+        make_dir (read_path, put_lock=False)
+
         # create queue for submitting jobs
         queue = Queue()
         # create pool with given number of processes and queue feeding
@@ -982,13 +988,15 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     # ---------------------------       
     genlog.info ('fpacking fits images')
     # now that all files have been processed, fpack!
-    # create list of files to fpack
-    list_2pack = prep_packlist (date, image, filenames_reduced[0])
     if image is None:
+        # using multiprocessing in non-single image mode
+        list_2pack = prep_packlist (date)
         # use [pool_func] to process the list
         results = pool_func (fpack, list_2pack, genlog,
                              log=genlog, nproc=get_par(set_bb.nproc,tel))
     else:
+        # without multiprocessing in single image mode
+        list_2pack = prep_packlist (date, image_red=filenames_reduced[0])
         # process list one by one
         for file_2pack in list_2pack:
             fpack (file_2pack, genlog)
@@ -998,13 +1006,13 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     # ----------------------------------------
     genlog.info ('creating jpg images')
     # create list of files to jpg
-    list_2jpg = prep_jpglist (date, image, filenames_reduced[0])
     if image is None:
+        list_2jpg = prep_jpglist (date)
         # use [pool_func] to process the list
         results = pool_func (create_jpg, list_2jpg, genlog,
                              log=genlog, nproc=get_par(set_bb.nproc,tel))
-
     else:
+        list_2jpg = prep_jpglist (date, image_red=filenames_reduced[0])
         # process list one by one
         for file_2jpg in list_2jpg:
             create_jpg (file_2jpg, genlog)
@@ -1174,13 +1182,12 @@ def pool_func (func, filelist, *args, log=None, nproc=1):
 
 ################################################################################
 
-def prep_packlist (date, image, filename):
+def prep_packlist (date, image_red=None):
     
     list_2pack = []
-    if image is not None:
-        if filename is not None:
-            basename = filename.split('_red.fits')[0]
-            list_2pack.append(glob.glob('{}*.fits'.format(basename)))
+    if image_red is not None:
+        image_red_base = image_red.split('_red.fits')[0]
+        list_2pack.append(glob.glob('{}*.fits'.format(image_red_base)))
 
     elif date is not None:
         # add files in [read_path]
@@ -1212,7 +1219,7 @@ def prep_packlist (date, image, filename):
     #ref_dir = get_par(set_bb.ref_dir,tel)
     #list_2pack.append(glob.glob('{}/*/*.fits'.format(ref_dir)))
 
-    
+
     # add tmp folders if they are kept
     if get_par(set_bb.keep_tmp,tel):
         tmp_dir = get_par(set_bb.tmp_dir,tel)
@@ -1220,11 +1227,12 @@ def prep_packlist (date, image, filename):
 
         
     # flatten this list of files
-    list_2pack = [item for sublist in list_2pack for item in sublist]
-    # and get the unique items
-    list_2pack = list(set(list_2pack))
+    list_2pack = list(itertools.chain.from_iterable(list_2pack))
+    #list_2pack = [item for sublist in list_2pack for item in sublist]
 
-    return list_2pack
+
+    # return the unique items
+    return list(set(list_2pack))
     
 
 ################################################################################
@@ -1270,37 +1278,36 @@ def fpack (filename, log=None):
 
 ################################################################################
 
-def prep_jpglist (date, image, filename):
+def prep_jpglist (date, image_red=None):
     
     list_2jpg = []
-    if image is not None:
-        if filename is not None:
-            # only create jpg of the reduced file
-            list_2jpg.append('{}.fz'.format(filename))
+    if image_red is not None:
+        # only create jpg of the reduced file
+        list_2jpg.append('{}.fz'.format(image_red))
+
+
+    elif date is not None:
+        # add files in [write_path]
+        write_path, __ = get_path(date, 'write')
+        list_2jpg.append(glob.glob('{}/*_red.fits.fz'.format(write_path)))
+        # add fits files in bias and flat directories
+        list_2jpg.append(glob.glob('{}/bias/*.fits.fz'.format(write_path)))
+        list_2jpg.append(glob.glob('{}/flat/*.fits.fz'.format(write_path)))
 
     else:
+        # just add all fits files in [telescope]/red/*/*/*/*.fits
+        # (could do it more specifically by going through raw fits
+        # files and finding out where their reduced images are)
+        red_dir = get_par(set_bb.red_dir,tel)
+        list_2jpg.append(glob.glob('{}/*/*/*/*_red.fits.fz'.format(red_dir)))
+        # add fits files in bias and flat directories
+        list_2jpg.append(glob.glob('{}/*/*/*/bias/*.fits.fz'.format(red_dir)))
+        list_2jpg.append(glob.glob('{}/*/*/*/flat/*.fits.fz'.format(red_dir)))
 
-        if date is not None:
-            # add files in [write_path]
-            write_path, __ = get_path(date, 'write')
-            list_2jpg.append(glob.glob('{}/*_red.fits.fz'.format(write_path)))
-            # add fits files in bias and flat directories
-            list_2jpg.append(glob.glob('{}/bias/*.fits.fz'.format(write_path)))
-            list_2jpg.append(glob.glob('{}/flat/*.fits.fz'.format(write_path)))
-
-        else:
-            # just add all fits files in [telescope]/red/*/*/*/*.fits
-            # (could do it more specifically by going through raw fits
-            # files and finding out where their reduced images are)
-            red_dir = get_par(set_bb.red_dir,tel)
-            list_2jpg.append(glob.glob('{}/*/*/*/*_red.fits.fz'.format(red_dir)))
-            # add fits files in bias and flat directories
-            list_2jpg.append(glob.glob('{}/*/*/*/bias/*.fits.fz'.format(red_dir)))
-            list_2jpg.append(glob.glob('{}/*/*/*/flat/*.fits.fz'.format(red_dir)))
-
-            
-        # flatten the list of files
-        list_2jpg = [item for sublist in list_2jpg for item in sublist]
+        
+    # flatten the list of files
+    #list_2jpg = [item for sublist in list_2jpg for item in sublist]
+    list_2jpg = list(itertools.chain.from_iterable(list_2jpg))
 
 
     # return the unique items
@@ -5266,7 +5273,7 @@ def action(queue):
             # [run_blackbox]
             filename = event
             filetype = 'pre-existing'
-            print ('Error: {}'.format(e))
+            genlog.info ('exception: {}'.format(e))
 
 
         genlog.info ('detected a {} file: {}'.format(filetype, filename))
@@ -5289,7 +5296,7 @@ def action(queue):
             if fn_tail[0] == '.':
                 filename = '{}/{}'.format(fn_head, '.'
                                           .join(fn_tail.split('.')[1:-1]))
-                genlog.info ('changed filename from rsync copy {} to {}'
+                genlog.info ('changed filename from rsync temporary file {} to {}'
                              .format(event.src_path, filename))
 
             # this while loop below replaces the old [copying]
