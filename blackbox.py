@@ -155,7 +155,6 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
            provide reasonable ranges for the other colors
          - but keep flagging red on PC-ZPSTD
 
-    
     (89) exception in fit_moffat_single when object is too close to
          edge: shapes of arrays are flipped and lead to a broadcast
          exception
@@ -168,22 +167,6 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          appears to pick up another 1-2GB when starting on a new
          image, starting from a peak RAM of about 12.5GB for the 1st
          image.
-
-    (94) determination of optimal fluxes could be sped up by using the
-         psf images determined for [get_psf] at the centers of the
-         subimages. And for the PSF fit to D, the subimages P_D could
-         be saved to disk to be used later on in [get_psfoptflux].
-         Downside is that the PSF inferred is not exactly at the
-         source position, but the difference will be very small.
-         Added benefit: the flux ratios are then automatically
-         determined locally or globally - see issue (91)
-         
-    (95) when determining flux ratios from optimal fluxes, the ref
-         catalog fluxes are e-/s, whereas the corresponding exptime in
-         the header is 60. And when those ratios are determined, the
-         new catalog fluxes are not yet in e-/s, which is done by
-         [format_cat] at the end. Maybe better to list those catalog
-         fluxes in e- instead of e-/s? See issue (96)
 
     (96) convert all fluxes except for FLUX_OPT and FLUXERR_OPT 
          in all output catalogs to AB magnitudes. 
@@ -756,6 +739,27 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          Also, if fratio is chosen in settings file to be local, the
          global value is still used here.
          --> this will be improved when issue (94) is implemented
+
+    (94) determination of optimal fluxes could be sped up by using the
+         psf images determined for [get_psf] at the centers of the
+         subimages. And for the PSF fit to D, the subimages P_D could
+         be saved to disk to be used later on in [get_psfoptflux].
+         Downside is that the PSF inferred is not exactly at the
+         source position, but the difference will be very small.
+         Added benefit: the flux ratios are then automatically
+         determined locally or globally - see issue (91)
+         --> tried this but gain in execution time is marginal,
+             so leaving it as it is
+
+    (95) when determining flux ratios from optimal fluxes, the ref
+         catalog fluxes are e-/s, whereas the corresponding exptime in
+         the header is 60. And when those ratios are determined, the
+         new catalog fluxes are not yet in e-/s, which is done by
+         [format_cat] at the end. Maybe better to list those catalog
+         fluxes in e- instead of e-/s? See issue (96)
+         --> solved this by reading catalogs as a table with 
+             astropy.table.Table, which has attribute unit; if that
+             contains '/s', then exptime=1s is used
 
     """
 
@@ -2084,9 +2088,9 @@ def blackbox_reduce (filename):
             # corresponding to the object image
             result = copy_files2keep(tmp_base, new_base,
                                      get_par(set_bb.all_2keep,tel),
-                                     move=~get_par(set_bb.keep_tmp,tel),
+                                     move=(not get_par(set_bb.keep_tmp,tel)),
                                      log=log)
-            clean_tmp(tmp_path)
+            clean_tmp(tmp_path, log=log)
             close_log(log, logfile)
             return fits_out
 
@@ -2116,14 +2120,14 @@ def blackbox_reduce (filename):
             # files to new directory and clean up tmp folder if needed
             result = copy_files2keep(tmp_base, new_base,
                                      get_par(set_bb.img_reduce_exts,tel),
-                                     move=~get_par(set_bb.keep_tmp,tel),
+                                     move=(not get_par(set_bb.keep_tmp,tel)),
                                      log=log)
-            clean_tmp(tmp_path)
+            clean_tmp(tmp_path, log=log)
             close_log(log, logfile)
             return fits_out
 
         else:
-            clean_tmp(tmp_path)
+            clean_tmp(tmp_path, log=log)
             close_log(log, logfile)
             return None
 
@@ -2156,7 +2160,7 @@ def blackbox_reduce (filename):
             log.info ('all {} data products already present in reduced folder, '
                       'nothing left to do for {}'.format(text, filename))
             
-            clean_tmp(tmp_path)
+            clean_tmp(tmp_path, log=log)
             close_log(log, logfile)
 
             if do_reduction:
@@ -2324,9 +2328,9 @@ def blackbox_reduce (filename):
                              'products')
                 result = copy_files2keep(tmp_base, new_base,
                                          get_par(set_bb.img_reduce_exts,tel),
-                                         move=~get_par(set_bb.keep_tmp,tel),
+                                         move=(not get_par(set_bb.keep_tmp,tel)),
                                          log=log)
-                clean_tmp(tmp_path)
+                clean_tmp(tmp_path, log=log)
                 close_log(log, logfile)
                 return None
 
@@ -2342,6 +2346,7 @@ def blackbox_reduce (filename):
                     run_qc_check (header_new, tel, cat_type='trans',
                                   cat_dummy=fits_tmp_trans, log=log)
 
+                        
                 else:
                     # update full-source catalog header with latest
                     # qc-flags; transient catalog not needed
@@ -2384,7 +2389,7 @@ def blackbox_reduce (filename):
                              'products')
                 result = copy_files2keep(tmp_base, new_base,
                                          get_par(set_bb.img_reduce_exts,tel),
-                                         move=~get_par(set_bb.keep_tmp,tel),
+                                         move=(not get_par(set_bb.keep_tmp,tel)),
                                          log=log)
 
                 # before leaving, remove this reference ID
@@ -2393,9 +2398,8 @@ def blackbox_reduce (filename):
                           'the [ref_ID_filt] queue')
                 result = check_ref(ref_ID_filt, (obj, filt), method='remove')
 
-                clean_tmp(tmp_path)
+                clean_tmp(tmp_path, log=log)
                 close_log(log, logfile)
-        
                 return None
 
             else:
@@ -2507,9 +2511,9 @@ def blackbox_reduce (filename):
                              'products')
                 result = copy_files2keep(tmp_base, new_base,
                                          get_par(set_bb.img_reduce_exts,tel),
-                                         move=~get_par(set_bb.keep_tmp,tel),
+                                         move=(not get_par(set_bb.keep_tmp,tel)),
                                          log=log)
-                clean_tmp(tmp_path)
+                clean_tmp(tmp_path, log=log)
                 close_log(log, logfile)
                 return None
 
@@ -2555,15 +2559,13 @@ def blackbox_reduce (filename):
 
 
     # update reduced image header with extended header_new from ZOGY's
-    # optimal_subtraction
-    header_new['DATEFILE'] = (Time.now().isot, 'UTC date of writing file')
-    with fits.open(new_fits, 'update') as hdulist:
-        hdulist[-1].header = header_new
-
-    # also write separate header fits file with complete header,
-    # i.e. header_new + header_trans
-    hdulist = fits.HDUList(fits.PrimaryHDU(header=header_new+header_trans))
-    hdulist.writeto(new_fits.replace('.fits', '_hdr.fits'), overwrite=True)
+    # optimal_subtraction; this also updates the header of the newly
+    # created reference image - no need to update the ref image header
+    # in case both new and ref are provided
+    if 'header_new' in locals() and new_fits in locals():
+        if 'header_trans' not in locals():
+            header_trans = None
+        update_header (new_fits, header_new, header_trans=header_trans)
 
 
     # list of files to copy/move to reduced folder; need to include
@@ -2584,19 +2586,40 @@ def blackbox_reduce (filename):
     result = copy_files2keep(tmp_base, new_base, list_2keep,
                              # if tmp folder is cleaned up afterwards,
                              # move the files instead of copying
-                             move=~get_par(set_bb.keep_tmp,tel), log=log)
-    clean_tmp(tmp_path)
-
+                             move=(not get_par(set_bb.keep_tmp,tel)), log=log)
 
     if get_par(set_zogy.timing,tel):
         log_timing_memory (t0=t_blackbox_reduce, label='blackbox_reduce at end',
                            log=log)
 
     log.info('reached the end of function blackbox_reduce')
+
+    clean_tmp(tmp_path, log=log)
     close_log(log, logfile)
     
     return fits_out
 
+
+################################################################################
+
+def update_header (filename, header, header_trans=None):
+
+    # update image header with extended header_new from ZOGY's
+    # optimal_subtraction
+    header['DATEFILE'] = (Time.now().isot, 'UTC date of writing file')
+    with fits.open(filename, 'update') as hdulist:
+        hdulist[-1].header = header
+
+    # also write separate header fits file with complete header,
+    # i.e. header + header_trans, if the latter is available
+    if header_trans is not None:
+        header += header_trans
+
+    hdulist = fits.HDUList(fits.PrimaryHDU(header=header))
+    hdulist.writeto(filename.replace('.fits', '_hdr.fits'), overwrite=True)
+
+    return
+    
 
 ################################################################################
 
@@ -3072,18 +3095,19 @@ def make_dir (path, empty=False, put_lock=True, lock=None):
 
 ################################################################################
 
-def clean_tmp (tmp_path):
+def clean_tmp (tmp_path, log=None):
 
     """ Function that removes the tmp folder corresponding to the
         reduced image / reference image if [set_bb.keep_tmp] not True.
     """
 
-    lock.acquire()
-    # and delete [tmp_path] folder if [set_bb.keep_tmp] not True
+    # delete [tmp_path] folder if [set_bb.keep_tmp] not True
     if not get_par(set_bb.keep_tmp,tel) and os.path.isdir(tmp_path):
-        shutil.rmtree(tmp_path)
 
-    lock.release()
+        if log is not None:
+            log.info ('removing temporary folder: {}'.format(tmp_path))
+
+        shutil.rmtree(tmp_path)
 
     # if making plots, change directory from tmp_path to run_dir
     #if get_par(set_zogy.make_plots,tel):
