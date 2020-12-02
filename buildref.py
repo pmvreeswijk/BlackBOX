@@ -64,43 +64,8 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
          could be improved by considering those pixels with less than
          certain amount of images (e.g. 3) as edge pixels.
 
-    (21) reference image specific logfile is not being created; why
+  * (21) reference image specific logfile is not being created; why
          not? Perhaps due to switching off logging stream handler?
-
-    (23) could OR mask be made using Swarp directly instead of first
-         SWarping each and every mask and combining them outside of
-         SWarp? Different options:
-
-         - make OR combination of the masks and compare it to the
-           output WEIGHTOUT_NAME from the image combination, which is
-           the output background standard deviation image. If a pixel
-           was masked in all images, then it should have a 0 in the
-           output weight image. For those pixels, use the OR combined
-           mask value for the combined mask image, otherwise set it to
-           zero
-           --> doesn't work because saturated and saturated-connected
-               pixels are not flagged in weights image, as otherwise
-               the reference image will have holes in it
-
-         - make OR and MIN combination of the masks. Wherever MIN 
-           is not zero, use the OR combation
-           --> this appears to work fine, but problem seems to occur
-               when remapping each mask individually; the combined
-               mask seems to be offset in that case
-
-    (24) check if exptime time in output image is correct if not all
-         images have the same exposure times; how is this done with
-         the clipped method?? SWarp manual says exptime keyword is
-         being propagated, where "EXPTIME: Sum of exposure times in
-         the part of the coadd with the most overlaps", but at the
-         moment the header EXPTIME is replaced by the mean of all
-         exposure times.
-
-         Weighting does not seem to take into account the input
-         exposure times. E.g. background standard deviation of
-         an exposure of e.g. 120s will be higher than that of a
-         60s exposure, and so its weights will be less, while it
-         should have more weight than a 60s exposure.
 
     (25) is output weight map (=ML1_[filter]_red_bkg_std_mini.fits.fz)
          consistent with the noise in the output image? ZOGY returns
@@ -108,6 +73,18 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
          not right with the reference image STD image. Comparing one
          image: actual STD or sigma appears about 10%, which would be
          about 20% off in variance.
+
+         --> made an output STD image independent from SWarp and that
+             is consistent with the one made by SWarp, so weight map
+             calculation appears ok
+
+         --> not all images are with Z-SCSTD~0.8; only a subset;
+             strangely, the entire night of 2020-09-09 and also partly
+             2020-09-10 has that value
+
+         --> possible solution: after having made the new co-add,
+             compare the STDs in the different channels with those in
+             the bkg_std image and scale the latter
 
 
     Done:
@@ -273,6 +250,44 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
          also resulting in a colour figure that is off.  Improve this
          by taking the mean or median RA/DEC of all images of the
          field, not just for that filter -- done!
+
+    (23) could OR mask be made using Swarp directly instead of first
+         SWarping each and every mask and combining them outside of
+         SWarp? Different options:
+
+         - make OR combination of the masks and compare it to the
+           output WEIGHTOUT_NAME from the image combination, which is
+           the output background standard deviation image. If a pixel
+           was masked in all images, then it should have a 0 in the
+           output weight image. For those pixels, use the OR combined
+           mask value for the combined mask image, otherwise set it to
+           zero
+           --> doesn't work because saturated and saturated-connected
+               pixels are not flagged in weights image, as otherwise
+               the reference image will have holes in it
+
+         - make OR and MIN combination of the masks. Wherever MIN 
+           is not zero, use the OR combation
+           --> this appears to work fine, but problem seems to occur
+               when remapping each mask individually; the combined
+               mask seems to be offset in that case
+
+    (24) check if exptime time in output image is correct if not all
+         images have the same exposure times; how is this done with
+         the clipped method?? SWarp manual says exptime keyword is
+         being propagated, where "EXPTIME: Sum of exposure times in
+         the part of the coadd with the most overlaps", but at the
+         moment the header EXPTIME is replaced by the mean of all
+         exposure times.
+
+         Weighting does not seem to take into account the input
+         exposure times. E.g. background standard deviation of
+         an exposure of e.g. 120s will be higher than that of a
+         60s exposure, and so its weights will be less, while it
+         should have more weight than a 60s exposure.
+
+         --> since all images are scaled to the first image, use the
+             exposure time of the first image for the output image
 
     """
     
@@ -1436,7 +1451,7 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
         # set pixels in data_mask that are to be discarded (selected
         # with input parameter masktype_discard) to zero in weights image
         mask_weights = np.zeros(data_mask.shape, dtype=bool)
-        mask_value = set_zogy.mask_value
+        mask_value = get_par(set_zogy.mask_value,tel)
         # iterate over all mask values
         for val in mask_value.values():
             # check if this one is to be discarded
