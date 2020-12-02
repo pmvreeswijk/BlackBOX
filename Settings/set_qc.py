@@ -197,7 +197,7 @@ qc_range = {
         # cosmics/satellites
         'NCOSMICS': {'default':'None', 'val_type': 'min_max', 'val_range': [ (3,50), (2.5,100), (2,500) ],      'key_type': 'full', 'comment': '[/s] number of cosmic rays identified'},
         'NSATS'   : {'default':'None', 'val_type': 'min_max', 'val_range': [ (0,1), (2,3), (4,5) ],             'key_type': 'full', 'comment': 'number of satellite trails identified'},
-        
+
         # SExtractor
         'S-NOBJ'  : {'default':'None', 'val_type': 'skip',    'val_range': [ (4e3,1e4), (3e3,2e5), (1e3,1e7) ], 'key_type': 'full', 'comment': 'number of objects detected by SExtractor'},
         'NOBJECTS': {'default':'None', 'val_type': 'min_max', 'val_range': [ (4e3,1e5), (1e3,3e5), (1e2,1e7) ], 'key_type': 'full', 'comment': 'number of >= [NSIGMA]-sigma objects'},
@@ -238,17 +238,25 @@ qc_range = {
         # PSFEx
         'PSF-NOBJ': {'default':'None', 'val_type': 'min_max', 'val_range': [ (500,2e4), (100,5e4), (10,2e5) ],  'key_type': 'full', 'comment': 'number of accepted PSF stars'},
         'PSF-CHI2': {'default':'None', 'val_type': 'sigma',   'val_range': [ (1, 0.1) ],                        'key_type': 'full', 'comment': 'final reduced chi-squared PSFEx fit'},
-        'PSF-FWHM': {'default':'None', 'val_type': 'min_max', 'val_range': [ (1.5,4), (1,5), (0.5,8) ],         'key_type': 'full', 'comment': '[arcsec] image FWHM inferred by PSFEx'},
+        'PSF-SEE' : {'default':'None', 'val_type': 'min_max', 'val_range': [ (1.5,4), (1,5), (0.5,7) ],         'key_type': 'full', 'comment': '[arcsec] image seeing inferred by PSFEx'},
 
         # photometric calibration (PC)
         'PC-CAT-F': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full', 'comment': 'photometric catalog'},
         'PC-NCAL' : {'default':'None', 'val_type': 'min_max', 'val_range': [ (50, 1e3), (20, 1e4), (5,1e5) ],   'key_type': 'full', 'comment': 'number of brightest photcal stars used'},
-        'PC-ZP'   : {'default':'None', 'val_type': 'sigma',   'val_range': {'u': [ (22.4, 0.15) ],
-                                                                            'g': [ (23.3, 0.15) ],
-                                                                            'q': [ (23.8, 0.15) ],
-                                                                            'r': [ (22.9, 0.15) ],
-                                                                            'i': [ (22.3, 0.15) ],
-                                                                            'z': [ (21.4, 0.15) ]},              'key_type': 'full', 'comment': '[mag] zeropoint=m_AB+2.5*log10(flux[e-/s])+A*k'},
+
+        'PC-ZP'   : {'default':'None', 'val_type': 'min_max', 'val_range': {'u': [ (22.1, 22.7), (21.4, 23.4), (0, 30) ],
+                                                                            'g': [ (23.0, 23.6), (22.3, 24.3), (0, 30) ],
+                                                                            'q': [ (23.5, 24.1), (22.8, 24.8), (0, 30) ],
+                                                                            'r': [ (22.6, 23.2), (21.9, 23.9), (0, 30) ],
+                                                                            'i': [ (22.0, 22.6), (21.3, 23.3), (0, 30) ],
+                                                                            'z': [ (21.1, 21.7), (20.4, 22.4), (0, 30) ]}, 'key_type': 'full', 'comment': '[mag] zeropoint=m_AB+2.5*log10(flux[e-/s])+A*k'},
+        # previously using sigma method
+        #'PC-ZP'   : {'default':'None', 'val_type': 'sigma',   'val_range': {'u': [ (22.4, 0.15) ],
+        #                                                                    'g': [ (23.3, 0.15) ],
+        #                                                                    'q': [ (23.8, 0.15) ],
+        #                                                                    'r': [ (22.9, 0.15) ],
+        #                                                                    'i': [ (22.3, 0.15) ],
+        #                                                                    'z': [ (21.4, 0.15) ]},              'key_type': 'full', 'comment': '[mag] zeropoint=m_AB+2.5*log10(flux[e-/s])+A*k'},
 
         'PC-ZPSTD': {'default':'None', 'val_type': 'sigma',   'val_range': {'u': [ (0.06, 0.03) ], 
                                                                             'g': [ (0.03, 0.03) ], 
@@ -273,12 +281,12 @@ qc_range = {
 
         # N.B.: these limmags below are assuming 5 sigma, as set by source_nsigma in ZOGY settings file
         # if that 5 sigma changes, these number need updating with correction: -2.5*log10(nsigma/5)!
-        'LIMMAG'  : {'default':'None', 'val_type': 'min_max', 'val_range': {'u': [ (18.9, 22.2), (18.6, 22.2), (18.2, 22.2) ],
-                                                                            'g': [ (20.0, 23.3), (19.7, 23.3), (19.3, 23.3) ],
-                                                                            'q': [ (20.5, 23.9), (20.2, 23.9), (19.8, 23.9) ],
-                                                                            'r': [ (19.8, 23.1), (19.5, 23.1), (19.1, 23.1) ],
-                                                                            'i': [ (19.2, 22.5), (18.9, 22.5), (18.5, 22.5) ],
-                                                                            'z': [ (18.0, 21.3), (17.7, 21.3), (17.3, 21.3) ]}, 'key_type': 'full', 'comment': '[mag] full-frame 5-sigma limiting magnitude'},
+        'LIMMAG'  : {'default':'None', 'val_type': 'min_max', 'val_range': {'u': [ (18.9, 22.2), (18.2, 22.2), (0, 30) ],
+                                                                            'g': [ (20.0, 23.3), (19.3, 23.3), (0, 30) ],
+                                                                            'q': [ (20.5, 23.9), (19.8, 23.9), (0, 30) ],
+                                                                            'r': [ (19.8, 23.1), (19.1, 23.1), (0, 30) ],
+                                                                            'i': [ (19.2, 22.5), (18.5, 22.5), (0, 30) ],
+                                                                            'z': [ (18.0, 21.3), (17.3, 21.3), (0, 30) ]}, 'key_type': 'full', 'comment': '[mag] full-frame 5-sigma limiting magnitude'},
         # previously using sigma method
         #'LIMMAG'  : {'default':'None', 'val_type': 'sigma',   'val_range': {'u': [ (19.2, 0.15) ],
         #                                                                    'g': [ (20.3, 0.15) ],
@@ -303,17 +311,17 @@ qc_range = {
 
         'Z-SCMED' : {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 0.30) ],                       'key_type': 'trans', 'comment': 'median Scorr full image'},
         'Z-SCSTD' : {'default':'None', 'val_type': 'sigma',   'val_range': [ (1, 0.15) ],                       'key_type': 'trans', 'comment': 'sigma (STD) Scorr full image'},
-        'T-NTRANS': {'default':'None', 'val_type': 'skip',    'val_range': [ (100, 200) ],                      'key_type': 'trans', 'comment': 'number of >= [T-NSIGMA]-sigma transients (pre-vetting)'},
-        'T-FTRANS': {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 0.005) ],                      'key_type': 'trans', 'comment': 'ntrans/nobject ratio: T-NTRANS / NOBJECTS in new image'},
+        'T-NTRANS': {'default':'None', 'val_type': 'skip',    'val_range': [ (100, 200)],                       'key_type': 'trans', 'comment': 'number of >= [T-NSIGMA]-sigma transients (pre-vetting)'},
+        'T-FTRANS': {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 0.01) ],                       'key_type': 'trans', 'comment': 'transient fraction: T-NTRANS / NOBJECTS'},
 
         # N.B.: these limmags below are assuming 6 sigma, as set by transient_nsigma in ZOGY settings file        
         # if that 6 sigma changes, these number need updating with correction: -2.5*log10(nsigma/6)!
-        'T-LMAG' :  {'default':'None', 'val_type': 'min_max', 'val_range': {'u': [ (18.7, 22.0), (18.4, 22.0), (18.0, 22.0) ],
-                                                                            'g': [ (19.8, 23.1), (19.5, 23.1), (19.1, 23.1) ],
-                                                                            'q': [ (20.3, 23.6), (20.0, 23.6), (19.6, 23.6) ],
-                                                                            'r': [ (19.6, 22.9), (19.3, 22.9), (18.9, 22.9) ],
-                                                                            'i': [ (19.0, 22.3), (18.7, 22.3), (18.3, 22.3) ],
-                                                                            'z': [ (17.9, 21.2), (17.6, 21.2), (17.2, 21.2) ]}, 'key_type': 'trans', 'comment': '[mag] full-frame transient [T-NSIGMA]-sigma limiting mag'},
+        'T-LMAG' :  {'default':'None', 'val_type': 'min_max', 'val_range': {'u': [ (18.7, 22.0), (18.0, 22.0), (0, 30) ],
+                                                                            'g': [ (19.8, 23.1), (19.1, 23.1), (0, 30) ],
+                                                                            'q': [ (20.3, 23.6), (21.6, 23.6), (0, 30) ],
+                                                                            'r': [ (19.6, 22.9), (18.9, 22.9), (0, 30) ],
+                                                                            'i': [ (19.0, 22.3), (18.3, 22.3), (0, 30) ],
+                                                                            'z': [ (17.9, 21.2), (17.2, 21.2), (0, 30) ]}, 'key_type': 'trans', 'comment': '[mag] full-frame transient [T-NSIGMA]-sigma limiting mag'},
         # previously using sigma method:
         #'T-LMAG' :  {'default':'None', 'val_type': 'sigma',   'val_range': {'u': [ (19.0, 0.15) ],
         #                                                                    'g': [ (20.1, 0.15) ],
@@ -327,9 +335,8 @@ qc_range = {
         'REDFILE':  {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'comment': 'BlackBOX reduced image name'},
         'MASKFILE': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'comment': 'BlackBOX mask image name'},
                 
-        'PSF-SIZE': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'comment': '[pix] size PSF image'},
-        'PSF-CFGS': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'comment': 'size PSF config. image (= PSF-SIZE / PSF-SAMP)'},
-        
+        'PSF-SIZE': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'comment': '[pix] size PSF image for optimal subtraction'},
+        'PSF-CFGS': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'comment': '[config. pix] size PSF configuration image'},
         'PC-EXTCO': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'comment': '[mag] filter extinction coefficient (k) used'},
         'AIRMASSC': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'comment': 'Airmass at image center'},
         'RA-CNTR':  {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'comment': 'RA (ICRS) at image center (astrometry.net)'},
