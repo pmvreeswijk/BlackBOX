@@ -140,8 +140,9 @@ def qc_check (header, telescope='ML1', keywords=None, cat_type=None,
         # check if keyword is present in qc_range
         if key.upper() not in qc_range.keys():
             if not hide_warnings:
-                print ('Warning: keyword {} not present in qc_range'
-                       .format(key))
+                if log is not None:
+                    log.info ('Warning: keyword {} not present in qc_range'
+                              .format(key))
             # change color to empty string
             colors_out[nkey] = ''
             continue
@@ -149,8 +150,9 @@ def qc_check (header, telescope='ML1', keywords=None, cat_type=None,
         # check if keyword is present in the header
         if key.upper() not in header.keys():
             if not hide_warnings:
-                print ('Warning: keyword {} not present in the input header'
-                       .format(key))
+                if log is not None:
+                    log.info ('Warning: keyword {} not present in the input header'
+                              .format(key))
             # change color to empty string
             colors_out[nkey] = ''
             continue
@@ -190,7 +192,9 @@ def qc_check (header, telescope='ML1', keywords=None, cat_type=None,
         # if keyword value equals 'None', then also skip it
         header_val = header[key]
         if header_val == 'None':
-            print('Warning: {}=\'None\'. Skipping quality check.'.format(key))
+            if log is not None:
+                log.info ('Warning: {}=\'None\'. Skipping quality check.'
+                          .format(key))
             colors_out[nkey] = ''
             continue
 
@@ -247,9 +251,10 @@ def qc_check (header, telescope='ML1', keywords=None, cat_type=None,
                     
             else:
 
-                print ('Error: [val_type] not one of "exp_abs", "exp_frac", '
-                       '"min_max", "bool" or "sigma"')
-                raise SystemExit
+                if log is not None:
+                    log.error ('[val_type] not one of "exp_abs", "exp_frac", '
+                               '"min_max", "bool" or "sigma"')
+                return
             
                     
             if bool_temp:
