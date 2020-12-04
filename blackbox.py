@@ -168,11 +168,20 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          image, starting from a peak RAM of about 12.5GB for the 1st
          image.
 
-    (96) convert all fluxes except for FLUX_OPT and FLUXERR_OPT 
-         in all output catalogs to AB magnitudes. 
+    (98) in get_trans/get_trans_alt, add header keywords with info on
+         number of transient candidates that were filtered based on a
+         particular FLAG, e.g. T-NFL[#flag] and FLAG_MASK,
+         e.g. T-NFLM[#flag], where flag could be the exponent in
+         2**exp, e.g. 0 for flag=1, 1 for flag=2
 
-    (97) in ref catalog, include columns A, (B), THETA, CXX, CYY, CXY
-         and remove X2AVE_POS, Y2AVE_POS and XYAVE_POS.
+    (99) replace data_sex with table_sex in different places to avoid
+         using numpy functions append_fields and drop_fields as they
+         are causing warnings related to Quantity: "function
+         'append_fields' is not known to astropy's Quantity"
+
+   (100) next to transient catalog with thumbnail images, also save
+         transient catalog with all candidates before filtering and
+         without the thumbnails?
 
 
     Done:
@@ -760,6 +769,12 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          --> solved this by reading catalogs as a table with 
              astropy.table.Table, which has attribute unit; if that
              contains '/s', then exptime=1s is used
+
+    (96) convert all fluxes except for FLUX_OPT and FLUXERR_OPT 
+         in all output catalogs to AB magnitudes. 
+
+    (97) in ref catalog, include columns A, (B), THETA, CXX, CYY, CXY
+         and remove X2AVE_POS, Y2AVE_POS and XYAVE_POS.
 
     """
 
@@ -1910,9 +1925,11 @@ def blackbox_reduce (filename):
 
         # if IMAGETYP=flat, write [data] to fits and return
         if imgtype == 'flat':
+
             # first add some image statistics to header
             if os_processed:
                 get_flatstats (data, header, data_mask, tel=tel, log=log)
+
             # call [run_qc_check] to update header with any QC flags
             run_qc_check (header, tel, log=log)
             # write to fits
@@ -2065,12 +2082,14 @@ def blackbox_reduce (filename):
         hdulist.writeto(new_fits.replace('.fits', '_hdr.fits'), overwrite=True)
 
         # check quality control
-        qc_flag = run_qc_check (header, tel, log=log)
+        qc_flag = run_qc_check (header, tel, log=log, check_key_type='full')
 
         # update header with qc-flags
         with fits.open(new_fits, 'update') as hdulist:
             for key in header:
                 if 'QC' in key or 'DUMCAT' in key:
+                    log.info ('updating header keyword {} with: {} for image {}'
+                              .format(key, header[key], new_fits))
                     hdulist[-1].header[key] = (header[key], header.comments[key])
 
         # if header of object image contains a red flag, create dummy
@@ -2080,9 +2099,9 @@ def blackbox_reduce (filename):
             log.error('red QC flag in image {}; making dummy catalogs and '
                       'returning'.format(fits_out))
             run_qc_check (header, tel, cat_type='new', cat_dummy=fits_tmp_cat,
-                          log=log)
+                          log=log, check_key_type='full')
             run_qc_check (header, tel, cat_type='trans', cat_dummy=fits_tmp_trans,
-                          log=log)
+                          log=log, check_key_type='trans')
 
             # copy selected output files to new directory and remove tmp folder
             # corresponding to the object image
@@ -2337,24 +2356,42 @@ def blackbox_reduce (filename):
             else:
                 # feed [header_new] to [run_qc_check], and make
                 # dummy catalogs if there is a red flag
-                qc_flag = run_qc_check (header_new, tel, log=log)
+                try:
+                    qc_flag = run_qc_check (header_new, tel, log=log,
+                                            check_key_type='full')
+                except Exception as e:
+                    log.info(traceback.format_exc())
+                    log.error('exception was raised during [run_qc_check] for '
+                              'new-only image {}: {}'.format(new_fits, e))
+
                 if qc_flag=='red':
                     log.error('red QC flag in [header_new] returned by new-only '
                               '[optimal_subtraction]; making dummy catalogs')
                     run_qc_check (header_new, tel, cat_type='new',
-                                  cat_dummy=fits_tmp_cat, log=log)
-                    run_qc_check (header_new, tel, cat_type='trans',
-                                  cat_dummy=fits_tmp_trans, log=log)
+                                  cat_dummy=fits_tmp_cat, log=log,
+                                  check_key_type='full')
+                    # make copy to avoid keywords related to transient
+                    # catalog (TQC-FLAG and TDUMCAT) being added to
+                    # [header_new]
+                    header_trans = header_new.copy()
+                    run_qc_check (header_trans, tel, cat_type='trans',
+                                  cat_dummy=fits_tmp_trans, log=log,
+                                  check_key_type='trans')
 
-                        
                 else:
                     # update full-source catalog header with latest
                     # qc-flags; transient catalog not needed
-                    with fits.open(fits_tmp_cat, 'update') as hdulist:
-                        for key in header_new:
-                            if 'QC' in key or 'DUMCAT' in key:
-                                hdulist[-1].header[key] = (
-                                    header_new[key], header_new.comments[key])
+                    log.info ('updating new catalog header with QC flags')
+                    update_cathead (fits_tmp_cat, header_new, log=log)
+
+
+                # update reduced image header with extended header
+                # from ZOGY's optimal_subtraction; needs to be done
+                # also when there is a red flag - not needed for
+                # catalog header as the dummy catalogs _cat.fits and
+                # _trans.fits will be created in function [qc]
+                update_imhead (new_fits, header_new)
+                update_hdrfile (new_fits, header_new)
 
 
 
@@ -2405,50 +2442,61 @@ def blackbox_reduce (filename):
             else:
                 # feed [header_ref] to [run_qc_check], and make
                 # dummy catalogs if there is a red flag
-                qc_flag = run_qc_check (header_ref, tel, log=log)
+                qc_flag = run_qc_check (header_ref, tel, log=log,
+                                        check_key_type='full')
                 if qc_flag=='red':
                     log.error('red QC flag in [header_ref] returned by reference '
                               '[optimal_subtraction]; making dummy catalogs as '
                               'if it were a new image')
                     run_qc_check (header_ref, tel, cat_type='new',
-                                  cat_dummy=fits_tmp_cat, log=log)
-                    run_qc_check (header_ref, tel, cat_type='trans',
-                                  cat_dummy=fits_tmp_trans, log=log)
+                                  cat_dummy=fits_tmp_cat, log=log,
+                                  check_key_type='full')
+                    header_trans = header_ref.copy()
+                    run_qc_check (header_trans, tel, cat_type='trans',
+                                  cat_dummy=fits_tmp_trans, log=log,
+                                  check_key_type='trans')
 
                 else:
                     # update full-source catalog header with latest
                     # qc-flags; transient catalog not needed
-                    with fits.open(fits_tmp_cat, 'update') as hdulist:
-                        for key in header_ref:
-                            if 'QC' in key or 'DUMCAT' in key:
-                                hdulist[-1].header[key] = (
-                                    header_ref[key], header_ref.comments[key])
+                    log.info ('updating ref catalog header with QC flags')
+                    update_cathead (fits_tmp_cat, header_ref)
 
 
-        if qc_flag != 'red':
-            # move [ref_2keep] to the reference directory
-            make_dir (ref_path, lock=lock)
-            ref_base = ref_fits_out.split('_red.fits')[0]
-            result = copy_files2keep(tmp_base, ref_base,
-                                     get_par(set_bb.ref_2keep,tel),
-                                     # need to copy instead of move,
-                                     # as copying of some of the same
-                                     # files in list_2keep is done
-                                     # further down below
-                                     move=False, log=log)
+                # update reduced image header with extended header
+                # from ZOGY's optimal_subtraction
+                update_imhead (new_fits, header_ref)
+                update_hdrfile (new_fits, header_ref)
 
-        # now that reference is built, remove this reference ID
-        # and filter combination from the [ref_ID_filt] queue
-        log.info ('removing reference ID and filter combination from '
-                  'the [ref_ID_filt] queue')
-        result = check_ref(ref_ID_filt, (obj, filt), method='remove')
+
+                if qc_flag != 'red':
+                    # move [ref_2keep] to the reference directory
+                    make_dir (ref_path, lock=lock)
+                    ref_base = ref_fits_out.split('_red.fits')[0]
+                    result = copy_files2keep(tmp_base, ref_base,
+                                             get_par(set_bb.ref_2keep,tel),
+                                             # need to copy instead of move,
+                                             # as copying of some of the same
+                                             # files in list_2keep is done
+                                             # further down below
+                                             move=False, log=log)
+
+
+                # now that reference is built, remove this reference ID
+                # and filter combination from the [ref_ID_filt] queue
+                log.info ('removing reference ID and filter combination from '
+                          'the [ref_ID_filt] queue')
+                result = check_ref(ref_ID_filt, (obj, filt), method='remove')
         
-        if qc_flag != 'red':
-            log.info('finished making reference image: {}'.format(ref_fits_out))
-        else:
-            log.info('encountered red flag; not using image: {} (original name: '
-                     '{}) as reference'
-                     .format(header_ref['REDFILE'], header_ref['ORIGFILE']))
+
+                if qc_flag != 'red':
+                    log.info('finished making reference image: {}'
+                             .format(ref_fits_out))
+                else:
+                    log.info('encountered red flag; not using image: {} '
+                             '(original name: {}) as reference'
+                             .format(header_ref['REDFILE'],
+                                     header_ref['ORIGFILE']))
 
 
 
@@ -2520,52 +2568,46 @@ def blackbox_reduce (filename):
             else:
                 # feed [header_new] to [run_qc_check], and if there
                 # is a red flag: make output dummy catalog
-                qc_flag = run_qc_check (header_new, tel,
-                                        cat_type='new', log=log)
+                qc_flag = run_qc_check (header_new, tel, log=log,
+                                        check_key_type='full')
                 if qc_flag=='red':
                     log.error('red QC flag in [header_new] returned by new '
                               'vs. ref [optimal_subtraction]: making dummy '
                               'full-source catalog')
                     run_qc_check (header_new, tel, cat_type='new',
-                                  cat_dummy=fits_tmp_cat, log=log)
+                                  cat_dummy=fits_tmp_cat, log=log,
+                                  check_key_type='full')
                 else:
+                    log.info ('updating new catalog header with QC flags')
                     # update full-source catalog fits header with latest
                     # qc-flags
-                    with fits.open(fits_tmp_cat, 'update') as hdulist:
-                        for key in header_new:
-                            if 'QC' in key or 'DUMCAT' in key:
-                                hdulist[-1].header[key] = (
-                                    header_new[key], header_new.comments[key])
+                    update_cathead (fits_tmp_cat, header_new)
+
 
                 # same for transient catalog
                 header_newtrans = header_new+header_trans
-                tqc_flag = run_qc_check (header_newtrans, tel,
-                                         cat_type='trans', log=log)
+                tqc_flag = run_qc_check (header_newtrans, tel, log=log,
+                                         check_key_type='trans')
                 if qc_flag=='red' or tqc_flag=='red':
                     log.error('red transient QC flag in [header_newtrans] '
                               'returned by new vs ref [optimal_subtraction]: '
                               'making dummy transient catalog')
                     run_qc_check (header_newtrans, tel, cat_type='trans',
-                                  cat_dummy=fits_tmp_trans, log=log)
+                                  cat_dummy=fits_tmp_trans, log=log,
+                                  check_key_type='trans')
                 else:
                     # update transient catalog header with latest qc-flags
-                    with fits.open(fits_tmp_trans, 'update') as hdulist:
-                        for key in header_newtrans:
-                            if 'QC' in key or 'DUMCAT' in key:
-                                hdulist[-1].header[key] = (
-                                    header_newtrans[key],
-                                    header_newtrans.comments[key])
+                    log.info ('updating trans catalog header with QC flags')
+                    update_cathead (fits_tmp_trans, header_newtrans)
+                    
 
+                # update reduced new image header with extended header
+                # from ZOGY's optimal_subtraction; no need to update
+                # the ref image header
+                update_imhead (new_fits, header_new)
+                # let _hdr file also include header_trans info
+                update_hdrfile (new_fits, header_newtrans)
 
-
-    # update reduced image header with extended header_new from ZOGY's
-    # optimal_subtraction; this also updates the header of the newly
-    # created reference image - no need to update the ref image header
-    # in case both new and ref are provided
-    if 'header_new' in locals() and new_fits in locals():
-        if 'header_trans' not in locals():
-            header_trans = None
-        update_header (new_fits, header_new, header_trans=header_trans)
 
 
     # list of files to copy/move to reduced folder; need to include
@@ -2602,24 +2644,44 @@ def blackbox_reduce (filename):
 
 ################################################################################
 
-def update_header (filename, header, header_trans=None):
+def update_cathead (filename, header, log=None):
+    
+    with fits.open(filename, 'update') as hdulist:
+        for key in header:
+            if 'QC' in key or 'DUMCAT' in key:
+                hdulist[-1].header[key] = (header[key], header.comments[key])
 
-    # update image header with extended header_new from ZOGY's
+
+################################################################################
+
+def update_imhead (filename, header):
+
+    # update image header with extended header from ZOGY's
     # optimal_subtraction
     header['DATEFILE'] = (Time.now().isot, 'UTC date of writing file')
     with fits.open(filename, 'update') as hdulist:
         hdulist[-1].header = header
 
-    # also write separate header fits file with complete header,
-    # i.e. header + header_trans, if the latter is available
-    if header_trans is not None:
-        header += header_trans
 
+################################################################################
+
+def update_hdrfile (filename, header):
+        
+    # create separate header fits file with content header
     hdulist = fits.HDUList(fits.PrimaryHDU(header=header))
     hdulist.writeto(filename.replace('.fits', '_hdr.fits'), overwrite=True)
 
-    return
     
+################################################################################
+
+def order_QCkeys (header):
+
+    header_copy = header.copy()
+    
+    for key in header:
+        if 'QC' in key:
+            pass
+
 
 ################################################################################
 
@@ -3473,8 +3535,7 @@ def master_prep (fits_master, data_shape, pick_alt=True, log=None):
     master_ok = True
     if master_present:
         header_master = read_hdulist (fits_master, get_data=False, get_header=True)
-        qc_flag = run_qc_check (header_master, tel, log=log)
-        if qc_flag=='red':
+        if ('QC-FLAG' in header_master and header_master['QC-FLAG']=='red'):
             master_ok = False
 
 
