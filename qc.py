@@ -9,22 +9,44 @@ import set_zogy
 
 __version__ = '0.2'
 
-def qc_check (header, telescope='ML1', keywords=None, cat_type=None,
-              cat_dummy=None, return_range_comment=False, 
+def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
+              cat_dummy=None, cat_type=None, return_range_comment=False,
               hide_greens=True, hide_warnings=True, log=None):
     
     """Function to determine whether the value of a given keyword is
-       within an acceptable range or not. The input parameters are
-       [header]: a FITS header as extracted using astropy or a python
-       dictionary, and, optionally [keywords]: a list of one or more
-       keywords to check.  If [keywords] is not provided, all keywords
-       in [header] are checked and if any of them matches with a key
-       in the [qc_range] dictionary, it will get processed.
+       within an acceptable range or not.  The header keywords' values
+       are compared to a dictionary 'qc_range' (defined in [set_qc])
+       in which the quality control ranges are defined for a number of
+       keys. The input parameters are:
 
-       The [header] keywords' values are compared to a dictionary
-       'qc_range' (defined in [set_qc]) in which the quality control
-       ranges are defined for a number of keys.
+       header (str): a FITS header as extracted using astropy or a
+                     python dictionary
 
+       telescope (str): determines the telescope sub-dictionary of
+                        qc_range to use
+
+       keywords (list): one or more keywords to check.  If not
+                        provided, all keywords in [header] are checked
+                        and if any of them matches with a key in the
+                        [qc_range] dictionary, it will get processed.
+
+       check_key_type (str): consider only those keywords whose
+                             'key_type' value in the [qc_range]
+                             dictionary corresponds to
+                             [check_key_type]
+
+       cat_dummy (str): name of dummy catalog to create
+
+       cat_type (str): type of catalog to create - this determines the
+                       columns included; possible values: 'new', 'ref'
+                       or 'trans'
+
+       return_range_comment (bool): if True, also return the keywords'
+                                    ranges and comments
+
+       hide_greens (bool): if True, only return results for non-green flags
+
+       
        The value in the qc_range dictionary is also a dictionary with
        the keys:
          1) 'default': the default value that will be used in case
@@ -36,8 +58,8 @@ def qc_check (header, telescope='ML1', keywords=None, cat_type=None,
             The filter-specific ranges can be set by making 'val_range'
             a dictionary with the filters as keys.
          4) 'key_type': makes distinction between the keywords related
-            to the full-source catalog ('full') and the transient 
-            catalog ('trans').    
+            to the full-source catalog ('full'), the transient 
+            catalog ('trans'), flatfields ('flat'), etc.
          5) 'comment': header comment / brief description of keyword
 
        Depending on 'val_type', these values are interpreted differently:
@@ -69,18 +91,10 @@ def qc_check (header, telescope='ML1', keywords=None, cat_type=None,
        and 'orange', respectively. If outside of this, it will be
        flagged 'red'.
     
-       The input [cat_type] can be 'new', 'ref' or 'trans'. For
-       the 'new' and 'ref' cases, all set_qc keywords with key_type
-       equals 'full' will be checked, while for cat_type 'trans',
-       only the keywords with key_type 'trans' will be checked.
-
-       If any keyword is flagged red and [cat_dummy] is defined, the
-       function [format_cat] in zogy will be used to create a zero
-       entry binary fits table with the column definitions determined
-       with [cat_type], which can be 'new', 'ref' or 'trans'. For
-       'new' or 'ref', the dummy catalog will contain the header
-       keywords with set_qc key_type 'full', while for the 'trans'
-       it will contain both 'full' and 'trans' key_types.
+       If [cat_dummy] is defined, the function [format_cat] in zogy
+       will be used to create a zero entry binary fits table with the
+       column definitions determined with [cat_type], which can be
+       'new', 'ref' or 'trans'.
 
        The function returns: 
        - the list of keywords that were checked and found to be
@@ -162,22 +176,16 @@ def qc_check (header, telescope='ML1', keywords=None, cat_type=None,
         if val_type == 'skip':
             colors_out[nkey] = ''
             continue
-        
-        # if input [cat_type] equals 'trans', only consider set_qc
-        # keywords with key_type 'trans' for the determination of the
-        # qc-flag, otherwise (also when [cat_type] is left to the
-        # default None) consider set_qc keywords with key_type 'full.
-        if cat_type == 'trans':
-            if qc_range[key]['key_type'] != 'trans':
-                # change color to empty string
-                colors_out[nkey] = ''
-                continue
-        else:
-            if qc_range[key]['key_type'] != 'full':
-                # change color to empty string
-                colors_out[nkey] = ''
-                continue
 
+
+        # if the key_type of the dictionary for this keyword does not
+        # correspond to [check_key_type], skip it
+        if check_key_type is not None:
+            if qc_range[key]['key_type'] != check_key_type:
+                # change color to empty string
+                colors_out[nkey] = ''
+                continue
+                
 
         val_range = qc_range[key]['val_range']
         # check if value range is specified per filter (e.g. for zeropoint)
@@ -298,120 +306,129 @@ def qc_check (header, telescope='ML1', keywords=None, cat_type=None,
             qc_flag = col
     
 
-    # the block below is only relevant in case cat_type is specified,
-    # i.e. not needed for the checks on e.g. the bias or flat images.
     # Note that the science image header is updated with the final
     # new+zogy header just before exiting [blackbox_reduce], so it
-    # will also including the header keywords below.
-    if cat_type is not None:
+    # will also include the header keywords below.
 
-        # if [cat_dummy] is provided then make the dummy catalog
-        make_dumcat = (cat_dummy is not None)
+    # boolean indicating if dummy catalog needs to be made, which is
+    # if [cat_dummy] is provided as input - that the qc_flag is red or
+    # not is checked before in blackbox
+    make_dumcat = (cat_dummy is not None)
+
+    # add a 'T' in front of 'QC-FLAG' and 'DUMCAT' in case
+    # [check_key_type] is set to 'trans'
+    if check_key_type == 'trans':
+        prefix = 'T'
+    else:
+        prefix = ''
+
+    # place 'QC-FLAG' at the end of present header, but
+    # would be good to place 'TQC-FLAG' right after it;
+    # same for 'DUMCAT' and 'TDUMCAT'
+    if prefix == 'T':
+        key_prev = 'QC-FLAG'
+    else:
+        key_prev = None
+
+    header.set ('{}QC-FLAG'.format(prefix), qc_flag, 'transient QC flag '
+                '(green|yellow|orange|red)', after=key_prev)
+
+    if prefix == 'T':
+        key_prev = 'DUMCAT'
+        comment = 'dummy transient catalog without sources?'
+    else:
+        key_prev = None
+        comment = 'dummy catalog without sources?'
+        
+    #if make_dumcat:
+    header.set ('{}DUMCAT'.format(prefix), make_dumcat, 'dummy transient '
+                'catalog without sources?', after=key_prev)
 
 
-        if cat_type == 'trans':
-            
-            header['TQC-FLAG'] = (qc_flag, 'transient QC flag '
-                                  '(green|yellow|orange|red)')
-            header['TDUMCAT'] = (make_dumcat, 'dummy transient catalog without '
-                                 'sources?')
-
-            # in case the QC-FLAG is worse than TQC-FLAG, make TQC-FLAG equal
-            # to QC-FLAG and add the keyword 'TQC[flag color]1' with the value
-            # 'QC-FLAG' to make it clear the color was inherited from QC-FLAG
-            if colors.index(qc_flag) < colors.index(header['QC-FLAG']):
-                header['TQC-FLAG'] = header['QC-FLAG']
-                header.set('TQC{}1'.format(header['QC-FLAG'][0:3].upper()),
-                           'QC-FLAG', 'flag inherited from QC-FLAG',
-                           after='TQC-FLAG')
+    # in case the QC-FLAG is worse than TQC-FLAG, make TQC-FLAG equal
+    # to QC-FLAG and add the keyword 'TQC[flag color]1' with the value
+    # 'QC-FLAG' to make it clear the color was inherited from QC-FLAG
+    if 'QC-FLAG' in header and 'TQC-FLAG' in header:
+        if colors.index(qc_flag) < colors.index(header['QC-FLAG']):
+            header['TQC-FLAG'] = header['QC-FLAG']
+            header.set('TQC{}1'.format(header['QC-FLAG'][0:3].upper()),
+                       'QC-FLAG', 'flag inherited from QC-FLAG',
+                       after='TQC-FLAG')
 
 
-        else:
+    # for all non-green flags, list the keyword(s) that is (are)
+    # responsible for the flag and list the QC range that was violated
 
-            header['QC-FLAG'] = (qc_flag, 'QC flag (green|yellow|orange|red)')
-            header['DUMCAT'] = (make_dumcat, 'dummy catalog without sources?')
+    # place the new header keywords after (T)QC-FLAG
+    prev_key = '{}QC-FLAG'.format(prefix)
 
-
-        # for all non-green flags, list the keyword(s) that is (are)
-        # responsible for the flag and list the QC range that was violated
-        if qc_flag != 'green':
-
-            # mask of the keywords that are flagged with the color of qc_flag
-            mask_col = (colors_out == qc_flag)
-            # the color one up from qc_flag is needed for the header comment
-            prev_col = colors[colors.index(qc_flag)-1]
-            # place the new header keywords after QC-FLAG
-            if cat_type == 'trans':
-                prev_key = 'TQC-FLAG'
+    for col in ['red', 'orange', 'yellow']:
+        
+        # mask of the keywords that are flagged with col
+        mask_col = (colors_out == col)
+        # the color one up from col is needed for the header comment
+        prev_col = colors[colors.index(col)-1]
+        
+        for ncol, key_col in enumerate(np.array(keywords)[mask_col]):
+            comment = '{} range: {}'.format(prev_col, dict_range_ok[key_col])
+            key = '{}QC{}{}'.format(prefix, col[0:3].upper(), ncol+1)
+            # if already present in header, replace it
+            if key in header:
+                header[key] = (key_col, comment)
             else:
-                prev_key = 'QC-FLAG'
-
-            for ncol, key_col in enumerate(np.array(keywords)[mask_col]):
-
-                comment = '{} range: {}'.format(prev_col, dict_range_ok[key_col])
-
-                if cat_type == 'trans':
-                    key = 'TQC{}{}'.format(qc_flag[0:3].upper(), ncol+1)
-                    #header[key] = (key_col, '{} range: {}'
-                    #               .format(prev_col, dict_range_ok[key_col]))
-                else:
-                    key = 'QC-{}{}'.format(qc_flag[0:3].upper(), ncol+1)
-                    #header[key] = (key_col, '{} range: {}'
-                    #               .format(prev_col, dict_range_ok[key_col]))
-
                 header.set(key, key_col, comment, after=prev_key)
-                # record the key to place the next one after it
-                prev_key = key
+
+            # record the key to place the next one after it
+            prev_key = key
 
 
+    if make_dumcat:
 
-        if make_dumcat:
-
-            # create header_dummy copy; if header is dictionary,
-            # convert to fits header
-            if type(header)==dict:
-                header_fits = fits.Header()
-                for key in header.keys():
-                    header_fits[key] = header[key]
+        # create header_dummy copy; if header is dictionary,
+        # convert to fits header
+        if type(header)==dict:
+            header_fits = fits.Header()
+            for key in header.keys():
+                header_fits[key] = header[key]
                 header_dummy = header_fits
-            else:
-                header_dummy = header.copy()
+        else:
+            header_dummy = header.copy()
+
+            
+        # need to make sure that all keys of [qc_range] are in the
+        # header to be added to the dummy catalog; if not provide
+        # default value
+        for nkey, key in enumerate(qc_range.keys()):
+            if key not in header_dummy.keys():
+                if (qc_range[key]['key_type']==cat_type or 
+                    qc_range[key]['key_type']=='full'):
+                    header_dummy[key] = (qc_range[key]['default'],
+                                         qc_range[key]['comment'])
 
 
-            # need to make sure that all keys of [qc_range] are in the
-            # header to be added to the dummy catalog; if not provide
-            # default value
-            for nkey, key in enumerate(qc_range.keys()):
-                if key not in header_dummy:
-                    if (qc_range[key]['key_type']==cat_type or 
-                        qc_range[key]['key_type']=='full'):
-                        header_dummy[key] = (qc_range[key]['default'],
-                                             qc_range[key]['comment'])
-
-
-            # create empty output catalog of type [cat_type] using
-            # function [format_cat] in zogy.py
-            if cat_type == 'trans' and get_par(set_zogy.save_thumbnails,telescope):
-                # for transient catalog, also produce thumbnail definitions
-                keys_thumbnails = ['THUMBNAIL_RED', 'THUMBNAIL_REF',
-                                   'THUMBNAIL_D', 'THUMBNAIL_SCORR']
-                size_thumbnails = get_par(set_zogy.size_thumbnails,telescope)
-                result = format_cat(None, cat_dummy, cat_type=cat_type,
-                                    header_toadd=header_dummy, 
-                                    apphot_radii=get_par(
-                                        set_zogy.apphot_radii,telescope),
-                                    data_thumbnails=None,
-                                    keys_thumbnails=keys_thumbnails,
-                                    size_thumbnails=size_thumbnails,
-                                    ML_calc_prob=get_par(
-                                        set_zogy.ML_calc_prob,telescope),
-                                    tel=telescope)
-            else:
-                result = format_cat(None, cat_dummy, cat_type=cat_type,
-                                    header_toadd=header_dummy, 
-                                    apphot_radii=get_par(
-                                        set_zogy.apphot_radii,telescope),
-                                    tel=telescope)
+        # create empty output catalog of type [cat_type] using
+        # function [format_cat] in zogy.py
+        if cat_type == 'trans' and get_par(set_zogy.save_thumbnails,telescope):
+            # for transient catalog, also produce thumbnail definitions
+            keys_thumbnails = ['THUMBNAIL_RED', 'THUMBNAIL_REF',
+                               'THUMBNAIL_D', 'THUMBNAIL_SCORR']
+            size_thumbnails = get_par(set_zogy.size_thumbnails,telescope)
+            result = format_cat(None, cat_dummy, cat_type=cat_type,
+                                header_toadd=header_dummy, 
+                                apphot_radii=get_par(
+                                    set_zogy.apphot_radii,telescope),
+                                data_thumbnails=None,
+                                keys_thumbnails=keys_thumbnails,
+                                size_thumbnails=size_thumbnails,
+                                ML_calc_prob=get_par(
+                                    set_zogy.ML_calc_prob,telescope),
+                                tel=telescope, log=log)
+        else:
+            result = format_cat(None, cat_dummy, cat_type=cat_type,
+                                header_toadd=header_dummy, 
+                                apphot_radii=get_par(
+                                    set_zogy.apphot_radii,telescope),
+                                tel=telescope, log=log)
 
 
 
@@ -428,7 +445,8 @@ def qc_check (header, telescope='ML1', keywords=None, cat_type=None,
 
 ################################################################################
 
-def run_qc_check (header, telescope, cat_type=None, cat_dummy=None, log=None):
+def run_qc_check (header, telescope, cat_type=None, cat_dummy=None,
+                  check_key_type=None, log=None):
     
     """Helper function to execute [qc_check] in BlackBOX and to return a
        single flag color - the most severe color - from the output
@@ -441,21 +459,23 @@ def run_qc_check (header, telescope, cat_type=None, cat_dummy=None, log=None):
     keys, colors, ranges, comments = qc_check(header, telescope=telescope,
                                               cat_type=cat_type,
                                               cat_dummy=cat_dummy,
+                                              check_key_type=check_key_type,
                                               return_range_comment=True,
                                               log=log)
+
     qc_flag = 'green'
     for col in ['yellow', 'orange', 'red']:
         if col in colors:
             qc_flag = col
 
-    if qc_flag == 'red':
+    if qc_flag == 'red' and log is not None:
         for nkey, key in enumerate(keys):
             logstr = ('{} flag for keyword: {}, value: {}, allowed range: {}, '
                       ' comment: {}'.format(colors[nkey], key, header[key], 
                                             ranges[nkey], comments[nkey]))
-            if log is not None:
-                if colors[nkey] == 'red':
-                    log.error(logstr)
+            if colors[nkey] == 'red':
+                log.error(logstr)
+
 
     return qc_flag
 
