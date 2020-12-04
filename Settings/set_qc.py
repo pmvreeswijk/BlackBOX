@@ -160,13 +160,13 @@ qc_range = {
         #'RDN15'   : {'val_type': 'sigma', 'val_range': [ (     9.258,    0.412) ], 'key_type': 'full', 'comment': 'channel 15 sigma (STD) vertical overscan'},
         #'RDN16'   : {'val_type': 'sigma', 'val_range': [ (     9.044,    0.373) ], 'key_type': 'full', 'comment': 'channel 16 sigma (STD) vertical overscan'},
 
-        # master bias (these keywords should not end up in dummy catalogs: key_type=None)
-        'NBIAS'   : {'default':'None', 'val_type': 'min_max', 'val_range': [ (10,50), (7,9), (5,6) ], 'key_type': None, 'comment': 'number of bias frames combined'},
-        'MBMEAN'  : {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 5) ],                'key_type': None, 'comment': '[e-] mean master bias'},
-        'MBRDN'   : {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 5) ],                'key_type': None, 'comment': '[e-] sigma (STD) master bias'},
+        # master bias (these keywords should not end up in dummy catalogs: keytype should not be equal to 'full' or 'trans')
+        'NBIAS'   : {'default':'None', 'val_type': 'min_max', 'val_range': [ (10,50), (7,9), (5,6) ], 'key_type': 'mbias', 'comment': 'number of bias frames combined'},
+        'MBMEAN'  : {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 5) ],                'key_type': 'mbias', 'comment': '[e-] mean master bias'},
+        'MBRDN'   : {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 5) ],                'key_type': 'mbias', 'comment': '[e-] sigma (STD) master bias'},
 
-        # individual flats (these keywords should not end up in dummy catalogs: key_type=None)
-        'MEDSEC'  : {'default':'None', 'val_type': 'min_max', 'val_range': [ (2.4*20e3, 2.4*30e3), (2.4*15e3, 2.4*35e3), (2.4*10e3, 2.4*40e3) ], 'key_type': None, 'comment': '[e-] median flat over STATSEC (bias-subtracted)'},
+        # individual flats (these keywords should not end up in dummy catalogs: keytype should not be equal to 'full' or 'trans')
+        'MEDSEC'  : {'default':'None', 'val_type': 'min_max', 'val_range': [ (2.4*20e3, 2.4*30e3), (2.4*15e3, 2.4*35e3), (2.4*10e3, 2.4*40e3) ], 'key_type': 'flat', 'comment': '[e-] median flat over STATSEC (bias-subtracted)'},
         #'RSTDSEC' : {'default':'None', 'val_type': 'sigma', 'val_range': [ (0, 0.01) ],              'key_type': None, 'comment': 'relative sigma (STD) flat over STATSEC'},
         #'FLATRSTD': {'default':'None', 'val_type': 'sigma', 'val_range': [ (0,0.025),(0,0.026),(0,0.027)], 'key_type': None, 'comment': 'relative sigma (STD) flat'},
         'RDIF-MAX': {'default':'None', 'val_type': 'sigma',   'val_range': {'u': [ (0.026, 0.002) ],
@@ -174,21 +174,21 @@ qc_range = {
                                                                             'q': [ (0.011, 0.001) ],
                                                                             'r': [ (0.011, 0.001) ],
                                                                             'i': [ (0.014, 0.001) ],
-                                                                            'z': [ (0.023, 0.001) ]},           'key_type': None, 'comment': '(max(subs)-min(subs)) / (max(subs)+min(subs))'},
+                                                                            'z': [ (0.023, 0.001) ]},           'key_type': 'flat', 'comment': '(max(subs)-min(subs)) / (max(subs)+min(subs))'},
 
         'RSTD-MAX': {'default':'None', 'val_type': 'sigma',   'val_range': {'u': [ (0.073, 0.001) ],
                                                                             'g': [ (0.064, 0.001) ],
                                                                             'q': [ (0.053, 0.001) ],
                                                                             'r': [ (0.043, 0.001) ],
                                                                             'i': [ (0.028, 0.001) ],
-                                                                            'z': [ (0.023, 0.0005)]},           'key_type': None, 'comment': 'max. relative sigma (STD) of subimages'},
+                                                                            'z': [ (0.023, 0.0005)]},           'key_type': 'flat', 'comment': 'max. relative sigma (STD) of subimages'},
 
 
-        # master flat (these keywords should not end up in dummy catalogs: key_type=None)
-        'NFLAT'   : {'default':'None', 'val_type': 'min_max', 'val_range': [ (6,50), (4,5), (3,3) ],            'key_type': None, 'comment': 'number of flat frames combined'},
-        'MFMEDSEC': {'default':'None', 'val_type': 'sigma',   'val_range': [ (         1,  0.001) ],            'key_type': None, 'comment': 'median master flat over STATSEC'},
-        'MFSTDSEC': {'default':'None', 'val_type': 'sigma',   'val_range': [ (         0,   0.01) ],            'key_type': None, 'comment': 'sigma (STD) master flat over STATSEC'},
-        'FLATDITH': {'default':'None', 'val_type': 'bool',    'val_range': [ True ],                            'key_type': None, 'comment': 'majority of flats were dithered'},
+        # master flat (these keywords should not end up in dummy catalogs: keytype should not be equal to 'full' or 'trans')
+        'NFLAT'   : {'default':'None', 'val_type': 'min_max', 'val_range': [ (6,50), (4,5), (3,3) ],            'key_type': 'mflat', 'comment': 'number of flat frames combined'},
+        'MFMEDSEC': {'default':'None', 'val_type': 'sigma',   'val_range': [ (         1,  0.001) ],            'key_type': 'mflat', 'comment': 'median master flat over STATSEC'},
+        'MFSTDSEC': {'default':'None', 'val_type': 'sigma',   'val_range': [ (         0,   0.01) ],            'key_type': 'mflat', 'comment': 'sigma (STD) master flat over STATSEC'},
+        'FLATDITH': {'default':'None', 'val_type': 'bool',    'val_range': [ True ],                            'key_type': 'mflat', 'comment': 'majority of flats were dithered'},
 
         # general
         'AIRMASS' : {'default':'None', 'val_type': 'min_max', 'val_range': [ (1,2), (2,2.5), (2.5, 2.95) ],     'key_type': 'full', 'comment': 'Airmass (based on RA, DEC, DATE-OBS)'},
