@@ -745,7 +745,7 @@ def header2table (filenames):
             continue
 
 
-        if True:
+        if False:
             # up to v0.9.2, it was possible for the reduced image
             # header not to contain a red flag, while the catalog file
             # did contain it - this happened when zogy was not
@@ -781,7 +781,7 @@ def header2table (filenames):
                 # need to copy the qc-red??, qc-ora??, qc-yel?? as well
                 qc_col = ['red', 'orange', 'yellow']
                 for col in qc_col:
-                    key_base = 'QC-{}'.format(col[:3]).upper()
+                    key_base = 'QC{}'.format(col[:3]).upper()
                     for i in range(1,100):
                         key = '{}{}'.format(key_base, i)
                         if key in h_cat:
@@ -799,8 +799,8 @@ def header2table (filenames):
             # check if current colour is the same as the QC flag
             if h['QC-FLAG'] == col and col != 'green':
                 # loop keywords with this flag; potentially 100
-                key_base = 'QC-{}'.format(col[:3]).upper()
-                for i in range(1,100):
+                key_base = 'QC{}'.format(col[:3]).upper()
+                for i in range(1,99):
                     key_temp = '{}{}'.format(key_base, i)
                     if key_temp in h:
                         # if keyword value does not start with 'Z-',
@@ -808,7 +808,7 @@ def header2table (filenames):
                         # not get updated
                         if not h[key_temp].startswith(('Z-', 'T-', 'V-')):
                             break
-            
+
                 else: # associated to the for loop!
                     # all of the flags' keywords were due to image subtraction
                     # stage, so promote the QC-FLAG
