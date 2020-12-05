@@ -258,16 +258,17 @@ qc_range = {
         #                                                                    'i': [ (22.3, 0.15) ],
         #                                                                    'z': [ (21.4, 0.15) ]},              'key_type': 'full', 'comment': '[mag] zeropoint=m_AB+2.5*log10(flux[e-/s])+A*k'},
 
-        'PC-ZPSTD': {'default':'None', 'val_type': 'sigma',   'val_range': {'u': [ (0.06, 0.03) ], 
+        'PC-ZPSTD': {'default':'None', 'val_type': 'sigma',   'val_range': {'u': [ (0.07, 0.03) ], 
                                                                             'g': [ (0.03, 0.03) ], 
-                                                                            'q': [ (0.02, 0.02) ], 
+                                                                            'q': [ (0.02, 0.03) ], 
                                                                             'r': [ (0.02, 0.03) ], 
                                                                             'i': [ (0.02, 0.03) ], 
                                                                             'z': [ (0.03, 0.03) ]},             'key_type': 'full', 'comment': '[mag] sigma (STD) zeropoint sigma'},
 
-        'PC-MZPD' : {'default':'None', 'val_type': 'sigma',   'val_range': {'u': [ (0.06, 0.03) ],
+        # updated PC-MZPD values and also ZPSTD above to estimates based on uqi data set from Simon on GW190814
+        'PC-MZPD' : {'default':'None', 'val_type': 'sigma',   'val_range': {'u': [ (0.07, 0.03) ],
                                                                             'g': [ (0.03, 0.03) ],
-                                                                            'q': [ (0.02, 0.02) ],
+                                                                            'q': [ (0.02, 0.03) ],
                                                                             'r': [ (0.02, 0.03) ],
                                                                             'i': [ (0.02, 0.03) ],
                                                                             'z': [ (0.03, 0.03) ]},             'key_type': 'full', 'comment': '[mag] maximum zeropoint difference between subimages'},
