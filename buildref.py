@@ -1161,7 +1161,7 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
     If the input images have an accompanying mask, i.e. with the same
     base name and containing "mask", then that mask will be used to
     avoid using e.g. edge pixels or cosmic rays in the combination.
-    
+
     [ra_center] and [dec_center] define the central coordinates of the
     resulting image. If they are not both defined, the median center
     of the input images is used, in which case [use_wcs_center]
@@ -1187,7 +1187,7 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
 
     """
 
-    
+
     t0 = time.time()
 
     # check if there are at least a couple of images to combine
@@ -1342,9 +1342,8 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
                 # convert mini to full background image
                 bkg_boxsize = header_bkg_mini['BKG-SIZE']
                 data_bkg = mini2back (data_bkg_mini, data.shape, 
-                                      order_interp=3,
-                                      bkg_boxsize=bkg_boxsize, timing=False,
-                                      log=log, tel=tel, set_zogy=set_zogy)
+                                      order_interp=3, bkg_boxsize=bkg_boxsize,
+                                      interp_Xchan=True, timing=False, log=log)
 
 
             # read mini background STD image
@@ -1356,9 +1355,8 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
             # convert mini STD to full background STD image
             bkg_boxsize = header_bkg_std_mini['BKG-SIZE']
             data_bkg_std = mini2back (data_bkg_std_mini, data.shape,
-                                      order_interp=3,
-                                      bkg_boxsize=bkg_boxsize, timing=False,
-                                      log=log, tel=tel, set_zogy=set_zogy)
+                                      order_interp=3, bkg_boxsize=bkg_boxsize,
+                                      interp_Xchan=False, timing=False, log=log)
 
 
         else:
@@ -1414,20 +1412,6 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
             image_temp_bkg_std = '{}_bkg_std.fits'.format(base)
             data_bkg_std = read_hdulist (image_temp_bkg_std, dtype='float32')
 
-
-        if False:
-            # convert data to 1 e-/s images
-            data /= exptime
-            data_bkg_std /= exptime
-            if not bkg_sub:
-                data_bkg /= exptime
-
-            # and other relevant parameters
-            saturate /= exptime
-            rdnoise /= exptime
-            # update header with this new exposure time
-            exptime_orig = exptime
-            exptime = 1
 
 
         # determine weights image (1/variance) 
@@ -1530,7 +1514,7 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
             else:
                 data_bkg_var_comb += (fscale * data_bkg_std)**2
 
-        
+
         # determine and record image centers
         if use_wcs_center:
             # determine WCS center of field
@@ -1851,6 +1835,7 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
     fits.writeto(fits_bkg_std_mini, mini_median.astype('float32'),
                  header_weights, overwrite=True)
 
+    
 
     if not remap_each:
 
@@ -2083,10 +2068,10 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
                   .format(np.shape(mask_array_zerosum)))
         mask_zero = (mask_array_zerosum >= 3)
         data_mask_comb[mask_zero] = 0
-                
+
         # write combined mask to fits image 
         fits.writeto(fits_mask_out, data_mask_comb, overwrite=overwrite)
-        
+
         # feed resampled images to function [buildref_optimal]
         #result = buildref_optimal(imagelist)
 
