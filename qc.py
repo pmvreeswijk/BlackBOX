@@ -326,23 +326,23 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
     # would be good to place 'TQC-FLAG' right after it;
     # same for 'DUMCAT' and 'TDUMCAT'
     if prefix == 'T':
-        key_prev = 'QC-FLAG'
+        prev_key = 'QC-FLAG'
     else:
-        key_prev = None
+        prev_key = None
 
     header.set ('{}QC-FLAG'.format(prefix), qc_flag, 'transient QC flag '
-                '(green|yellow|orange|red)', after=key_prev)
+                '(green|yellow|orange|red)', after=prev_key)
 
     if prefix == 'T':
-        key_prev = 'DUMCAT'
+        prev_key = 'DUMCAT'
         comment = 'dummy transient catalog without sources?'
     else:
-        key_prev = None
+        prev_key = None
         comment = 'dummy catalog without sources?'
         
     #if make_dumcat:
     header.set ('{}DUMCAT'.format(prefix), make_dumcat, 'dummy transient '
-                'catalog without sources?', after=key_prev)
+                'catalog without sources?', after=prev_key)
 
 
     # in case the QC-FLAG is worse than TQC-FLAG, make TQC-FLAG equal
