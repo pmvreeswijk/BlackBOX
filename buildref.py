@@ -790,31 +790,34 @@ def header2table (filenames):
                             #             .format(key, h[key], key, h_cat[key]))
                             
 
-        # check if flag of particular colour was set in the
-        # image-subtraction stage; if yes, then promote the flag
-        # colour as that flag is not relevant to the image itself and
-        # the image should be used in building the reference image
-        qc_col = ['red', 'orange', 'yellow', 'green']
-        for col in qc_col:
-            # check if current colour is the same as the QC flag
-            if h['QC-FLAG'] == col and col != 'green':
-                # loop keywords with this flag; potentially 100
-                key_base = 'QC{}'.format(col[:3]).upper()
-                for i in range(1,99):
-                    key_temp = '{}{}'.format(key_base, i)
-                    if key_temp in h:
-                        # if keyword value does not start with 'Z-',
-                        # 'T-' or 'V-', then break; the QC-FLAG will
-                        # not get updated
-                        if not h[key_temp].startswith(('Z-', 'T-', 'V-')):
-                            break
+        # skip for now
+        if False:
+                            
+            # check if flag of particular colour was set in the
+            # image-subtraction stage; if yes, then promote the flag
+            # colour as that flag is not relevant to the image itself and
+            # the image should be used in building the reference image
+            qc_col = ['red', 'orange', 'yellow', 'green']
+            for col in qc_col:
+                # check if current colour is the same as the QC flag
+                if h['QC-FLAG'] == col and col != 'green':
+                    # loop keywords with this flag; potentially 100
+                    key_base = 'QC{}'.format(col[:3]).upper()
+                    for i in range(1,99):
+                        key_temp = '{}{}'.format(key_base, i)
+                        if key_temp in h:
+                            # if keyword value does not start with 'Z-',
+                            # 'T-' or 'V-', then break; the QC-FLAG will
+                            # not get updated
+                            if not h[key_temp].startswith(('Z-', 'T-', 'V-')):
+                                break
 
-                else: # associated to the for loop!
-                    # all of the flags' keywords were due to image subtraction
-                    # stage, so promote the QC-FLAG
-                    h['QC-FLAG'] = qc_col[qc_col.index(col)+1]
-                    genlog.info ('updating QC-FLAG from {} to {} for image {}'
-                                 .format(col, h['QC-FLAG'], filename))
+                    else: # associated to the for loop!
+                        # all of the flags' keywords were due to image subtraction
+                        # stage, so promote the QC-FLAG
+                        h['QC-FLAG'] = qc_col[qc_col.index(col)+1]
+                        genlog.info ('updating QC-FLAG from {} to {} for image {}'
+                                     .format(col, h['QC-FLAG'], filename))
 
 
 
@@ -1826,8 +1829,7 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
     # take the non-clipped nanmedian along 2nd axis
     mini_std = np.nanmedian (data_bkg_std_reshaped, axis=2)
     # update header with [set_zogy.bkg_boxsize]
-    header_weights['BKG-SIZE'] = (bkg_boxsize, '[pix] background boxsize used '
-                                  'to create this image')
+    header_weights['BKG-SIZE'] = (bkg_boxsize, '[pix] background boxsize used')
 
     
     # compare mini_std with mini bkg_std image directly inferred
@@ -1848,21 +1850,22 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
 
     # compare ratio of [mini_std_alt] over [mini_std]
     mini_std_ratio = np.nanmedian (mini_std_alt / mini_std)
-    ds9_arrays (mini_std_ratio = (mini_std_alt / mini_std))
     
-    # adjust mini_std with this ratio
-    mini_std *= mini_std_ratio
-
-    log.info ('mini_std_ratio: {}'.format(mini_std_ratio))
-    f_max = 1.5
-    if mini_std_ratio > f_max or mini_std_ratio < 1/f_max:
-        log.warning ('mini_std_ratio correction factor to reference STD image '
-                     'is larger than {}'.format(f_max))
+    dev_max = 0.3
+    if np.abs(mini_std_ratio - 1) <= dev_max:
+        # adjust mini_std with this ratio
+        mini_std *= mini_std_ratio
+        log.info ('correction factor applied to ref STD image: {:.3f}'
+                  .format(mini_std_ratio))
+    else:
+        log.warning ('correction factor to ref STD of {:.3f} larger than '
+                     'maximum allowed deviation of {}; not applying it'
+                     .format(mini_std_ratio, dev_max))
 
     # write mini bkg_std file
-    header_weights['STD_RATIO'] = (mini_std_ratio, 'ratio applied to STD image '
-                                   'to approach actual STD')
-    header_weights['COMMENT'] = ('combined weights image was converted to STD '
+    header_weights['BKGSTDCF'] = (mini_std_ratio, 'corr. factor applied '
+                                  'to background STD image')
+    header_weights['COMMENT'] = ('qcombined weights image was converted to STD '
                                  'image: std=1/sqrt(w)')
     header_weights['DATEFILE'] = (ut_now, 'UTC date of writing file')
     fits.writeto(fits_bkg_std_mini, mini_std.astype('float32'),
