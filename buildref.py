@@ -1824,15 +1824,48 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
     data_bkg_std_reshaped = data_bkg_std.reshape(
         nysubs,bkg_boxsize,-1,bkg_boxsize).swapaxes(1,2).reshape(nysubs,nxsubs,-1)
     # take the non-clipped nanmedian along 2nd axis
-    mini_median = np.nanmedian (data_bkg_std_reshaped, axis=2)
+    mini_std = np.nanmedian (data_bkg_std_reshaped, axis=2)
     # update header with [set_zogy.bkg_boxsize]
     header_weights['BKG-SIZE'] = (bkg_boxsize, '[pix] background boxsize used '
                                   'to create this image')
-    # write file
+
+    
+    # compare mini_std with mini bkg_std image directly inferred
+    # from data_out
+
+    # construct masked array, rejecting pixels with values higher than
+    # n-sigma times the above data_bkg_std image; assumption is that
+    # background is around zero
+    mask_reject = ((data_out / data_bkg_std) > 3)
+    data_out_masked = np.ma.masked_array(data_out, mask=mask_reject)
+    # reshape
+    data_out_reshaped = data_out_masked.reshape(
+        nysubs,bkg_boxsize,-1,bkg_boxsize).swapaxes(1,2).reshape(nysubs,nxsubs,-1)
+    # get clipped statistics
+    __, mini_median, mini_std_alt = sigma_clipped_stats (
+        data_out_reshaped.astype('float64'),
+        sigma=get_par(set_zogy.bkg_nsigma,tel), axis=2, mask_value=0)
+
+    # compare ratio of [mini_std_alt] over [mini_std]
+    mini_std_ratio = np.nanmedian (mini_std_alt / mini_std)
+    ds9_arrays (mini_std_ratio = (mini_std_alt / mini_std))
+    
+    # adjust mini_std with this ratio
+    mini_std *= mini_std_ratio
+
+    log.info ('mini_std_ratio: {}'.format(mini_std_ratio))
+    f_max = 1.5
+    if mini_std_ratio > f_max or mini_std_ratio < 1/f_max:
+        log.warning ('mini_std_ratio correction factor to reference STD image '
+                     'is larger than {}'.format(f_max))
+
+    # write mini bkg_std file
+    header_weights['STD_RATIO'] = (mini_std_ratio, 'ratio applied to STD image '
+                                   'to approach actual STD')
     header_weights['COMMENT'] = ('combined weights image was converted to STD '
                                  'image: std=1/sqrt(w)')
     header_weights['DATEFILE'] = (ut_now, 'UTC date of writing file')
-    fits.writeto(fits_bkg_std_mini, mini_median.astype('float32'),
+    fits.writeto(fits_bkg_std_mini, mini_std.astype('float32'),
                  header_weights, overwrite=True)
 
     
@@ -2068,14 +2101,14 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
                   .format(np.shape(mask_array_zerosum)))
         mask_zero = (mask_array_zerosum >= 3)
         data_mask_comb[mask_zero] = 0
-
+                
         # write combined mask to fits image 
         fits.writeto(fits_mask_out, data_mask_comb, overwrite=overwrite)
-
+        
         # feed resampled images to function [buildref_optimal]
         #result = buildref_optimal(imagelist)
 
-
+        
     log.info ('wall-time spent in imcombine: {}s'.format(time.time()-t0))
 
     return
