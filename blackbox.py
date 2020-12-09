@@ -1645,12 +1645,14 @@ def blackbox_reduce (filename):
         not (get_par(set_bb.img_reduce,tel) and
              get_par(set_bb.force_reproc_new,tel))):
         
-        genlog.warning ('corresponding reduced {} image {} already exists; '
-                        'skipping its reduction'
-                        .format(imgtype, fits_out_present.split('/')[-1]))
-
         # create a logger that will append the log commands to [logfile]
         log = create_log (logfile)
+
+        text_tmp = ('corresponding reduced {} image {} already exists; '
+                    'skipping its reduction and copying existing products '
+                    'to tmp folder')
+        genlog.warning (text_tmp.format(imgtype, fits_out_present.split('/')[-1]))
+        log.warning (text_tmp.format(imgtype, fits_out_present.split('/')[-1]))
 
         # copy relevant files to tmp folder for object images
         if imgtype == 'object':
@@ -4352,8 +4354,16 @@ def set_header(header, filename):
    
     # update -REF and -TEL of RAs and DECs; if the -REFs do not exist
     # yet, create them with 'None' values - needed for the Database
-    edit_head(header, 'RA-REF', value='None', comments='Requested right ascension')
-    edit_head(header, 'RA-TEL', comments='[deg] Telescope right ascension')
+    edit_head(header, 'RA-REF', value='None',
+              comments='Requested right ascension')
+    # convert RA-TEL value from hours to degrees
+    if 'RA-TEL' in header:
+        ra_tel_deg = 15. * header['RA-TEL']
+    else:
+        ra_tel_deg = None
+
+    edit_head(header, 'RA-TEL', value=ra_tel_deg,
+              comments='[deg] Telescope right ascension')
     edit_head(header, 'DEC-REF', value='None', comments='Requested declination')
     edit_head(header, 'DEC-TEL', comments='[deg] Telescope declination')
     
