@@ -17,7 +17,7 @@ nthread = 2
 
 # switch on/off different parts
 img_reduce = False
-cat_extract = True
+cat_extract = False
 trans_extract = True
 
 # force re-processing of new image, only for above parts that are
@@ -76,7 +76,7 @@ img_reduce_exts = ['_red.fits', '_mask.fits', '_hdr.fits', '_mini.fits', '_red.l
 cat_extract_exts = ['_cat.fits', '_psf.fits', '_psfex.cat']
 trans_extract_exts = ['_D.fits', '_Scorr.fits', '_trans_limmag.fits', '_trans.fits']
 all_2keep = img_reduce_exts + cat_extract_exts
-ref_2keep = ['_ldac.fits'] + all_2keep
+ref_2keep = all_2keep
 new_2keep = trans_extract_exts + all_2keep
 
 #===============================================================================
