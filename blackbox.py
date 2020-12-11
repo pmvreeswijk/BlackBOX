@@ -4356,11 +4356,16 @@ def set_header(header, filename):
     # yet, create them with 'None' values - needed for the Database
     edit_head(header, 'RA-REF', value='None',
               comments='Requested right ascension')
-    # convert RA-TEL value from hours to degrees
-    if 'RA-TEL' in header:
-        ra_tel_deg = 15. * header['RA-TEL']
-    else:
-        ra_tel_deg = None
+
+    # convert RA-TEL value from hours to degrees; assume that until
+    # 15-03-2019 RA-TEL was in degrees, afterwards in hours, although
+    # for many bias and other calibration frames it was still in
+    # degrees after this date
+    ra_tel_deg = None
+    if tel=='ML1':
+        tcorr = Time('2019-03-16T12:00:00', format='isot').mjd
+        if mjd_obs > tcorr and 'RA-TEL' in header:
+            ra_tel_deg = 15. * float(header['RA-TEL'])
 
     edit_head(header, 'RA-TEL', value=ra_tel_deg,
               comments='[deg] Telescope right ascension')
