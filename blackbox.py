@@ -1638,7 +1638,7 @@ def blackbox_reduce (filename):
         # for non-object images, there is no mask
         mask_present = True
 
-    # if reduced file and its possible mask exist, and both img_reduce
+    # if reduced file and its possible mask exist, and img_reduce
     # and force_reproc_new flags are not both set to True, reduction
     # can be skipped
     if (file_present and mask_present and
@@ -2086,7 +2086,7 @@ def blackbox_reduce (filename):
         # check quality control
         qc_flag = run_qc_check (header, tel, log=log, check_key_type='full')
 
-        # update header with qc-flags
+        # update [new_fits] header with qc-flags
         with fits.open(new_fits, 'update') as hdulist:
             for key in header:
                 if 'QC' in key or 'DUMCAT' in key:
@@ -2220,15 +2220,18 @@ def blackbox_reduce (filename):
             ext_list += get_par(set_bb.trans_extract_exts,tel)
 
 
-            # currently the mini is added to the img_reduce_exts
-            if False:
-                # if img_reduce is False, copy mini images to the tmp
-                # folder because it is needed as the background was
-                # already subtracted from the reduced image
-                if not get_par(set_bb.img_reduce,tel):
-                    result = copy_files2keep(new_base, tmp_base, ['_mini.fits'],
-                                             move=False, log=log)
+            # clear any pre-existing qc-flags from [new_fits] header
+            with fits.open(new_fits, 'update') as hdulist:
+                keys2del = ['DUMCAT', 'QC-FLAG', 'QCRED', 'QCORA', 'QCYEL'] 
+                for key in hdulist[-1].header:
+                    if np.any([k in key for k in keys2del]):
+                        del hdulist[-1].header[key]
 
+            # update separate header fits file as well
+            hdulist = fits.HDUList(fits.PrimaryHDU(header=header))
+            hdulist.writeto(new_fits.replace('.fits', '_hdr.fits'), overwrite=True)
+                        
+            
 
         elif get_par(set_bb.trans_extract,tel):
 
@@ -2243,6 +2246,7 @@ def blackbox_reduce (filename):
             result = copy_files2keep(new_base, tmp_base,
                                      get_par(set_bb.cat_extract_exts,tel),
                                      move=False, log=log)
+
 
         # now files in reduced folder can be removed
         files_2remove = [fn for fn in new_list for ext in ext_list if ext in fn]
