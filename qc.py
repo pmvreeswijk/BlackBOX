@@ -215,14 +215,14 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
                     header_val = True
                 else:
                     header_val = False
-        
+
 
         if val_type=='sigma':
             # expand [val_range] to three ranges
             val_range = np.array(3*val_range)
             # and multiply 2nd column with [n_std]
             val_range[:,1] *= n_std
-            
+
 
         nranges = np.shape(val_range)[0]
         for i in range(nranges):
@@ -232,8 +232,8 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
                 bool_temp = np.abs(header_val-val_range[i][0]) <= val_range[i][1]
                 range_ok = (val_range[i][0]-val_range[i][1], 
                             val_range[i][0]+val_range[i][1])
-                
-                
+
+
             elif val_type == 'exp_frac':
 
                 bool_temp = (np.abs((header_val-val_range[i][0])/val_range[i][0])
@@ -263,8 +263,16 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
                     log.error ('[val_type] not one of "exp_abs", "exp_frac", '
                                '"min_max", "bool" or "sigma"')
                 return
-            
-                    
+
+
+            # for non-boolean range: if 'pos' key in qc_range
+            # dictionary is True, ensure that range_ok does not
+            # contain negative values
+            if qc_range[key]['pos'] and val_type != 'bool':
+                range_ok[0] = max(0, range_ok[0])
+                range_ok[1] = max(0, range_ok[1])
+
+
             if bool_temp:
                 # if within current range, assign i color to this key and leave loop
                 colors_out[nkey] = colors[i]
