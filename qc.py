@@ -230,23 +230,23 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
 
             if val_type == 'exp_abs' or val_type=='sigma':
                 bool_temp = np.abs(header_val-val_range[i][0]) <= val_range[i][1]
-                range_ok = (val_range[i][0]-val_range[i][1], 
-                            val_range[i][0]+val_range[i][1])
+                range_ok = [val_range[i][0]-val_range[i][1], 
+                            val_range[i][0]+val_range[i][1]]
 
 
             elif val_type == 'exp_frac':
 
                 bool_temp = (np.abs((header_val-val_range[i][0])/val_range[i][0])
                              <= val_range[i][1])
-                range_ok = (val_range[i][0]*(1.-val_range[i][1]), 
-                            val_range[i][0]*(1.+val_range[i][1]))
+                range_ok = [val_range[i][0]*(1.-val_range[i][1]), 
+                            val_range[i][0]*(1.+val_range[i][1])]
 
 
             elif val_type == 'min_max':
 
                 bool_temp = (header_val >= val_range[i][0] and
                              header_val <= val_range[i][1])
-                range_ok = (val_range[i][0], val_range[i][1])
+                range_ok = [val_range[i][0], val_range[i][1]]
 
                 
             elif val_type == 'bool':
@@ -255,7 +255,7 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
                 if i==0:
                     range_ok = val_range[i]
                 else:
-                    range_ok = (range_ok, val_range[i])
+                    range_ok = [range_ok, val_range[i]]
                     
             else:
 
