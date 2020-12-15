@@ -2220,12 +2220,29 @@ def blackbox_reduce (filename):
             ext_list += get_par(set_bb.trans_extract_exts,tel)
 
 
+
+            # uncompress new_fits if needed
+            __, file_tmp = already_exists (new_fits, get_filename=True)
+            if '.fz' in file_tmp:
+                unzip (file_tmp)
+
             # clear any pre-existing qc-flags from [new_fits] header
             with fits.open(new_fits, 'update') as hdulist:
-                keys2del = ['DUMCAT', 'QC-FLAG', 'QCRED', 'QCORA', 'QCYEL'] 
-                for key in hdulist[-1].header:
-                    if np.any([k in key for k in keys2del]):
-                        del hdulist[-1].header[key]
+                keys = ['DUMCAT', 'QC-FLAG', 'QCRED', 'QCORA', 'QCYEL'] 
+                for key in keys:
+                    if 'QCRED' in key or 'QCORA' in key or 'QCYEL' in key:
+                        keys2del = ['{}{}'.format(key[0:5], i)
+                                    for i in range(1,100)]
+                    else:
+                        keys2del = [key]
+                                                         
+                    for key2del in keys2del:
+                        if key2del in hdulist[-1].header:
+                            log.info ('deleting keyword {} from header of {}'
+                                      .format(key2del, new_fits))
+                            del hdulist[-1].header[key2del]
+                        else:
+                            break
 
             # update separate header fits file as well
             hdulist = fits.HDUList(fits.PrimaryHDU(header=header))
