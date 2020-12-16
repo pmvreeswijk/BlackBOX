@@ -129,38 +129,20 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          transients just before [get_trans] and flag red if more than
          e.g. 1000.
 
-    (17) moffat fit to transients in D provides negative chi2s?
-
     (19) make log input in functions optional through log=None, so that
          they can be easily used by modules outside of blackbox/zogy.
          Maybe do the same for other parameters such as telescope.
          --> many functions done, but not yet systematically
 
-  * (20) optimal vs. large aperture magnitudes show discrepant values
-         at the bright end; why?
-
     (64) after subtraction of a background with a gradient, the
          standard deviation must be different; find a good way to
          improve the STD estimate
 
-    (81) masterflats are currently only made for nights where individual
-         flats are available, and if not enough flats are available,
-         a nearby alternative is searched for. On IDIA that is fine, but
-         for Google that alternativee flat needs to be copied over.
-
-  * (86) need to redefine QC ranges for keywords introduced in v1.0,
-         such as RDIF-MAX and RSTD-MAX and their equivalents PC-MZPD
-         and PC-MZPS for the zeropoint variation across the subimages.
-         - do not flag images red based on LIMMAG or PC-ZP, but
-           provide reasonable ranges for the other colors
-         - but keep flagging red on PC-ZPSTD
-
-    (89) exception in fit_moffat_single when object is too close to
-         edge: shapes of arrays are flipped and lead to a broadcast
-         exception
-
-  * (92) transient extraction not going well in very crowded fields;
-         try an alternative function using Source Extractor
+    (81) masterflats are currently only made for nights where
+         individual flats are available, and if not enough flats are
+         available, a nearby alternative is searched for. On IDIA that
+         is fine, but for Google that alternative flat needs to be
+         copied over.
 
   * (93) related to issue (3): get rid of memory leak, which is very
          apparent when running with trans_extract=True: each process
@@ -178,10 +160,6 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          using numpy functions append_fields and drop_fields as they
          are causing warnings related to Quantity: "function
          'append_fields' is not known to astropy's Quantity"
-
-   (100) next to transient catalog with thumbnail images, also save
-         transient catalog with all candidates before filtering and
-         without the thumbnails?
 
 
     Done:
@@ -283,8 +261,23 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          Moffat fits are less robust than the PSF fit, so cannot use
          it reliably to discard transients.
 
+    (17) moffat fit to transients in D provides negative chi2s?
+         --> was because number of degrees of freedom could become
+             negative; not anymore
+
     (18) replace string '+' concatenations with formats
     
+  * (20) optimal vs. large aperture magnitudes show discrepant values
+         at the bright end; why?
+
+         --> looked at a few examples, and they seem to be due to
+             additional sources within the aperture radius, which are
+             included in the aperture photometry but not in the
+             optimal magnitude estimation. This includes unresolved
+             binaries that do not follow the shape of the PSF. So
+             these differences generally point to nearby neighbors of
+             the object.
+
   * (21) force orientation in thumbnail images to be approximately
          North up East left
 
@@ -704,6 +697,13 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          determine it?
          --> this is not determined instead of forced to 0
 
+  * (86) need to redefine QC ranges for keywords introduced in v1.0,
+         such as RDIF-MAX and RSTD-MAX and their equivalents PC-MZPD
+         and PC-MZPS for the zeropoint variation across the subimages.
+         - do not flag images red based on LIMMAG or PC-ZP, but
+           provide reasonable ranges for the other colors
+         - but keep flagging red on PC-ZPSTD
+
     (87) Change in full-source and reference catalogs:
          - XWIN_IMAGE --> X_POS
          - YWIN_IMAGE --> Y_POS
@@ -718,6 +718,12 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
     (88) Danielle noticed that headers of reference images are not
          complete anymore; need to improve this in buildref.py
+
+    (89) exception in fit_moffat_single when object is too close to
+         edge: shapes of arrays are flipped and lead to a broadcast
+         exception
+         --> appeared to be due to using different psf sizes for the
+             new and ref image; now fixed
 
     (90) currently FLUX_AUTO is used for the photometric normalization
          in PSFEx, which is recorded in the _psfex.cat output ASCII
@@ -749,6 +755,10 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
          global value is still used here.
          --> this will be improved when issue (94) is implemented
 
+  * (92) transient extraction not going well in very crowded fields;
+         try an alternative function using Source Extractor
+         --> done
+
     (94) determination of optimal fluxes could be sped up by using the
          psf images determined for [get_psf] at the centers of the
          subimages. And for the PSF fit to D, the subimages P_D could
@@ -775,6 +785,11 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
     (97) in ref catalog, include columns A, (B), THETA, CXX, CYY, CXY
          and remove X2AVE_POS, Y2AVE_POS and XYAVE_POS.
+
+   (100) next to transient catalog with thumbnail images, also save
+         transient catalog with all candidates before filtering and
+         without the thumbnails?
+         --> decided not to do so
 
     """
 
