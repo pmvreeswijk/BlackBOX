@@ -1208,8 +1208,8 @@ def pool_func (func, filelist, *args, log=None, nproc=1):
             log.error ('exception was raised during [pool.apply_async({})]: {}'
                        .format(func, e))
             
-        logging.shutdown()
-        raise SystemExit
+        #logging.shutdown()
+        #raise SystemExit
 
     return results
 
@@ -1641,7 +1641,6 @@ def blackbox_reduce (filename):
     else:
         # for biases, darks and flats
         logfile = fits_out.replace('.fits','.log')
-
 
 
 
@@ -2670,7 +2669,7 @@ def blackbox_reduce (filename):
         log_timing_memory (t0=t_blackbox_reduce, label='blackbox_reduce at end',
                            log=log)
 
-    log.info('reached the end of function blackbox_reduce')
+    genlog.info('reached the end of function blackbox_reduce')
 
     clean_tmp(tmp_path, log=log)
     close_log(log, logfile)
