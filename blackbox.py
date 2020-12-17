@@ -2,6 +2,7 @@
 import os
 import gc
 import pickle
+import copy
 
 import set_zogy
 import set_blackbox as set_bb
@@ -2648,7 +2649,7 @@ def blackbox_reduce (filename):
     # list of files to copy/move to reduced folder; need to include
     # the img_reduce products in any case because the header will have
     # been updated with fresh QC flags
-    list_2keep = np.copy(get_par(set_bb.img_reduce_exts,tel))
+    list_2keep = copy.deepcopy (get_par(set_bb.img_reduce_exts,tel))
     if get_par(set_bb.cat_extract,tel):
         list_2keep += get_par(set_bb.cat_extract_exts,tel)
     if ref_present:
@@ -2669,7 +2670,7 @@ def blackbox_reduce (filename):
         log_timing_memory (t0=t_blackbox_reduce, label='blackbox_reduce at end',
                            log=log)
 
-    genlog.info('reached the end of function blackbox_reduce')
+    log.info('reached the end of function blackbox_reduce')
 
     clean_tmp(tmp_path, log=log)
     close_log(log, logfile)
