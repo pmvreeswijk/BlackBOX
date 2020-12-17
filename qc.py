@@ -153,20 +153,18 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
 
         # check if keyword is present in qc_range
         if key.upper() not in qc_range.keys():
-            if not hide_warnings:
-                if log is not None:
-                    log.info ('Warning: keyword {} not present in qc_range'
-                              .format(key))
+            if not hide_warnings and log is not None:
+                log.warning ('keyword {} not present in qc_range'
+                             .format(key))
             # change color to empty string
             colors_out[nkey] = ''
             continue
         
         # check if keyword is present in the header
         if key.upper() not in header.keys():
-            if not hide_warnings:
-                if log is not None:
-                    log.info ('Warning: keyword {} not present in the input header'
-                              .format(key))
+            if not hide_warnings and log is not None:
+                log.warning ('keyword {} not present in the input header'
+                             .format(key))
             # change color to empty string
             colors_out[nkey] = ''
             continue
@@ -197,12 +195,12 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
             val_range = val_range[filt]
 
 
-        # if keyword value equals 'None', then also skip it
+        # if keyword value equals 'None' or None, then also skip it
         header_val = header[key]
-        if header_val == 'None':
-            if log is not None:
-                log.info ('Warning: {}=\'None\'. Skipping quality check.'
-                          .format(key))
+        if header_val == 'None' or header_val is None:
+            if not hide_warnings and log is not None:
+                log.warning ('{}=\'None\' or None; skipping quality check.'
+                             .format(key))
             colors_out[nkey] = ''
             continue
 
