@@ -1659,14 +1659,13 @@ def blackbox_reduce (filename):
     if (file_present and mask_present and
         not (get_par(set_bb.img_reduce,tel) and
              get_par(set_bb.force_reproc_new,tel))):
-        
+
         # create a logger that will append the log commands to [logfile]
         log = create_log (logfile)
 
         text_tmp = ('corresponding reduced {} image {} already exists; '
                     'skipping its reduction and copying existing products '
                     'to tmp folder')
-        genlog.warning (text_tmp.format(imgtype, fits_out_present.split('/')[-1]))
         log.warning (text_tmp.format(imgtype, fits_out_present.split('/')[-1]))
 
         # copy relevant files to tmp folder for object images
@@ -1674,7 +1673,7 @@ def blackbox_reduce (filename):
             result = copy_files2keep(new_base, tmp_base,
                                      get_par(set_bb.img_reduce_exts,tel),
                                      move=False, log=log)
-
+            
         do_reduction = False
 
     else:
@@ -2235,7 +2234,6 @@ def blackbox_reduce (filename):
             ext_list += get_par(set_bb.trans_extract_exts,tel)
 
 
-
             # uncompress new_fits if needed
             __, file_tmp = already_exists (new_fits, get_filename=True)
             if '.fz' in file_tmp:
@@ -2651,7 +2649,7 @@ def blackbox_reduce (filename):
     # list of files to copy/move to reduced folder; need to include
     # the img_reduce products in any case because the header will have
     # been updated with fresh QC flags
-    list_2keep = get_par(set_bb.img_reduce_exts,tel)
+    list_2keep = np.copy(get_par(set_bb.img_reduce_exts,tel))
     if get_par(set_bb.cat_extract,tel):
         list_2keep += get_par(set_bb.cat_extract_exts,tel)
     if ref_present:
@@ -3226,8 +3224,13 @@ def copy_files2keep (src_base, dest_base, ext2keep, move=True,
     same extensions. The base names should include the full path.
     """
 
+    # make copy of [ext2keep] to avoid modifying the input parameter
+    ext2keep_copy = np.copy(ext2keep)
+
     # select unique entries in input [ext2keep]
-    ext2keep = list(set(ext2keep))
+    ext2keep_uniq = list(set(ext2keep_copy))
+    if log is not None:
+        log.info ('extensions to copy: {}'.format(ext2keep_uniq))
 
     # list of all files starting with [src_base]
     src_files = glob.glob('{}*'.format(src_base))
@@ -3236,8 +3239,8 @@ def copy_files2keep (src_base, dest_base, ext2keep, move=True,
     for src_file in src_files:
         # determine file string following [src_base] 
         src_ext = src_file.split(src_base)[-1]
-        # check if this matches entry in [ext2keep]
-        for ext in ext2keep:
+        # check if this matches entry in [ext2keep_uniq]
+        for ext in ext2keep_uniq:
             if ext in src_ext:
                 dest_file = '{}{}'.format(dest_base, src_ext)
                 # if so, and the source and destination names are not
@@ -3263,7 +3266,7 @@ def copy_files2keep (src_base, dest_base, ext2keep, move=True,
                         if log is not None:
                             log.info('copying {} to {}'.
                                      format(src_file, dest_file))
-                        shutil.copyfile(src_file, dest_file)
+                        shutil.copy2(src_file, dest_file)
                     else:
                         if log is not None:
                             log.info('moving {} to {}'
