@@ -7,14 +7,6 @@ import copy
 import set_zogy
 import set_blackbox as set_bb
 
-# setting number of threads through environment variable (used by
-# e.g. astroscrappy) needs to be done before numpy is imported in
-# [zogy]
-# this needs to be done before numpy is imported in [zogy]
-os.environ['OMP_NUM_THREADS'] = str(set_bb.nthread)
-
-from zogy import *
-
 import re   # Regular expression operations
 import glob # Unix style pathname pattern expansion 
 from multiprocessing import Pool, Manager, Lock, Queue, Array
@@ -88,7 +80,8 @@ keywords_version = '1.0.0'
 
 def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
                   recursive=None, imgtypes=None, filters=None, image=None, 
-                  image_list=None, master_date=None):
+                  image_list=None, master_date=None, nproc=None,
+                  nthread=None):
     
 
     """Function that processes MeerLICHT or BlackGEM images, performs
@@ -802,6 +795,25 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
         types = imgtypes.lower()
 
 
+    # overrule settings file parameters if provided as input
+    if nproc is not None:
+        set_bb.nproc = nproc
+
+    if nthread is not None:
+        set_bb.nthread = nthread
+        
+
+    # setting environment variable OMP_NUM_THREADS to number of threads,
+    # (used by e.g. astroscrappy); needs to be done before numpy is
+    # imported in [zogy]. However, do not set it when running a job on the
+    # ilifu cluster as it is set in the job script and that value would
+    # get overwritten here
+    if os.environ.get('SLURM_CPUS_PER_TASK') is None:
+        os.environ['OMP_NUM_THREADS'] = str(set_bb.nthread)
+
+    from zogy import *
+
+
     if get_par(set_zogy.timing,tel):
         t_run_blackbox = time.time()
         
@@ -954,6 +966,8 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
             filenames_reduced = pool_func (try_blackbox_reduce, filenames,
                                            log=genlog,
                                            nproc=get_par(set_bb.nproc,tel))
+            
+            genlog.info ('filenames_reduced: {}'.format(filenames_reduced))
 
 
         #snapshot2 = tracemalloc.take_snapshot()
@@ -1019,6 +1033,10 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
                            log=genlog)
 
 
+
+    logging.shutdown()
+    return
+        
     # fpack remaining fits images
     # ---------------------------       
     genlog.info ('fpacking fits images')
@@ -1039,6 +1057,10 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
     # create jpg images for all reduced frames
     # ----------------------------------------
+
+    # only in case basis image reduction steps were performed
+    #if get_par(set_bb.img_reduce,tel):
+        
     genlog.info ('creating jpg images')
     # create list of files to jpg
     if image is None:
@@ -2670,8 +2692,6 @@ def blackbox_reduce (filename):
         log_timing_memory (t0=t_blackbox_reduce, label='blackbox_reduce at end',
                            log=log)
 
-    log.info('reached the end of function blackbox_reduce')
-
     clean_tmp(tmp_path, log=log)
     close_log(log, logfile)
     
@@ -4183,8 +4203,8 @@ def set_header(header, filename):
         if value is not None:
             if key in header:
                 if header[key] != value and value != 'None':
-                    print ('warning: value of existing keyword {} updated from {} to {}'
-                           .format(key, header[key], value))
+                    genlog.warning ('value of existing keyword {} updated from '
+                                    '{} to {}'.format(key, header[key], value))
                     header[key] = value
             else:
                 header[key] = value
@@ -4193,15 +4213,15 @@ def set_header(header, filename):
             if key in header:
                 header.comments[key] = comments
             else:
-                print ('warning: keyword {} does not exist: comment is not updated'
-                       .format(key))
+                genlog.warning ('keyword {} does not exist: comment is not '
+                                'updated'.format(key))
         # update dtype
         if dtype is not None:
             if key in header and header[key] != 'None':
                 header[key] = dtype(header[key])
             else:
-                print ('warning: dtype of keyword {} is not updated'.format(key))
-                
+                genlog.warning ('dtype of keyword {} is not updated'.format(key))
+
                 
     edit_head(header, 'NAXIS', comments='number of array dimensions')
     edit_head(header, 'NAXIS1', comments='length of array axis')
@@ -4591,7 +4611,7 @@ def set_header(header, filename):
                     'AZ-REF', 'ALT-REF', 'CCDFULLH', 'CCDFULLW', 'RADECSYS']
     for key in keys_2remove:
         if key in header:
-            print ('removing keyword {}'.format(key))
+            genlog.info ('removing keyword {}'.format(key))
             header.remove(key, remove_all=True)
     
             
@@ -4624,7 +4644,7 @@ def set_header(header, filename):
             # append key, value and comments to new header
             header_sort.append((key, header[key], header.comments[key]))
         else:
-            print ('keyword {} not in header'.format(key))            
+            genlog.warning ('keyword {} not in header'.format(key))            
 
     return header_sort
 
@@ -4663,12 +4683,10 @@ def define_sections (data_shape, tel=None):
     # channel section slices including overscan; shape=(16,2)
     chan_sec = tuple([(slice(y,y+dy), slice(x,x+dx))
                       for y in range(0,ysize,dy) for x in range(0,xsize,dx)])
-    #print ('chan_sec: {}'.format(chan_sec))
 
     # channel data section slices; shape=(16,2)
     data_sec = tuple([(slice(y,y+ysize_chan), slice(x,x+xsize_chan))
                       for y in range(0,ysize,dy+ysize_os) for x in range(0,xsize,dx)])
-    #print ('data_sec: {}'.format(data_sec))
 
     # channel vertical overscan section slices; shape=(16,2)
     # cut off [ncut] pixels to avoid including pixels on the edge of the
@@ -4677,7 +4695,6 @@ def define_sections (data_shape, tel=None):
     ncut = 5
     os_sec_vert = tuple([(slice(y,y+dy), slice(x+xsize_chan+ncut,x+dx-1))
                          for y in range(0,ysize,dy) for x in range(0,xsize,dx)])
-    #print ('os_sec_vert: {}'.format(os_sec_vert))
 
     # channel horizontal overscan sections; shape=(16,2)
     # cut off [ncut] pixels to avoid including pixels on the edge of the
@@ -4686,14 +4703,13 @@ def define_sections (data_shape, tel=None):
     os_sec_hori = tuple([(slice(y,y+ysize_os_cut), slice(x,x+dx))
                          for y in range(dy-ysize_os_cut,dy+ysize_os_cut,ysize_os_cut)
                          for x in range(0,xsize,dx)])
-    #print ('os_sec_hori: {}'.format(os_sec_hori))
     
     # channel reduced data section slices; shape=(16,2)
     data_sec_red = tuple([(slice(y,y+ysize_chan), slice(x,x+xsize_chan))
                           for y in range(0,ysize-ny*ysize_os,ysize_chan)
                           for x in range(0,xsize-nx*xsize_os,xsize_chan)])
-    #print ('data_sec_red: {}'.format(data_sec_red))
-    
+
+
     return chan_sec, data_sec, os_sec_hori, os_sec_vert, data_sec_red
 
 
@@ -5098,7 +5114,8 @@ def gain_corr(data, header, tel=None, log=None):
     #     data[height*j:height*(j+1),width*i:width*(i+1)]*=g[i+(j*8)]
     #
     # height, width = 5300, 1500
-    # for (j,i) in [(j,i) for j in range(2) for i in range(8)]: print (height*j, height*(j+1),width*i, width*(i+1), i+(j*8))
+    # for (j,i) in [(j,i) for j in range(2) for i in range(8)]:
+    # print (height*j, height*(j+1),width*i, width*(i+1), i+(j*8))
     # 0 5300 0 1500 0
     # 0 5300 1500 3000 1
     # 0 5300 3000 4500 2
@@ -5160,11 +5177,11 @@ def get_path (date, dir_type):
     elif dir_type == 'write':
         root_dir = get_par(set_bb.red_dir,tel)
     else:
-        print ('error: [dir_type] not one of "read" or "write"')
+        genlog.error ('[dir_type] not one of "read" or "write"')
         
     path = '{}/{}'.format(root_dir, date_dir)
     if '//' in path:
-        print ('replacing double slash in path name: {}'.format(path))
+        genlog.info ('replacing double slash in path name: {}'.format(path))
         path = path.replace('//','/')
     
     return path, date_eve
@@ -5250,11 +5267,11 @@ def unzip(imgname, put_lock=True, timeout=None):
         lock.acquire()
 
     if '.gz' in imgname:
-        print ('gunzipping {}'.format(imgname))
+        genlog.info ('gunzipping {}'.format(imgname))
         subprocess.call(['gunzip',imgname])
         imgname = imgname.replace('.gz','')
     elif '.fz' in imgname:
-        print ('funpacking {}'.format(imgname))
+        genlog.info ('funpacking {}'.format(imgname))
         subprocess.call(['funpack','-D',imgname])
         imgname = imgname.replace('.fz','')
 
@@ -5505,22 +5522,58 @@ class FileWatcher(FileSystemEventHandler, object):
 if __name__ == "__main__":
     
     params = argparse.ArgumentParser(description='User parameters')
+
     params.add_argument('--telescope', type=str, default='ML1', 
-                        help='Telescope name (ML1, BG2, BG3 or BG4); default=\'ML1\'')
+                        help='Telescope name (ML1, BG2, BG3 or BG4); '
+                        'default=\'ML1\'')
+
     params.add_argument('--mode', type=str, default='day', 
                         help='Day or night mode of pipeline; default=\'day\'')
-    params.add_argument('--date', type=str, default=None, help='Date to process (yyyymmdd, yyyy-mm-dd, yyyy/mm/dd or yyyy.mm.dd); default=None')
-    params.add_argument('--read_path', type=str, default=None, help='Full path to the input raw data directory; if not defined it is determined from [set_blackbox.raw_dir], [telescope] and [date]; default=None') 
-    params.add_argument('--recursive', type=str2bool, default=False, help='Recursively include subdirectories for input files; default=False')
-    params.add_argument('--imgtypes', type=str, default=None, help='Only consider this(these) image type(s); default=None')
-    params.add_argument('--filters', type=str, default=None, help='Only consider this(these) filter(s); default=None')
-    params.add_argument('--image', type=str, default=None, help='Only process this particular image (requires full path); default=None')
-    params.add_argument('--image_list', type=str, default=None, help='Process images listed in ASCII file with this name; default=None')
-    params.add_argument('--master_date', type=str, default=None, help='Create master file of type(s) [imgtypes] and filter(s) [filters] for this(these) date(s) (e.g. 2019 or 2019/10 or 2019-10-14); default=None')
+
+    params.add_argument('--date', type=str, default=None,
+                        help='Date to process (yyyymmdd, yyyy-mm-dd, yyyy/mm/dd '
+                        'or yyyy.mm.dd); default=None')
+
+    params.add_argument('--read_path', type=str, default=None,
+                        help='Full path to the input raw data directory; if not '
+                        'defined it is determined from [set_blackbox.raw_dir], '
+                        '[telescope] and [date]; default=None') 
+
+    params.add_argument('--recursive', type=str2bool, default=False,
+                        help='Recursively include subdirectories for input '
+                        'files; default=False')
+
+    params.add_argument('--imgtypes', type=str, default=None,
+                        help='Only consider this(these) image type(s); '
+                        'default=None')
+
+    params.add_argument('--filters', type=str, default=None,
+                        help='Only consider this(these) filter(s); default=None')
+
+    params.add_argument('--image', type=str, default=None, help='Only process '
+                        'this particular image (requires full path); '
+                        'default=None')
+    
+    params.add_argument('--image_list', type=str, default=None,
+                        help='Process images listed in ASCII file with this '
+                        'name; default=None')
+    
+    params.add_argument('--master_date', type=str, default=None,
+                        help='Create master file of type(s) [imgtypes] and '
+                        'filter(s) [filters] for this(these) date(s) (e.g. 2019 '
+                        'or 2019/10 or 2019-10-14); default=None')
+
+    params.add_argument('--nproc', type=int, default=None,
+                        help='number of processes (tasks) to run; default=None')
+
+    params.add_argument('--nthread', type=int, default=None,
+                        help='number of threads (CPUs) per proces; default=None')
+
     args = params.parse_args()
 
     run_blackbox (telescope=args.telescope, mode=args.mode, date=args.date, 
                   read_path=args.read_path, recursive=args.recursive, 
                   imgtypes=args.imgtypes, filters=args.filters, image=args.image,
-                  image_list=args.image_list, master_date=args.master_date)
+                  image_list=args.image_list, master_date=args.master_date,
+                  nproc=args.nproc, nthread=args.nthread)
 
