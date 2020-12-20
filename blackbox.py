@@ -7,6 +7,21 @@ import copy
 import set_zogy
 import set_blackbox as set_bb
 
+# setting environment variable OMP_NUM_THREADS to number of threads,
+# (used by e.g. astroscrappy); needs to be done before numpy is
+# imported in [zogy]. However, do not set it when running a job on the
+# ilifu cluster as it is set in the job script and that value would
+# get overwritten here
+cpus_per_task = os.environ.get('SLURM_CPUS_PER_TASK')
+if cpus_per_task is None:
+    os.environ['OMP_NUM_THREADS'] = str(set_bb.nthread)
+else:
+    # not really necessary - already done in cluster batch script
+    os.environ['OMP_NUM_THREADS'] = cpus_per_task
+
+    
+from zogy import *
+
 import re   # Regular expression operations
 import glob # Unix style pathname pattern expansion 
 from multiprocessing import Pool, Manager, Lock, Queue, Array
@@ -80,9 +95,8 @@ keywords_version = '1.0.0'
 
 def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
                   recursive=None, imgtypes=None, filters=None, image=None, 
-                  image_list=None, master_date=None, nproc=None,
-                  nthread=None):
-    
+                  image_list=None, master_date=None):
+
 
     """Function that processes MeerLICHT or BlackGEM images, performs
     basic image reduction tasks such as overscan subtraction,
@@ -794,24 +808,18 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     if imgtypes is not None:
         types = imgtypes.lower()
 
-
-    # overrule settings file parameters if provided as input
-    if nproc is not None:
-        set_bb.nproc = nproc
-
-    if nthread is not None:
-        set_bb.nthread = nthread
         
+    # define number of processes or tasks [nproc]; when running on the
+    # ilifu cluster, in which case the environment variable
+    # SLURM_NTASKS should be set through --ntasks-per-node in the
+    # sbatch script; otherwise use the value from the set_bb settings
+    # file
+    slurm_ntasks = os.environ.get('SLURM_NTASKS')
+    if slurm_ntasks is not None:
+        nproc = slurm_ntasks
+    else:
+        nproc = get_par(set_bb.nproc,tel)
 
-    # setting environment variable OMP_NUM_THREADS to number of threads,
-    # (used by e.g. astroscrappy); needs to be done before numpy is
-    # imported in [zogy]. However, do not set it when running a job on the
-    # ilifu cluster as it is set in the job script and that value would
-    # get overwritten here
-    if os.environ.get('SLURM_CPUS_PER_TASK') is None:
-        os.environ['OMP_NUM_THREADS'] = str(set_bb.nthread)
-
-    from zogy import *
 
 
     if get_par(set_zogy.timing,tel):
@@ -831,7 +839,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     
     genlog.info ('processing mode:      {}'.format(mode))
     genlog.info ('general log file:     {}'.format(genlogfile))
-    genlog.info ('number of processes:  {}'.format(get_par(set_bb.nproc,tel)))
+    genlog.info ('number of processes:  {}'.format(nproc))
     genlog.info ('number of threads:    {}'.format(get_par(set_bb.nthread,tel)))
     genlog.info ('switch img_reduce:    {}'
                  .format(get_par(set_bb.img_reduce,tel)))
@@ -855,7 +863,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
     # create master bias and/or flat if [master_date] is specified
     if master_date is not None:
-        create_masters (mdate=master_date)
+        create_masters (mdate=master_date, nproc=nproc)
         logging.shutdown()
         return
 
@@ -948,7 +956,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
         # see https://docs.python.org/3/library/tracemalloc.html
         #snapshot1 = tracemalloc.take_snapshot()
             
-        if get_par(set_bb.nproc,tel)==1 or image is not None:
+        if nproc==1 or image is not None:
             
             # if only 1 process is requested, or [image] input
             # parameter is not None, run it witout multiprocessing;
@@ -964,8 +972,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
         else:
             # use [pool_func] to process list of files
             filenames_reduced = pool_func (try_blackbox_reduce, filenames,
-                                           log=genlog,
-                                           nproc=get_par(set_bb.nproc,tel))
+                                           log=genlog, nproc=nproc)
             
             genlog.info ('filenames_reduced: {}'.format(filenames_reduced))
 
@@ -991,7 +998,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
         queue = Queue()
         # create pool with given number of processes and queue feeding
         # into action function
-        pool = Pool(get_par(set_bb.nproc,tel), action, (queue,))
+        pool = Pool(nproc, action, (queue,))
 
         # create and setup observer, but do not start just yet
         observer = Observer()
@@ -1046,7 +1053,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
         list_2pack = prep_packlist (date)
         # use [pool_func] to process the list
         results = pool_func (fpack, list_2pack, genlog,
-                             log=genlog, nproc=get_par(set_bb.nproc,tel))
+                             log=genlog, nproc=nproc)
     else:
         # without multiprocessing in single image mode
         list_2pack = prep_packlist (date, image_red=filenames_reduced[0])
@@ -1067,7 +1074,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
         list_2jpg = prep_jpglist (date)
         # use [pool_func] to process the list
         results = pool_func (create_jpg, list_2jpg, genlog,
-                             log=genlog, nproc=get_par(set_bb.nproc,tel))
+                             log=genlog, nproc=nproc)
     else:
         list_2jpg = prep_jpglist (date, image_red=filenames_reduced[0])
         # process list one by one
@@ -1086,8 +1093,8 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
 ################################################################################
 
-def create_masters (mdate=None, run_fpack=True, run_create_jpg=True):
-    
+def create_masters (mdate=None, run_fpack=True, run_create_jpg=True, nproc=1):
+
     if get_par(set_zogy.timing,tel):
         t = time.time()
     
@@ -1149,8 +1156,7 @@ def create_masters (mdate=None, run_fpack=True, run_create_jpg=True):
     # use [pool_func] to process list of masters; pick_alt is set to
     # False as there is no need to look for an alternative master flat
     list_fits_master = pool_func (master_prep, list_masters, data_shape, False,
-                                  genlog,
-                                  log=genlog, nproc=get_par(set_bb.nproc,tel))
+                                  genlog, log=genlog, nproc=nproc)
 
 
     if get_par(set_zogy.timing,tel):
@@ -1163,7 +1169,7 @@ def create_masters (mdate=None, run_fpack=True, run_create_jpg=True):
     if run_fpack:
         genlog.info ('fpacking master frames')
         results = pool_func (fpack, list_masters_existing, genlog,
-                             log=genlog, nproc=get_par(set_bb.nproc,tel))
+                             log=genlog, nproc=nproc)
 
 
     # use [pool_func] to create jpegs
@@ -1174,7 +1180,7 @@ def create_masters (mdate=None, run_fpack=True, run_create_jpg=True):
                                      for f in list_masters_existing]
 
         results = pool_func (create_jpg, list_masters_existing, genlog,
-                             log=genlog, nproc=get_par(set_bb.nproc,tel))
+                             log=genlog, nproc=nproc)
 
         
     if get_par(set_zogy.timing,tel):
@@ -5563,17 +5569,10 @@ if __name__ == "__main__":
                         'filter(s) [filters] for this(these) date(s) (e.g. 2019 '
                         'or 2019/10 or 2019-10-14); default=None')
 
-    params.add_argument('--nproc', type=int, default=None,
-                        help='number of processes (tasks) to run; default=None')
-
-    params.add_argument('--nthread', type=int, default=None,
-                        help='number of threads (CPUs) per proces; default=None')
-
     args = params.parse_args()
 
     run_blackbox (telescope=args.telescope, mode=args.mode, date=args.date, 
                   read_path=args.read_path, recursive=args.recursive, 
                   imgtypes=args.imgtypes, filters=args.filters, image=args.image,
-                  image_list=args.image_list, master_date=args.master_date,
-                  nproc=args.nproc, nthread=args.nthread)
+                  image_list=args.image_list, master_date=args.master_date)
 
