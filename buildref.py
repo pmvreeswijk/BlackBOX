@@ -1,4 +1,19 @@
 
+import os
+import set_buildref as set_br
+
+# setting environment variable OMP_NUM_THREADS to number of threads,
+# (used by e.g. astroscrappy); needs to be done before numpy is
+# imported in [zogy]. However, do not set it when running a job on the
+# ilifu cluster as it is set in the job script and that value would
+# get overwritten here
+cpus_per_task = os.environ.get('SLURM_CPUS_PER_TASK')
+if cpus_per_task is None:
+    os.environ['OMP_NUM_THREADS'] = str(set_br.nthreads)
+else:
+    # not really necessary - already done in cluster batch script
+    os.environ['OMP_NUM_THREADS'] = cpus_per_task
+
 from zogy import *
 
 import re, fnmatch
@@ -28,7 +43,6 @@ from blackbox import pool_func, fpack, create_jpg
 from qc import qc_check, run_qc_check
 
 import set_zogy
-import set_buildref as set_br
 import set_blackbox as set_bb
 
 
@@ -85,6 +99,11 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
          --> possible solution: after having made the new co-add,
              compare the STDs in the different channels with those in
              the bkg_std image and scale the latter
+
+    (26) apply the procedure suggested in Gruen et al. (2014; see
+         https://ui.adsabs.harvard.edu/abs/2014PASP..126..158G/abstract
+         to produce an outlier filtered stack free of ghost images or
+         faint tracks; this requires running SWarp twice
 
 
     Done:
@@ -301,7 +320,19 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
     start_date = date_start
     end_date = date_end
     ext = extension
-    
+
+
+    # define number of processes or tasks [nproc]; when running on the
+    # ilifu cluster the environment variable SLURM_NTASKS should be
+    # set through --ntasks-per-node in the sbatch script; otherwise
+    # use the value from the set_br settings file
+    slurm_ntasks = os.environ.get('SLURM_NTASKS')
+    if slurm_ntasks is not None:
+        nproc = slurm_ntasks
+    else:
+        nproc = get_par(set_br.nproc,tel)
+
+
     # record starting time to add to header
     time_refstart = Time.now().isot
     
@@ -316,8 +347,8 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
     
     genlog.info ('building reference images')
     genlog.info ('log file: {}'.format(genlogfile))
-    genlog.info ('number of processes: {}'.format(get_par(set_br.nproc,tel)))
-    genlog.info ('number of threads: {}\n'.format(get_par(set_br.nthread,tel)))
+    genlog.info ('number of processes: {}'.format(nproc))
+    genlog.info ('number of threads: {}\n'.format(get_par(set_br.nthreads,tel)))
     genlog.info ('telescope:      {}'.format(telescope))
     genlog.info ('date_start:     {}'.format(date_start))
     genlog.info ('date_end:       {}'.format(date_end))
@@ -369,7 +400,6 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
 
 
     # split into [nproc] lists
-    nproc = get_par(set_br.nproc,tel)
     list_of_filelists = []
     index = np.linspace(0,nfiles,num=nproc+1).astype(int)
     for i in range(nproc):
@@ -379,7 +409,7 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
     # use function pool_func_lists to read headers from files
     # using multiple processes and write them to a table
     results = pool_func_lists (header2table, list_of_filelists,
-                               log=genlog, nproc=get_par(set_bb.nproc,tel))
+                               log=genlog, nproc=nproc)
     # stack separate tables in results
     table = vstack(results)
 
@@ -573,8 +603,7 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
     # for a particular field and filter combination, using
     # the [imcombine] function 
     result = pool_func_lists (prep_ref, list_of_imagelists, obj_list,
-                              filt_list, radec_list,
-                              log=genlog, nproc=get_par(set_bb.nproc,tel))
+                              filt_list, radec_list, log=genlog, nproc=nproc)
 
 
     # make color figures
@@ -584,7 +613,7 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
         # also prepare color figures
         try:
             result = pool_func (prep_colfig, objs_uniq, filters_colfig, genlog,
-                                log=genlog, nproc=get_par(set_bb.nproc,tel))
+                                log=genlog, nproc=nproc)
         except Exception as e:
             genlog.error (traceback.format_exc())
             genlog.error ('exception was raised during [pool_func]: {}'
@@ -609,8 +638,7 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
     list_2pack = list(itertools.chain.from_iterable(list_2pack))
 
     # use [pool_func] to process the list
-    result = pool_func (fpack, list_2pack, genlog,
-                        log=genlog, nproc=get_par(set_bb.nproc,tel))
+    result = pool_func (fpack, list_2pack, genlog, log=genlog, nproc=nproc)
 
 
     # create jpg images for reference frames
@@ -629,8 +657,7 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
     list_2jpg = list(itertools.chain.from_iterable(list_2jpg))
 
     # use [pool_func] to process the list
-    result = pool_func (create_jpg, list_2jpg, genlog,
-                        log=genlog, nproc=get_par(set_bb.nproc,tel))
+    result = pool_func (create_jpg, list_2jpg, genlog, log=genlog, nproc=nproc)
 
 
     logging.shutdown()
@@ -1003,7 +1030,7 @@ def prep_ref (imagelist, field_ID, filt, radec):
                    back_filtersize = get_par(set_zogy.bkg_filtersize,tel),
                    remap_each = False,
                    swarp_cfg = get_par(set_zogy.swarp_cfg,tel),
-                   nthreads = get_par(set_br.nthread,tel),
+                   nthreads = get_par(set_br.nthreads,tel),
                    log = log)
 
     except Exception as e:
@@ -1019,7 +1046,7 @@ def prep_ref (imagelist, field_ID, filt, radec):
         header_optsub = optimal_subtraction(
             ref_fits=ref_fits, ref_fits_mask=ref_fits_mask,
             set_file='set_zogy', log=log, verbose=None,
-            nthread=get_par(set_br.nthread,tel), telescope=tel)
+            nthread=get_par(set_br.nthreads,tel), telescope=tel)
     except Exception as e:
         log.info (traceback.format_exc())
         log.error ('exception was raised during reference [optimal_subtraction]: '
@@ -1096,7 +1123,7 @@ def prep_ref (imagelist, field_ID, filt, radec):
                        back_size=back_size, back_filtersize=back_filtersize,
                        masktype_discard=masktype_discard, tempdir=tmp_path,
                        remap_each=False, swarp_cfg=get_par(set_zogy.swarp_cfg,tel),
-                       nthreads=get_par(set_br.nthread,tel), log=log)
+                       nthreads=get_par(set_br.nthreads,tel), log=log)
 
             # copy combined image to reference folder
             shutil.move (ref_fits_temp, ref_path)

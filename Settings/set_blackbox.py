@@ -9,7 +9,7 @@ import numpy as np
 nproc = 1
 # maximum number of threads for each process (this parameter
 # cannot be made telescope dependent through a dictionary!)
-nthread = 2
+nthreads = 1
 
 #===============================================================================
 # Reduction steps
@@ -17,8 +17,8 @@ nthread = 2
 
 # switch on/off different parts
 img_reduce = False
-cat_extract = False
-trans_extract = True
+cat_extract = True
+trans_extract = False
 
 # force re-processing of new image, only for above parts that are
 # switched on
@@ -54,7 +54,7 @@ run_dir_base = os.environ['DATAHOME']
 # temporary directory where data is reduced; ideally this is on a disk
 # with fast read/write speed - for the moment it is the same as
 # [run_dir_base], but could be anywhere
-tmp_dir_base = run_dir_base
+tmp_dir_base = '/scratch/projects/meerlicht'
 # switch to keep tmp directories (True) or not (False)
 keep_tmp = True
 

@@ -4,10 +4,10 @@
 #===============================================================================
 
 # number of processes to run in parallel
-nproc = 8
+nproc = 1
 # maximum number of threads for each process (this parameter
 # cannot be made telescope dependent through a dictionary!)
-nthread = 1
+nthreads = 2
 
 #===============================================================================
 # Directory structure and files to keep
@@ -19,7 +19,7 @@ nthread = 1
 # additional directory; the switch below determines whether to keep
 # the reference tmp directory (True) or delete it right after the
 # reference image has been built
-keep_tmp = False
+keep_tmp = True
 
 #===============================================================================
 # Imcombine settings
@@ -56,7 +56,7 @@ back_type = 'blackbox'
 #===============================================================================
 
 # nmin1: bare minimum number of images to combine
-# nmin2: number of available images * subset_frac needs to be higher
+# nmin2: number of available images * subset_frac needs to be larger
 #        than nmin2 before images are cut
 subset_nmin = (2, 30)
 # fraction of available images to combine

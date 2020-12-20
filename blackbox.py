@@ -14,7 +14,7 @@ import set_blackbox as set_bb
 # get overwritten here
 cpus_per_task = os.environ.get('SLURM_CPUS_PER_TASK')
 if cpus_per_task is None:
-    os.environ['OMP_NUM_THREADS'] = str(set_bb.nthread)
+    os.environ['OMP_NUM_THREADS'] = str(set_bb.nthreads)
 else:
     # not really necessary - already done in cluster batch script
     os.environ['OMP_NUM_THREADS'] = cpus_per_task
@@ -840,7 +840,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     genlog.info ('processing mode:      {}'.format(mode))
     genlog.info ('general log file:     {}'.format(genlogfile))
     genlog.info ('number of processes:  {}'.format(nproc))
-    genlog.info ('number of threads:    {}'.format(get_par(set_bb.nthread,tel)))
+    genlog.info ('number of threads:    {}'.format(get_par(set_bb.nthreads,tel)))
     genlog.info ('switch img_reduce:    {}'
                  .format(get_par(set_bb.img_reduce,tel)))
     genlog.info ('switch cat_extract:   {}'
@@ -2396,7 +2396,7 @@ def blackbox_reduce (filename):
             header_new = optimal_subtraction(
                 new_fits=new_fits, new_fits_mask=new_fits_mask, 
                 set_file='set_zogy', log=log, verbose=None, redo_new=None,
-                nthread=get_par(set_bb.nthread,tel), telescope=tel)
+                nthreads=get_par(set_bb.nthreads,tel), telescope=tel)
         except Exception as e:
             log.info(traceback.format_exc())
             log.error('exception was raised during [optimal_subtraction] for '
@@ -2475,7 +2475,7 @@ def blackbox_reduce (filename):
             header_ref = optimal_subtraction(
                 ref_fits=new_fits, ref_fits_mask=new_fits_mask, 
                 set_file='set_zogy', log=log, verbose=None, redo_ref=None,
-                nthread=get_par(set_bb.nthread,tel), telescope=tel)
+                nthreads=get_par(set_bb.nthreads,tel), telescope=tel)
         except Exception as e:
             log.info(traceback.format_exc())
             log.error('exception was raised during [optimal_subtraction] for '
@@ -2607,7 +2607,7 @@ def blackbox_reduce (filename):
                 new_fits=new_fits, ref_fits=ref_fits, new_fits_mask=new_fits_mask,
                 ref_fits_mask=ref_fits_mask, set_file='set_zogy', log=log, 
                 verbose=None, redo_new=None, redo_ref=None,
-                nthread=get_par(set_bb.nthread,tel), telescope=tel)
+                nthreads=get_par(set_bb.nthreads,tel), telescope=tel)
         except Exception as e:
             log.info(traceback.format_exc())
             log.error('exception was raised during [optimal_subtraction] for '
@@ -3327,7 +3327,7 @@ def sat_detect (data, header, data_mask, header_mask, tmp_path, log=None):
         #detect satellite trails
         try:
             results, errors = detsat(fits_binned_mask, chips=[0],
-                                     n_processes=get_par(set_bb.nthread,tel),
+                                     n_processes=get_par(set_bb.nthreads,tel),
                                      buf=40, sigma=3, h_thresh=0.2, plot=False,
                                      verbose=False)
         except Exception as e:
