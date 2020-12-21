@@ -14,7 +14,7 @@ import set_blackbox as set_bb
 # get overwritten here
 cpus_per_task = os.environ.get('SLURM_CPUS_PER_TASK')
 if cpus_per_task is None:
-    os.environ['OMP_NUM_THREADS'] = str(set_bb.nthreads)
+    os.environ['OMP_NUM_THREADS'] = set_bb.nthreads
 else:
     # not really necessary - already done in cluster batch script
     os.environ['OMP_NUM_THREADS'] = cpus_per_task
@@ -810,13 +810,12 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
         
     # define number of processes or tasks [nproc]; when running on the
-    # ilifu cluster, in which case the environment variable
-    # SLURM_NTASKS should be set through --ntasks-per-node in the
-    # sbatch script; otherwise use the value from the set_bb settings
-    # file
+    # ilifu cluster the environment variable SLURM_NTASKS should be
+    # set through --ntasks-per-node in the sbatch script; otherwise
+    # use the value from the set_bb settings file
     slurm_ntasks = os.environ.get('SLURM_NTASKS')
     if slurm_ntasks is not None:
-        nproc = slurm_ntasks
+        nproc = int(slurm_ntasks)
     else:
         nproc = get_par(set_bb.nproc,tel)
 
