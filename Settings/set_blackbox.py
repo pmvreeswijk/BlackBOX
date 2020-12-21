@@ -54,7 +54,7 @@ run_dir_base = os.environ['DATAHOME']
 # temporary directory where data is reduced; ideally this is on a disk
 # with fast read/write speed - for the moment it is the same as
 # [run_dir_base], but could be anywhere
-tmp_dir_base = '/scratch/projects/meerlicht'
+tmp_dir_base = run_dir_base
 # switch to keep tmp directories (True) or not (False)
 keep_tmp = True
 
