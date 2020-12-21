@@ -14,10 +14,10 @@ import set_blackbox as set_bb
 # get overwritten here
 cpus_per_task = os.environ.get('SLURM_CPUS_PER_TASK')
 if cpus_per_task is None:
-    os.environ['OMP_NUM_THREADS'] = set_bb.nthreads
+    os.environ['OMP_NUM_THREADS'] = str(set_bb.nthreads)
 else:
     # not really necessary - already done in cluster batch script
-    os.environ['OMP_NUM_THREADS'] = cpus_per_task
+    os.environ['OMP_NUM_THREADS'] = str(cpus_per_task)
 
     
 from zogy import *
@@ -817,7 +817,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     if slurm_ntasks is not None:
         nproc = int(slurm_ntasks)
     else:
-        nproc = get_par(set_bb.nproc,tel)
+        nproc = int(get_par(set_bb.nproc,tel))
 
 
 
@@ -973,8 +973,8 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
             filenames_reduced = pool_func (try_blackbox_reduce, filenames,
                                            log=genlog, nproc=nproc)
             
-            genlog.info ('filenames_reduced: {}'.format(filenames_reduced))
 
+        genlog.info ('filenames_reduced: {}'.format(filenames_reduced))
 
         #snapshot2 = tracemalloc.take_snapshot()
         #top_stats = snapshot2.compare_to(snapshot1, 'lineno')
@@ -1034,56 +1034,10 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
         create_obslog (date, email=True, tel=tel, log=genlog)
 
 
+
     if get_par(set_zogy.timing,tel):
-        log_timing_memory (t0=t_run_blackbox, label='run_blackbox before fpacking',
+        log_timing_memory (t0=t_run_blackbox, label='run_blackbox at very end',
                            log=genlog)
-
-
-
-    logging.shutdown()
-    return
-        
-    # fpack remaining fits images
-    # ---------------------------       
-    genlog.info ('fpacking fits images')
-    # now that all files have been processed, fpack!
-    if image is None:
-        # using multiprocessing in non-single image mode
-        list_2pack = prep_packlist (date)
-        # use [pool_func] to process the list
-        results = pool_func (fpack, list_2pack, genlog,
-                             log=genlog, nproc=nproc)
-    else:
-        # without multiprocessing in single image mode
-        list_2pack = prep_packlist (date, image_red=filenames_reduced[0])
-        # process list one by one
-        for file_2pack in list_2pack:
-            fpack (file_2pack, genlog)
-
-
-    # create jpg images for all reduced frames
-    # ----------------------------------------
-
-    # only in case basis image reduction steps were performed
-    #if get_par(set_bb.img_reduce,tel):
-        
-    genlog.info ('creating jpg images')
-    # create list of files to jpg
-    if image is None:
-        list_2jpg = prep_jpglist (date)
-        # use [pool_func] to process the list
-        results = pool_func (create_jpg, list_2jpg, genlog,
-                             log=genlog, nproc=nproc)
-    else:
-        list_2jpg = prep_jpglist (date, image_red=filenames_reduced[0])
-        # process list one by one
-        for file_2jpg in list_2jpg:
-            create_jpg (file_2jpg, genlog)
-
-
-    if get_par(set_zogy.timing,tel):
-        log_timing_memory (t0=t_run_blackbox, label='run_blackbox after fpacking '
-                           'and creating jpgs', log=genlog)
 
 
     logging.shutdown()
@@ -1244,61 +1198,6 @@ def pool_func (func, filelist, *args, log=None, nproc=1):
 
 ################################################################################
 
-def prep_packlist (date, image_red=None):
-    
-    list_2pack = []
-    if image_red is not None:
-        image_red_base = image_red.split('_red.fits')[0]
-        list_2pack.append(glob.glob('{}*.fits'.format(image_red_base)))
-
-    elif date is not None:
-        # add files in [read_path]
-        read_path, __ = get_path(date, 'read')
-        list_2pack.append(glob.glob('{}/*.fits'.format(read_path)))
-        # add files in [write_path]
-        write_path, __ = get_path(date, 'write')
-        list_2pack.append(glob.glob('{}/*.fits'.format(write_path)))
-        # add fits files in bias and flat directories
-        list_2pack.append(glob.glob('{}/bias/*.fits'.format(write_path)))
-        list_2pack.append(glob.glob('{}/flat/*.fits'.format(write_path)))
-
-    else:
-        # just add all fits files in [set_bb.raw_dir]/*/*/*/*.fits
-        raw_dir = get_par(set_bb.raw_dir,tel)
-        list_2pack.append(glob.glob('{}/*/*/*/*.fits'.format(raw_dir)))
-        # just add all fits files in [telescope]/red/*/*/*/*.fits
-        # (could do it more specifically by going through raw fits
-        # files and finding out where their reduced images are)
-        red_dir = get_par(set_bb.red_dir,tel)
-        list_2pack.append(glob.glob('{}/*/*/*/*.fits'.format(red_dir)))
-        # add fits files in bias and flat directories
-        list_2pack.append(glob.glob('{}/*/*/*/bias/*.fits'.format(red_dir)))
-        list_2pack.append(glob.glob('{}/*/*/*/flat/*.fits'.format(red_dir)))
-
-
-    # ref files will be fpacked by the reference building module
-    # add ref files
-    #ref_dir = get_par(set_bb.ref_dir,tel)
-    #list_2pack.append(glob.glob('{}/*/*.fits'.format(ref_dir)))
-
-
-    # add tmp folders if they are kept
-    if get_par(set_bb.keep_tmp,tel):
-        tmp_dir = get_par(set_bb.tmp_dir,tel)
-        list_2pack.append(glob.glob('{}/*/*.fits'.format(tmp_dir)))
-
-        
-    # flatten this list of files
-    list_2pack = list(itertools.chain.from_iterable(list_2pack))
-    #list_2pack = [item for sublist in list_2pack for item in sublist]
-
-
-    # return the unique items
-    return list(set(list_2pack))
-    
-
-################################################################################
-
 def fpack (filename, log=None):
 
     """Fpack fits images; skip fits tables"""
@@ -1322,59 +1221,27 @@ def fpack (filename, log=None):
                         quant = 16
                     cmd = ['fpack', '-q', str(quant), '-D', '-Y', '-v', filename]
 
-                # if fpacked file already exists, delete it first
-                #filename_packed = '{}.fz'.format(filename)
-                #if os.path.exists(filename_packed):
-                #    print ('warning: deleting already existing file: {}'
-                #           .format(filename_packed))
-                #    os.remove(filename_packed)
+
+                # if output fpacked file already exists, delete it
+                filename_packed = '{}.fz'.format(filename)
+                if os.path.exists(filename_packed):
+                    os.remove(filename_packed)
+                    if log is not None:
+                        log.warning ('fpacking over already existing file {}'
+                                     .format(filename_packed))
 
                 subprocess.call(cmd)
+                filename = filename_packed
+                
 
     except Exception as e:
         if log is not None:
             log.info (traceback.format_exc())
             log.error ('exception was raised in fpacking of image {}: {}'
                        .format(filename,e))
-            
 
-################################################################################
+    return filename
 
-def prep_jpglist (date, image_red=None):
-    
-    list_2jpg = []
-    if image_red is not None:
-        # only create jpg of the reduced file
-        list_2jpg.append('{}.fz'.format(image_red))
-
-
-    elif date is not None:
-        # add files in [write_path]
-        write_path, __ = get_path(date, 'write')
-        list_2jpg.append(glob.glob('{}/*_red.fits.fz'.format(write_path)))
-        # add fits files in bias and flat directories
-        list_2jpg.append(glob.glob('{}/bias/*.fits.fz'.format(write_path)))
-        list_2jpg.append(glob.glob('{}/flat/*.fits.fz'.format(write_path)))
-
-    else:
-        # just add all fits files in [telescope]/red/*/*/*/*.fits
-        # (could do it more specifically by going through raw fits
-        # files and finding out where their reduced images are)
-        red_dir = get_par(set_bb.red_dir,tel)
-        list_2jpg.append(glob.glob('{}/*/*/*/*_red.fits.fz'.format(red_dir)))
-        # add fits files in bias and flat directories
-        list_2jpg.append(glob.glob('{}/*/*/*/bias/*.fits.fz'.format(red_dir)))
-        list_2jpg.append(glob.glob('{}/*/*/*/flat/*.fits.fz'.format(red_dir)))
-
-        
-    # flatten the list of files
-    #list_2jpg = [item for sublist in list_2jpg for item in sublist]
-    list_2jpg = list(itertools.chain.from_iterable(list_2jpg))
-
-
-    # return the unique items
-    return list(set(list_2jpg))
-    
 
 ################################################################################
 
@@ -1638,7 +1505,7 @@ def blackbox_reduce (filename):
             utdate_ref, uttime_ref = get_date_time(header_ref)
             if utdate_ref==utdate and uttime_ref==uttime:
                 genlog.info ('this image {} is the current reference image '
-                             'of field {}; skipping'
+                             'of field {}; not processing it'
                              .format(fits_out.split('/')[-1], obj))
                 return None
 
@@ -1699,8 +1566,8 @@ def blackbox_reduce (filename):
         if imgtype == 'object':
             result = copy_files2keep(new_base, tmp_base,
                                      get_par(set_bb.img_reduce_exts,tel),
-                                     move=False, log=log)
-            
+                                     move=False, do_fpack=False, log=log)
+
         do_reduction = False
 
     else:
@@ -1878,9 +1745,14 @@ def blackbox_reduce (filename):
             run_qc_check (header, tel, log=log)
             header['DATEFILE'] = (Time.now().isot, 'UTC date of writing file')
             fits.writeto(fits_out, data.astype('float32'), header, overwrite=True)
+            # fpack
+            fits_out = fpack (fits_out, log=log)
+            # create jpg
+            create_jpg (fits_out, log=log)
+            # close down logging and leave
             close_log(log, logfile)
             return fits_out
-    
+
     
         # master bias creation
         ######################
@@ -1978,6 +1850,11 @@ def blackbox_reduce (filename):
             # write to fits
             header['DATEFILE'] = (Time.now().isot, 'UTC date of writing file')
             fits.writeto(fits_out, data.astype('float32'), header, overwrite=True)
+            # fpack
+            fits_out = fpack (fits_out, log=log)
+            # create jpg
+            create_jpg (fits_out, log=log)
+            # close down logging and leave
             close_log(log, logfile)
             return fits_out
 
@@ -2166,9 +2043,11 @@ def blackbox_reduce (filename):
     # for non-object images, leave function; if reduction steps would
     # not have been skipped, this would have happened before
     if imgtype != 'object':
+        # close down logging and leave
         close_log(log, logfile)
         return fits_out
-    
+
+
     # if both catalog and transient extraction are switched off, then
     # no need to execute [optimal_subtraction]
     if (not get_par(set_bb.cat_extract,tel) and
@@ -2189,6 +2068,8 @@ def blackbox_reduce (filename):
             return fits_out
 
         else:
+            # if reduction steps were skipped, reduced img products
+            # should still be present
             clean_tmp(tmp_path, log=log)
             close_log(log, logfile)
             return None
@@ -2239,7 +2120,7 @@ def blackbox_reduce (filename):
             # otherwise, copy cat_extract products and trans_extract
             # to tmp folder and continue
             result = copy_files2keep(new_base, tmp_base, ext_list, move=False,
-                                     log=log)
+                                     do_fpack=False, log=log)
 
 
     elif get_par(set_bb.force_reproc_new,tel):
@@ -2302,7 +2183,7 @@ def blackbox_reduce (filename):
             # to the tmp folder, as the cat_extract can be skipped
             result = copy_files2keep(new_base, tmp_base,
                                      get_par(set_bb.cat_extract_exts,tel),
-                                     move=False, log=log)
+                                     move=False, do_fpack=False, log=log)
 
 
         # now files in reduced folder can be removed
@@ -3224,17 +3105,25 @@ def clean_tmp (tmp_path, log=None):
         reduced image / reference image if [set_bb.keep_tmp] not True.
     """
 
-    # delete [tmp_path] folder if [set_bb.keep_tmp] not True
-    if not get_par(set_bb.keep_tmp,tel) and os.path.isdir(tmp_path):
+    # check if folder exists
+    if os.path.isdir(tmp_path):
 
+        # delete [tmp_path] folder if [set_bb.keep_tmp] not True
+        if not get_par(set_bb.keep_tmp,tel):
+            shutil.rmtree(tmp_path)
+            if log is not None:
+                log.info ('removing temporary folder: {}'.format(tmp_path))
+                
+        else:
+            # otherwise fpack its fits images
+            list_2pack = glob.glob('{}/*.fits'.format(tmp_path))
+            for filename in list_2pack:
+                __ = fpack (filename, log=log)
+
+    else:
         if log is not None:
-            log.info ('removing temporary folder: {}'.format(tmp_path))
+            log.warning ('tmp folder {} does not exist'.format(tmp_path))
 
-        shutil.rmtree(tmp_path)
-
-    # if making plots, change directory from tmp_path to run_dir
-    #if get_par(set_zogy.make_plots,tel):
-    #    os.chdir(get_par(set_bb.run_dir,tel))
 
     return
 
@@ -3242,7 +3131,7 @@ def clean_tmp (tmp_path, log=None):
 ################################################################################
 
 def copy_files2keep (src_base, dest_base, ext2keep, move=True,
-                     remove_fpacked=True, log=None):
+                     do_fpack=True, remove_existing=True, log=None):
 
     """Function to copy/move files with base name [src_base] and
     extensions [ext2keep] to files with base name [dest_base] with the
@@ -3272,9 +3161,21 @@ def copy_files2keep (src_base, dest_base, ext2keep, move=True,
                 # identical, go ahead and copy
                 if src_file != dest_file:
 
-                    if remove_fpacked:
-                        # remove the corresponding f/unpacked files
-                        # already present in the destination folder
+                    if do_fpack:
+                        # fpack src_file if needed
+                        src_file = fpack (src_file, log=log)
+
+                        # add '.fz' extension to [dest_file] in case
+                        # [src_file] was fpacked (not all files are
+                        # fpacked)
+                        if '.fz' in src_file and '.fz' not in dest_file:
+                            dest_file = '{}.fz'.format(dest_file)
+
+
+                    if remove_existing:
+                        # remove the corresponding f/unpacked
+                        # counterparts of [dest_file] already present
+                        # in the destination folder
                         if '.fz' in dest_file:
                             file_2remove = dest_file.split('.fz')[0]
                         else:
@@ -3297,6 +3198,15 @@ def copy_files2keep (src_base, dest_base, ext2keep, move=True,
                             log.info('moving {} to {}'
                                      .format(src_file, dest_file))
                         shutil.move(src_file, dest_file)
+
+
+                    # if do_fpack is True, i.e. files are being copied
+                    # from tmp to red or ref and not vice versa, and
+                    # file is reduced, D or Scorr image, create a jpg
+                    if do_fpack and ('_red.fits' in dest_file or
+                                     '_D.fits' in dest_file or
+                                     '_Scorr.fits' in dest_file):
+                        create_jpg (dest_file, log=log)
 
 
     return
@@ -3985,7 +3895,12 @@ def master_prep (fits_master, data_shape, pick_alt=True, log=None):
             header_master['DATEFILE'] = (Time.now().isot, 'UTC date of writing file')
             fits.writeto(fits_master, master_median.astype('float32'), header_master,
                          overwrite=True)
+            # fpack
+            fits_master = fpack (fits_master, log=log)
+            # create jpg
+            create_jpg (fits_master, log=log)
 
+            
 
     if get_par(set_zogy.timing,tel):
         log_timing_memory (t0=t, label='master_prep', log=log)
