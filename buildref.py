@@ -9,10 +9,10 @@ import set_buildref as set_br
 # get overwritten here
 cpus_per_task = os.environ.get('SLURM_CPUS_PER_TASK')
 if cpus_per_task is None:
-    os.environ['OMP_NUM_THREADS'] = set_br.nthreads
+    os.environ['OMP_NUM_THREADS'] = str(set_br.nthreads)
 else:
     # not really necessary - already done in cluster batch script
-    os.environ['OMP_NUM_THREADS'] = cpus_per_task
+    os.environ['OMP_NUM_THREADS'] = str(cpus_per_task)
 
 from zogy import *
 
@@ -330,7 +330,7 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
     if slurm_ntasks is not None:
         nproc = int(slurm_ntasks)
     else:
-        nproc = get_par(set_br.nproc,tel)
+        nproc = int(get_par(set_br.nproc,tel))
 
 
     # record starting time to add to header
