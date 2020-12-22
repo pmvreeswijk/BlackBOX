@@ -1577,6 +1577,9 @@ def blackbox_reduce (filename):
         
         if file_present:
 
+            genlog.info ('forced reprocessing: removing all existing products '
+                         'in reduced folder for {}'.format(filename))
+
             # this is a forced re-reduction; delete all corresponding
             # files in reduced folder as they will become obsolete
             # with this re-reduction
@@ -1588,7 +1591,7 @@ def blackbox_reduce (filename):
                 jpgfile = '{}.jpg'.format(new_base)
                 files_2remove = [fits_out_present, logfile, jpgfile]
                 # master bias and/or flat are removed inside [master_prep]
-                
+
             for file_2remove in files_2remove:
                 genlog.info ('removing existing {}'.format(file_2remove))
                 os.remove(file_2remove)
@@ -2123,19 +2126,21 @@ def blackbox_reduce (filename):
                                      do_fpack=False, log=log)
 
 
-    elif get_par(set_bb.force_reproc_new,tel):
+    elif get_par(set_bb.force_reproc_new,tel) and not do_reduction:
 
         # if [force_reproc_new]=True, then depending on exact
         # switches, remove relevant files from reduced folder and copy
-        # files to the tmp folder
+        # files to the tmp folder; this is not needed if basic
+        # reduction was performed, i.e. do_reduction=True
+
         new_list = glob.glob('{}*'.format(new_base))
         ext_list = []
 
         # if cat_extract=True then remove all cat and trans products
         if get_par(set_bb.cat_extract,tel):
 
-            log.info ('forced reprocessing is switched on: removing all '
-                      'existing cat_extract and trans_extract products for {}'
+            log.info ('forced reprocessing: removing all existing cat_extract '
+                      'and trans_extract products in reduced folder for {}'
                       .format(filename))
 
             ext_list += get_par(set_bb.cat_extract_exts,tel)
@@ -2146,6 +2151,7 @@ def blackbox_reduce (filename):
             __, file_tmp = already_exists (new_fits, get_filename=True)
             if '.fz' in file_tmp:
                 unzip (file_tmp)
+
 
             # clear any pre-existing qc-flags from [new_fits] header
             with fits.open(new_fits, 'update') as hdulist:
@@ -2167,14 +2173,14 @@ def blackbox_reduce (filename):
 
             # update separate header fits file as well
             hdulist = fits.HDUList(fits.PrimaryHDU(header=header))
-            hdulist.writeto(new_fits.replace('.fits', '_hdr.fits'), overwrite=True)
-                        
-            
+            hdulist.writeto(new_fits.replace('.fits', '_hdr.fits'),
+                            overwrite=True)
+
 
         elif get_par(set_bb.trans_extract,tel):
 
-            log.info ('forced reprocessing is switched on: removing all existing '
-                      'trans_extract products for {}'.format(filename))
+            log.info ('forced reprocessing: removing all existing trans_extract '
+                      'products in reduced folder for {}'.format(filename))
 
             # only remove trans_extract products
             ext_list += get_par(set_bb.trans_extract_exts,tel)
