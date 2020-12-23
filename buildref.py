@@ -549,42 +549,102 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
             genlog.info ('number of files left for {} in filter {}: {}'
                          .format(obj, filt, nfiles))
             nmin1, nmin2 = get_par(set_br.subset_nmin,tel)
-            if nfiles >= nmin1:
 
-                # select subset if more than nmin2 images are available
-                if nfiles > nmin2:
-                    nselect = max(
-                        math.ceil(nfiles*get_par(set_br.subset_frac,tel)), nmin2)
+            use_abslimits = True
+            if use_abslimits:
 
-                    # more images available than nmin2;
-                    # select subset of images, sorted by header
-                    # keyword also defined in settings file
-                    key_sort = get_par(set_br.subset_key,tel)
-                    indices_sort = np.argsort(table[key_sort][mask])
-                    # reverse indices if high end values should be
-                    # included
-                    if not get_par(set_br.subset_lowend,tel):
-                        indices_sort = indices_sort[::-1]
-                    # threshold value
-                    threshold = table[key_sort][mask][indices_sort[nselect]]
-                    print ('threshold: {}'.format(threshold))
-                    # update mask
-                    if get_par(set_br.subset_lowend,tel):
-                        mask &= (table[key_sort] < threshold)
-                    else:
-                        mask &= (table[key_sort] > threshold)
-                    genlog.info ('selected following subset of {} images for '
-                                 'field_ID {}, filter: {}, based on header '
-                                 'keyword: {}:\n{}'.format(nselect, obj, filt,
-                                                           key_sort, table[mask]))
+                # use absolute limit on LIMMAG, defined in dictionary
+                # set_br.limmag_comb
 
-                # add this set of images with their field_ID and
-                # filter to the lists of images, field_IDs and filters
-                # to be processed
-                list_of_imagelists.append(list(table['FILE'][mask]))
-                obj_list.append(table['OBJECT'][mask][0])
-                filt_list.append(table['FILTER'][mask][0])
-                radec_list.append(radec)
+                # sort files based on their LIMMAG, highest value first
+                indices_sort = np.argsort(table[mask]['LIMMAG'])[::-1]
+                limmags_sort = table[mask]['LIMMAG'][indices_sort]
+                files_sort = table[mask]['FILE'][indices_sort]
+
+                # calculate expected cumulative LIMMAG if images would
+                # be combined using simple average
+                limmags_sort_cum = -2.5*np.log10(
+                    np.sqrt(np.cumsum((10**(-0.4*limmags_sort))**2))
+                    / (np.arange(len(limmags_sort))+1))
+                
+                # filter based on target limiting magnitude
+                limmag_target = get_par(set_br.limmag_target,tel)[filt]
+                mask_sort_cum = (limmags_sort_cum <= limmag_target)
+
+                # find index where cumulative limiting magnitude
+                # starts to potentially decrease
+                index_stop = None
+                for i in range(1, nfiles):
+                    dlimmag = limmags_sort_cum[i] - limmags_sort_cum[i-1]
+                    if dlimmag <= 0:
+                        index_stop = i
+                        break
+
+                # do not use files that would downgrade the combined
+                # limiting magnitude
+                if index is not None:
+                    mask_sort_cum[index_stop:] = False
+                    genlog.warning ('files excluded as they would decrease the '
+                                    'combined limiting magnitude: {}, with '
+                                    'individual limiting magnitudes: {}'
+                                    .format(files_sort[~mask_sort_cum],
+                                            limmags_sort[~mask_sort_cum]))
+                    
+                # files to combine
+                files_2coadd = files_sort[mask_sort_cum]
+                limmags_2coadd = limmags_sort[mask_sort_cum]
+                
+                for i in range(len(files_2coadd)):
+                    genlog.info ('file: {}, limmag: {:.3f}'
+                                 .format(files_2coadd[i], limmags_2coadd[i]))
+
+                
+            else:
+            
+                # old method of selecting which images to combine,
+                # determined by settings file parameters subset_nmin,
+                # subset_frac and subset_key
+                if nfiles >= nmin1:
+                    
+                    # select subset if more than nmin2 images are available
+                    if nfiles > nmin2:
+                        nselect = max(math.ceil(get_par(set_br.subset_frac,tel)
+                                                * nfiles), nmin2)
+
+                        # more images available than nmin2;
+                        # select subset of images, sorted by header
+                        # keyword also defined in settings file
+                        key_sort = get_par(set_br.subset_key,tel)
+                        indices_sort = np.argsort(table[key_sort][mask])
+                        # reverse indices if high end values should be
+                        # included
+                        if not get_par(set_br.subset_lowend,tel):
+                            indices_sort = indices_sort[::-1]
+                        # threshold value
+                        threshold = table[key_sort][mask][indices_sort[nselect]]
+                        print ('threshold: {}'.format(threshold))
+                        # update mask
+                        if get_par(set_br.subset_lowend,tel):
+                            mask &= (table[key_sort] < threshold)
+                        else:
+                            mask &= (table[key_sort] > threshold)
+
+                        files_2coadd = table[mask]['FILE']
+
+                        genlog.info ('selected following subset of {} images for '
+                                     'field_ID {}, filter: {}, based on header '
+                                     'keyword: {}:\n{}'.format(nselect, obj, filt,
+                                                               key_sort,
+                                                               table[mask]))
+
+            # add this set of images with their field_ID and
+            # filter to the lists of images, field_IDs and filters
+            # to be processed
+            list_of_imagelists.append(list(files_2coadd))
+            obj_list.append(obj)
+            filt_list.append(filt)
+            radec_list.append(radec)
+
 
 
     if len(table)==0:
@@ -920,9 +980,9 @@ def prep_colfig (field_ID, filters, log=None):
                 images_zp.append(header[key])
             else:
                 if log is not None:
-                    genlog.info ('missing header keyword {}; not able to '
-                                 'prepare color figure for field_ID {}'
-                                 .format(key, field_ID))
+                    log.info ('missing header keyword {}; not able to '
+                              'prepare color figure for field_ID {}'
+                              .format(key, field_ID))
                 return
             
     # scaling
@@ -949,61 +1009,66 @@ def prep_colfig (field_ID, filters, log=None):
 
 def prep_ref (imagelist, field_ID, filt, radec):
 
-    # determine reference directory and file
+    # determine and create reference directory
     ref_path = '{}/{:0>5}'.format(get_par(set_bb.ref_dir,tel), field_ID)
-    # if ext(ension) is defined, add it to this path to separate it from
-    # existing reference images
-    if ext is not None:
-        ref_path = '{}{}'.format(ref_path, ext)
-
     make_dir (ref_path, lock=lock)
+    
+    # name of output file, including full path
     ref_fits_out = '{}/{}_{}_red.fits'.format(ref_path, tel, filt)
-    
-    
+
     # if reference image already exists, check if images used are the
     # same as the input [imagelist]
     exists, ref_fits_temp = already_exists (ref_fits_out, get_filename=True)
     if exists:
-        genlog.info ('reference image {} already exists; checking if it '
-                     'needs updating'.format(ref_fits_out))
-        # read header
-        header_ref = read_hdulist (ref_fits_temp, get_data=False, get_header=True)
-        # check how many images were used
-        if 'R-NUSED' in header_ref:
-            n_used = header_ref['R-NUSED']
-        else:
-            n_used = 1
 
-        # gather used images into list
-        if 'R-IM1' in header_ref:
-            imagelist_used = [header_ref['R-IM{}'.format(i+1)]
-                              for i in range(n_used)
-                              if 'R-IM{}'.format(i+1) in header_ref]
+        genlog.info ('reference image {} already exists; not remaking it'
+                     .format(ref_fits_out))
+        return
+        
 
-        # compare input [imagelist] with [imagelist_used]; if they are
-        # the same, no need to build this particular reference image
-        # again
-        imagelist_new = [image.split('/')[-1].split('.fits')[0]
-                         for image in imagelist]
-        if set(imagelist_new) == set(imagelist_used):
-            # same sets of images, return
-            genlog.info ('imagelist_new: {}'.format(imagelist_new))
-            genlog.info ('imagelist_used: {}'.format(imagelist_used))
-            genlog.info ('reference image of {} in filter {} with same '
-                         'set of images already present; skipping'
-                         .format(field_ID, filt))
-            return
+        # this block below was used previously to only remake the
+        # reference image if new individual files were available
+        if False:
+
+            genlog.info ('reference image {} already exists; checking if it '
+                         'needs updating'.format(ref_fits_out))
+            # read header
+            header_ref = read_hdulist (ref_fits_temp, get_data=False,
+                                       get_header=True)
+            # check how many images were used
+            if 'R-NUSED' in header_ref:
+                n_used = header_ref['R-NUSED']
+            else:
+                n_used = 1
+            
+            # gather used images into list
+            if 'R-IM1' in header_ref:
+                imagelist_used = [header_ref['R-IM{}'.format(i+1)]
+                                  for i in range(n_used)
+                                  if 'R-IM{}'.format(i+1) in header_ref]
+            
+            # compare input [imagelist] with [imagelist_used]; if they are
+            # the same, no need to build this particular reference image
+            # again
+            imagelist_new = [image.split('/')[-1].split('.fits')[0]
+                             for image in imagelist]
+            if set(imagelist_new) == set(imagelist_used):
+                # same sets of images, return
+                genlog.info ('imagelist_new: {}'.format(imagelist_new))
+                genlog.info ('imagelist_used: {}'.format(imagelist_used))
+                genlog.info ('reference image of {} in filter {} with same '
+                             'set of images already present; skipping'
+                             .format(field_ID, filt))
+                return
 
         
-    # prepare temporary folder; for the moment, add _alt to this path
-    # to separate it from existing reference images.
+    # prepare temporary folder
     tmp_path = ('{}/{:0>5}/{}'
                 .format(get_par(set_bb.tmp_dir,tel), field_ID,
                         ref_fits_out.split('/')[-1].replace('.fits','')))
-
     make_dir (tmp_path, empty=True, lock=lock)
-
-    # names of output fits and its mask
+    
+    # names of tmp output fits and its mask
     ref_fits = '{}/{}'.format(tmp_path, ref_fits_out.split('/')[-1])
     ref_fits_mask = ref_fits.replace('red.fits','mask.fits')
 
@@ -1012,10 +1077,11 @@ def prep_ref (imagelist, field_ID, filt, radec):
         
     # create logfile specific to this reference image in tmp folder
     # (to be copied to final output folder at the end)
-    global log
     logfile = ref_fits.replace('.fits', '.log')
     log = create_log (logfile)
 
+    genlog.info ('logfile created: {}'.format(logfile))
+    
     # run imcombine
     log.info('running imcombine; outputfile: {}'.format(ref_fits))
 
@@ -1046,7 +1112,7 @@ def prep_ref (imagelist, field_ID, filt, radec):
         header_optsub = optimal_subtraction(
             ref_fits=ref_fits, ref_fits_mask=ref_fits_mask,
             set_file='set_zogy', log=log, verbose=None,
-            nthread=get_par(set_br.nthreads,tel), telescope=tel)
+            nthreads=get_par(set_br.nthreads,tel), telescope=tel)
     except Exception as e:
         log.info (traceback.format_exc())
         log.error ('exception was raised during reference [optimal_subtraction]: '
