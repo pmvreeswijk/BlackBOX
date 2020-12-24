@@ -569,34 +569,44 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
                 
                 # filter based on target limiting magnitude
                 limmag_target = get_par(set_br.limmag_target,tel)[filt]
+                genlog.info ('target {}-band limiting magnitude: {}'
+                             .format(filt, limmag_target))
                 mask_sort_cum = (limmags_sort_cum <= limmag_target)
 
-                # find index where cumulative limiting magnitude
-                # starts to potentially decrease
-                index_stop = None
-                for i in range(1, nfiles):
-                    dlimmag = limmags_sort_cum[i] - limmags_sort_cum[i-1]
-                    if dlimmag <= 0:
-                        index_stop = i
-                        break
+                # turn off for now
+                if False:
+                    # find index where cumulative limiting magnitude
+                    # starts to decrease
+                    dmag = limmags_sort_cum - np.roll(limmags_sort_cum, 1)
+                    dmag[0] = 1 # discard 1st index (=limmag[0]-limmag[-1])
+                    mask_sort_cum[dmag < 0] = False
+                
 
-                # do not use files that would downgrade the combined
-                # limiting magnitude
-                if index is not None:
-                    mask_sort_cum[index_stop:] = False
-                    genlog.warning ('files excluded as they would decrease the '
-                                    'combined limiting magnitude: {}, with '
-                                    'individual limiting magnitudes: {}'
-                                    .format(files_sort[~mask_sort_cum],
-                                            limmags_sort[~mask_sort_cum]))
-                    
+                # files that were excluded
+                if np.sum(~mask_sort_cum) > 0:
+                    files_2exclude = files_sort[~mask_sort_cum]
+                    limmags_2exclude = limmags_sort[~mask_sort_cum]
+                    genlog.warning ('files and their limmags excluded from '
+                                    '{}-band coadd:'.format(filt))
+                    for i in range(len(files_2exclude)):
+                        genlog.info ('{}, {:.3f}'
+                                     .format(files_2exclude[i],
+                                             limmags_2exclude[i]))
+
+
                 # files to combine
                 files_2coadd = files_sort[mask_sort_cum]
                 limmags_2coadd = limmags_sort[mask_sort_cum]
                 
+                genlog.info ('files and their limmags used for {}-band coadd:'
+                             .format(filt))
                 for i in range(len(files_2coadd)):
-                    genlog.info ('file: {}, limmag: {:.3f}'
+                    genlog.info ('{}, {:.3f}'
                                  .format(files_2coadd[i], limmags_2coadd[i]))
+
+                genlog.info ('expected {}-band limiting magnitude of co-add: '
+                             '{:.2f}'
+                             .format(filt,limmags_sort_cum[mask_sort_cum][-1]))
 
                 
             else:
