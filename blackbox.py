@@ -819,6 +819,10 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     else:
         nproc = int(get_par(set_bb.nproc,tel))
 
+    # update nthreads in set_bb with value of environment variable
+    # 'OMP_NUM_THREADS' set at the top
+    if int(os.environ['OMP_NUM_THREADS']) != get_par(set_bb.nthreads,tel):
+        set_bb.nthreads = int(os.environ['OMP_NUM_THREADS'])
 
 
     if get_par(set_zogy.timing,tel):
@@ -836,16 +840,19 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
                                        Time.now().strftime('%Y%m%d_%H%M%S'))
     genlog = create_log (genlogfile)
     
-    genlog.info ('processing mode:      {}'.format(mode))
-    genlog.info ('general log file:     {}'.format(genlogfile))
-    genlog.info ('number of processes:  {}'.format(nproc))
-    genlog.info ('number of threads:    {}'.format(get_par(set_bb.nthreads,tel)))
-    genlog.info ('switch img_reduce:    {}'
+    genlog.info ('processing mode:        {}'.format(mode))
+    genlog.info ('general log file:       {}'.format(genlogfile))
+    genlog.info ('number of processes:    {}'.format(nproc))
+    genlog.info ('number of threads:      {}'.format(get_par(set_bb.nthreads,tel)))
+    genlog.info ('switch img_reduce:      {}'
                  .format(get_par(set_bb.img_reduce,tel)))
-    genlog.info ('switch cat_extract:   {}'
+    genlog.info ('switch cat_extract:     {}'
                  .format(get_par(set_bb.cat_extract,tel)))
-    genlog.info ('switch trans_extract: {}'
+    genlog.info ('switch trans_extract:   {}'
                  .format(get_par(set_bb.trans_extract,tel)))
+    genlog.info ('force reprocessing new: {}'
+                 .format(get_par(set_bb.force_reproc_new,tel)))
+
 
     mem_use (label='run_blackbox at start', log=genlog)
 
@@ -1182,14 +1189,14 @@ def pool_func (func, filelist, *args, log=None, nproc=1):
         pool.close()
         pool.join()
         results = [r.get() for r in results]
-        #if genlog is not None:
-        #    genlog.info ('result from pool.apply_async: {}'.format(results))
+        #if log is not None:
+        #    log.info ('result from pool.apply_async: {}'.format(results))
     except Exception as e:
         if log is not None:
             log.info (traceback.format_exc())
             log.error ('exception was raised during [pool.apply_async({})]: {}'
                        .format(func, e))
-            
+
         #logging.shutdown()
         #raise SystemExit
 
@@ -1609,6 +1616,8 @@ def blackbox_reduce (filename):
         log.info ('output file: {}'.format(fits_out))
         log.info ('image type:  {}, filter: {}, exptime: {:.1f}s'
                   .format(imgtype, filt, exptime))
+        if imgtype == 'object':
+            log.info ('OBJECT (field ID): {}'.format(obj))        
         log.info ('write_path:  {}'.format(write_path))
         log.info ('bias_path:   {}'.format(bias_path))
         log.info ('dark_path:   {}'.format(dark_path))
@@ -3032,7 +3041,7 @@ def try_func (func, args_in, args_out, log=None):
     
 ################################################################################
 
-def create_log (logfile):
+def create_log (logfile, name=None):
 
     #log = logging.getLogger() #create logger
     #log.setLevel(logging.INFO) #set level of logger
@@ -3042,7 +3051,7 @@ def create_log (logfile):
     #filehandler.setFormatter(formatter) #add format to log file
     #log.addHandler(filehandler) #link log file to logger
 
-    log = logging.getLogger()
+    log = logging.getLogger(name)
     log.setLevel(logging.INFO)
     logFormatter = logging.Formatter('%(asctime)s.%(msecs)03d [%(levelname)s, '
                                      '%(process)s] %(message)s [%(funcName)s, '

@@ -332,6 +332,11 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
     else:
         nproc = int(get_par(set_br.nproc,tel))
 
+    # update nthreads in set_br with value of environment variable
+    # 'OMP_NUM_THREADS' set at the top
+    if int(os.environ['OMP_NUM_THREADS']) != get_par(set_br.nthreads,tel):
+        set_br.nthreads = int(os.environ['OMP_NUM_THREADS'])
+
 
     # record starting time to add to header
     time_refstart = Time.now().isot
@@ -344,22 +349,22 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
                                                 Time.now().strftime('%Y%m%d_%H%M%S'))
     genlog = create_log (genlogfile)
 
-    
+
     genlog.info ('building reference images')
     genlog.info ('log file: {}'.format(genlogfile))
     genlog.info ('number of processes: {}'.format(nproc))
-    genlog.info ('number of threads: {}\n'.format(get_par(set_br.nthreads,tel)))
-    genlog.info ('telescope:      {}'.format(telescope))
-    genlog.info ('date_start:     {}'.format(date_start))
-    genlog.info ('date_end:       {}'.format(date_end))
-    genlog.info ('field_IDs:      {}'.format(field_IDs))
-    genlog.info ('filters:        {}'.format(filters))
-    genlog.info ('qc_flag_max:    {}'.format(qc_flag_max))
-    genlog.info ('seeing_max:     {}'.format(seeing_max))
-    genlog.info ('make_colfig:    {}'.format(make_colfig))
+    genlog.info ('number of threads:   {}'.format(get_par(set_br.nthreads,tel)))
+    genlog.info ('telescope:           {}'.format(telescope))
+    genlog.info ('date_start:          {}'.format(date_start))
+    genlog.info ('date_end:            {}'.format(date_end))
+    genlog.info ('field_IDs:           {}'.format(field_IDs))
+    genlog.info ('filters:             {}'.format(filters))
+    genlog.info ('qc_flag_max:         {}'.format(qc_flag_max))
+    genlog.info ('seeing_max:          {}'.format(seeing_max))
+    genlog.info ('make_colfig:         {}'.format(make_colfig))
     if make_colfig:
-        genlog.info ('filters_colfig: {}'.format(filters_colfig))
-    genlog.info ('extension:      {}'.format(extension))
+        genlog.info ('filters_colfig:      {}'.format(filters_colfig))
+    genlog.info ('folder extension:    {}'.format(extension))
 
     
     t0 = time.time()
@@ -615,13 +620,12 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
                 limmags_2coadd = limmags_sort[mask_sort_cum]
                 bkgstd_2coadd = bkgstd_sort[mask_sort_cum]
                 
-                genlog.info ('files and their limmags, S-BKGSTD and expected '
-                             'cumulative limmags for {}-band coadd:'
-                             .format(filt))
+                genlog.info ('files and their limmags and expected cumulative '
+                             'limmags used for {}-band coadd:'.format(filt))
                 for i in range(len(files_2coadd)):
-                    genlog.info ('{} {:.2f} {:.2f} {:.2f}'
+                    genlog.info ('{} {:.3f} {:.3f}'
                                  .format(files_2coadd[i], limmags_2coadd[i],
-                                         bkgstd_2coadd[i], limmags_sort_cum[i]))
+                                         limmags_sort_cum[i]))
 
                 genlog.info ('expected {}-band limiting magnitude of co-add: '
                              '{:.2f}'
@@ -690,7 +694,7 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
     # helper function [pool_func_lists] that will arrange each
     # process to call [prep_ref] to prepare the reference image
     # for a particular field and filter combination, using
-    # the [imcombine] function 
+    # the [imcombine] function
     result = pool_func_lists (prep_ref, list_of_imagelists, obj_list,
                               filt_list, radec_list, log=genlog, nproc=nproc)
 
