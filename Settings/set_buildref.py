@@ -55,6 +55,11 @@ back_type = 'blackbox'
 # Select subset to combine in case of many images of the same field/filter
 #===============================================================================
 
+# use absolute target limiting magnitudes suggested by PaulG:
+use_abslimits = True
+limmag_target = {'u': 21.5, 'g': 22.5, 'q': 23.5, 'r': 22.0, 'i': 22.0, 'z': 21.0}
+
+# if [use_abslimits] is False, use the settings below
 # nmin1: bare minimum number of images to combine
 # nmin2: number of available images * subset_frac needs to be larger
 #        than nmin2 before images are cut
@@ -68,3 +73,4 @@ subset_key = 'LIMMAG'
 # include low end (True) or high end (False) of keyword values?; True for
 # e.g. S-SEEING, but False for e.g. LIMMAG
 subset_lowend = False
+

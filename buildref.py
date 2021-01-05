@@ -559,28 +559,44 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
                 # sort files based on their LIMMAG, highest value first
                 indices_sort = np.argsort(table[mask]['LIMMAG'])[::-1]
                 limmags_sort = table[mask]['LIMMAG'][indices_sort]
+                bkgstd_sort = table[mask]['S-BKGSTD'][indices_sort]
                 files_sort = table[mask]['FILE'][indices_sort]
+                
 
                 # calculate expected cumulative LIMMAG if images would
                 # be combined using simple average
                 limmags_sort_cum = -2.5*np.log10(
                     np.sqrt(np.cumsum((10**(-0.4*limmags_sort))**2))
                     / (np.arange(len(limmags_sort))+1))
-                
+
+
+                # weighted version, calculating the error in the
+                # weighted mean using the values from S-BKGSTD as the
+                # sigmas (the images are weighted using the background
+                # STD images); comparison with the value from the
+                # first image determines how much more deeper the
+                # combined images are
+                if False:
+                    limmags_sort_cum = (limmags_sort[0]-2.5*np.log10(
+                        1./np.sqrt(np.cumsum(1./bkgstd_sort**2))/bkgstd_sort[0]))
+
+                # alternative weighted version using limiting
+                # magnitudes (converted to flux) instead of S-BKGSTD
+                limflux_sort = 10**(-0.4*limmags_sort)
+                limmags_sort_cum = (limmags_sort[0]-2.5*np.log10(
+                    1./np.sqrt(np.cumsum(1./limflux_sort**2))/limflux_sort[0]))
+
+
                 # filter based on target limiting magnitude
                 limmag_target = get_par(set_br.limmag_target,tel)[filt]
                 genlog.info ('target {}-band limiting magnitude: {}'
                              .format(filt, limmag_target))
-                mask_sort_cum = (limmags_sort_cum <= limmag_target)
+                # add dmag to target magnitude to account for the fact
+                # that the expected limiting magnitude will be
+                # somewhat higher than the actual one
+                dmag = 0.1
+                mask_sort_cum = (limmags_sort_cum <= limmag_target + dmag)
 
-                # turn off for now
-                if False:
-                    # find index where cumulative limiting magnitude
-                    # starts to decrease
-                    dmag = limmags_sort_cum - np.roll(limmags_sort_cum, 1)
-                    dmag[0] = 1 # discard 1st index (=limmag[0]-limmag[-1])
-                    mask_sort_cum[dmag < 0] = False
-                
 
                 # files that were excluded
                 if np.sum(~mask_sort_cum) > 0:
@@ -597,12 +613,15 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
                 # files to combine
                 files_2coadd = files_sort[mask_sort_cum]
                 limmags_2coadd = limmags_sort[mask_sort_cum]
+                bkgstd_2coadd = bkgstd_sort[mask_sort_cum]
                 
-                genlog.info ('files and their limmags used for {}-band coadd:'
+                genlog.info ('files and their limmags, S-BKGSTD and expected '
+                             'cumulative limmags for {}-band coadd:'
                              .format(filt))
                 for i in range(len(files_2coadd)):
-                    genlog.info ('{}, {:.3f}'
-                                 .format(files_2coadd[i], limmags_2coadd[i]))
+                    genlog.info ('{} {:.2f} {:.2f} {:.2f}'
+                                 .format(files_2coadd[i], limmags_2coadd[i],
+                                         bkgstd_2coadd[i], limmags_sort_cum[i]))
 
                 genlog.info ('expected {}-band limiting magnitude of co-add: '
                              '{:.2f}'
@@ -800,14 +819,23 @@ def header2table (filenames):
 
     # keywords to add to table
     keys = ['MJD-OBS', 'OBJECT', 'FILTER', 'QC-FLAG', 'RA-CNTR', 'DEC-CNTR',
-            # add keyword that is sorted on if many images are available
-            get_par(set_br.subset_key,tel)]
-    keys_dtype = [float, 'S5', 'S1', 'S6', float, float, float]
+            'LIMMAG', 'S-BKGSTD']
+    keys_dtype = [float, 'S5', 'S1', 'S6', float, float, float, float]
+
+    # add keyword that is sorted on if absolute limits are not used
+    # and many images are available
+    key_sort = get_par(set_br.subset_key,tel)
+    if not get_par(set_br.use_abslimits,tel) and key_sort not in keys:
+        keys.append(key_sort)
+        keys_dtype.append(float)
+
+    # if the maximum seeing limit is set with input parameter
+    # [seeing_max], add the 'S-SEEING' header keyword
     if max_seeing is not None:
         keys.append('S-SEEING')
         keys_dtype.append(float)
 
-        
+
     # loop input list of filenames
     for filename in filenames:
 
