@@ -550,11 +550,11 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
                          .format(obj, filt, nfiles))
             nmin1, nmin2 = get_par(set_br.subset_nmin,tel)
 
-            use_abslimits = True
-            if use_abslimits:
 
-                # use absolute limit on LIMMAG, defined in dictionary
-                # set_br.limmag_comb
+            # depending on [set_br.use_abslimits], use target limiting
+            # magnitudes defined by PaulG or fraction of images
+            # available
+            if get_par(set_br.use_abslimits,tel):
 
                 # sort files based on their LIMMAG, highest value first
                 indices_sort = np.argsort(table[mask]['LIMMAG'])[::-1]
