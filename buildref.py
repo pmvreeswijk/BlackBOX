@@ -594,21 +594,20 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
 
                 # filter based on target limiting magnitude
                 limmag_target = get_par(set_br.limmag_target,tel)[filt]
-                genlog.info ('target {}-band limiting magnitude: {}'
-                             .format(filt, limmag_target))
                 # add dmag to target magnitude to account for the fact
                 # that the expected limiting magnitude will be
                 # somewhat higher than the actual one
-                dmag = 0.1
+                dmag = 0.15
                 mask_sort_cum = (limmags_sort_cum <= limmag_target + dmag)
 
 
                 # files that were excluded
-                if np.sum(~mask_sort_cum) > 0:
+                nfiles_excl = np.sum(~mask_sort_cum)
+                if nfiles_excl > 0:
                     files_2exclude = files_sort[~mask_sort_cum]
                     limmags_2exclude = limmags_sort[~mask_sort_cum]
-                    genlog.warning ('files and their limmags excluded from '
-                                    '{}-band coadd:'.format(filt))
+                    genlog.warning ('files ({}) and their limmags excluded from '
+                                    '{}-band coadd:'.format(nfiles_excl, filt))
                     for i in range(len(files_2exclude)):
                         genlog.info ('{}, {:.3f}'
                                      .format(files_2exclude[i],
@@ -627,9 +626,10 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
                                  .format(files_2coadd[i], limmags_2coadd[i],
                                          limmags_sort_cum[i]))
 
-                genlog.info ('expected {}-band limiting magnitude of co-add: '
-                             '{:.2f}'
-                             .format(filt,limmags_sort_cum[mask_sort_cum][-1]))
+                genlog.info ('expected (target) {}-band limiting magnitude of '
+                             'co-add: {:.2f} ({})'
+                             .format(filt,limmags_sort_cum[mask_sort_cum][-1],
+                                     limmag_target))
 
                 
             else:
@@ -1114,38 +1114,62 @@ def prep_ref (imagelist, field_ID, filt, radec):
     ref_fits = '{}/{}'.format(tmp_path, ref_fits_out.split('/')[-1])
     ref_fits_mask = ref_fits.replace('red.fits','mask.fits')
 
+
     # RA and DEC center of output image
     ra_center, dec_center = radec
         
+
     # create logfile specific to this reference image in tmp folder
     # (to be copied to final output folder at the end)
     logfile = ref_fits.replace('.fits', '.log')
-    log = create_log (logfile)
-
-    genlog.info ('logfile created: {}'.format(logfile))
+    log = create_log (logfile, name='log')
+    log.info ('logfile created: {}'.format(logfile))
     
-    # run imcombine
-    log.info('running imcombine; outputfile: {}'.format(ref_fits))
 
-    try:
-        imcombine (field_ID, imagelist, ref_fits, get_par(set_br.combine_type,tel),
-                   masktype_discard = get_par(set_br.masktype_discard,tel),
-                   tempdir = tmp_path,
-                   ra_center = ra_center,
-                   dec_center = dec_center,
-                   back_type = get_par(set_br.back_type,tel),
-                   back_size = get_par(set_zogy.bkg_boxsize,tel),
-                   back_filtersize = get_par(set_zogy.bkg_filtersize,tel),
-                   remap_each = False,
-                   swarp_cfg = get_par(set_zogy.swarp_cfg,tel),
-                   nthreads = get_par(set_br.nthreads,tel),
-                   log = log)
+    # check if sufficient images available to combine
+    if len(imagelist) == 0:
 
-    except Exception as e:
-        #log.exception (traceback.format_exc())
-        log.exception ('exception was raised during [imcombine]: {}'.format(e))
+        log.error ('no images available to combine for field ID {} in filter {}'
+                   .format(field_ID, filt))
         close_log(log, logfile)
-        raise RuntimeError
+        return
+
+
+    elif len(imagelist) == 1:
+
+        log.warning ('only a single image available for field ID {} in filter {}'
+                     '; using it as the reference image'.format(field_ID, filt))
+        fits_tmp = imagelist[0]
+        shutil.copy2 (fits_tmp, ref_fits)
+        fits_mask_tmp = fits_tmp.replace('red.fits', 'mask.fits')
+        shutil.copy2 (fits_mask_tmp, ref_fits_mask)
+
+    else:
+
+        # run imcombine
+        log.info('running imcombine; outputfile: {}'.format(ref_fits))
+
+        try:
+            imcombine (field_ID, imagelist, ref_fits,
+                       get_par(set_br.combine_type,tel),
+                       masktype_discard = get_par(set_br.masktype_discard,tel),
+                       tempdir = tmp_path,
+                       ra_center = ra_center,
+                       dec_center = dec_center,
+                       back_type = get_par(set_br.back_type,tel),
+                       back_size = get_par(set_zogy.bkg_boxsize,tel),
+                       back_filtersize = get_par(set_zogy.bkg_filtersize,tel),
+                       remap_each = False,
+                       swarp_cfg = get_par(set_zogy.swarp_cfg,tel),
+                       nthreads = get_par(set_br.nthreads,tel),
+                       log = log)
+
+        except Exception as e:
+            #log.exception (traceback.format_exc())
+            log.exception ('exception was raised during [imcombine]: {}'
+                           .format(e))
+            close_log(log, logfile)
+            raise RuntimeError
 
 
     # run zogy on newly prepared reference image
