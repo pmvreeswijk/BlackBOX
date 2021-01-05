@@ -708,9 +708,9 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
             result = pool_func (prep_colfig, objs_uniq, filters_colfig, genlog,
                                 log=genlog, nproc=nproc)
         except Exception as e:
-            genlog.error (traceback.format_exc())
-            genlog.error ('exception was raised during [pool_func]: {}'
-                          .format(e))
+            #genlog.exception (traceback.format_exc())
+            genlog.exception ('exception was raised during [pool_func]: {}'
+                              .format(e))
             raise RuntimeError
 
         
@@ -807,9 +807,9 @@ def pool_func_lists (func, list_of_imagelists, *args, log=None, nproc=1):
         
     except Exception as e:
         if log is not None:
-            log.info (traceback.format_exc())
-            log.error ('exception was raised during [pool.apply_async({})]: {}'
-                       .format(func, e))
+            #log.exception (traceback.format_exc())
+            log.exception ('exception was raised during [pool.apply_async({})]: '
+                           '{}'.format(func, e))
 
         raise RuntimeError
     
@@ -856,8 +856,8 @@ def header2table (filenames):
                     with fits.open(filename) as hdulist:
                         h = hdulist[-1].header
             except Exception as e:
-                genlog.warning ('trouble reading header; skipping image {}'
-                                .format(filename))
+                genlog.exception ('trouble reading header; skipping image {}'
+                                  .format(filename))
                 continue
                         
         else:
@@ -1142,8 +1142,8 @@ def prep_ref (imagelist, field_ID, filt, radec):
                    log = log)
 
     except Exception as e:
-        log.info (traceback.format_exc())
-        log.error ('exception was raised during [imcombine]: {}'.format(e))
+        #log.exception (traceback.format_exc())
+        log.exception ('exception was raised during [imcombine]: {}'.format(e))
         close_log(log, logfile)
         raise RuntimeError
 
@@ -1156,9 +1156,9 @@ def prep_ref (imagelist, field_ID, filt, radec):
             set_file='set_zogy', log=log, verbose=None,
             nthreads=get_par(set_br.nthreads,tel), telescope=tel)
     except Exception as e:
-        log.info (traceback.format_exc())
-        log.error ('exception was raised during reference [optimal_subtraction]: '
-                   '{}'.format(e))
+        #log.exception (traceback.format_exc())
+        log.exception ('exception was raised during reference '
+                       '[optimal_subtraction]: {}'.format(e))
 
     else:
         zogy_processed = True
@@ -1454,8 +1454,8 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
                 rdnoise, saturate, exptime, mjd_obs = read_header_alt (header,
                                                                        keywords)
         except Exception as e:
-            log.warning('exception was raised when reading header of image {}\n'
-                        'not using it in image combination'.format(image, e))
+            log.exception('exception was raised when reading header of image {}\n'
+                          'not using it in image combination'.format(image, e))
             continue
         
         
@@ -1529,9 +1529,9 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
                     set_zogy=set_zogy)
                 
             except Exception as e:
-                log.info(traceback.format_exc())
-                log.error('exception was raised during [run_sextractor]: {}'
-                          .format(e))
+                #log.exception(traceback.format_exc())
+                log.exception('exception was raised during [run_sextractor]: {}'
+                              .format(e))
 
             # read source-extractor output image data and header
             data, header = read_hdulist(image_temp, get_header=True)
@@ -2141,9 +2141,9 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
                                             resample_suffix=resample_suffix,
                                             nthreads=nthreads)
                     except Exception as e:
-                        log.error (traceback.format_exc())
-                        log.error ('exception was raised during [run_remap]: {}'
-                                   .format(e))
+                        #log.exception(traceback.format_exc())
+                        log.exception('exception was raised during [run_remap]: '
+                                      '{}'.format(e))
                         raise RuntimeError
                     else:
                         log.info ('time spent in run_remap: {}'
@@ -2176,9 +2176,9 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
                                             oversampling=0)
                                                   
                     except Exception as e:
-                        log.error (traceback.format_exc())
-                        log.error ('exception was raised during [run_remap]: {}'
-                                   .format(e))
+                        #log.exception(traceback.format_exc())
+                        log.exception('exception was raised during [run_remap]: '
+                                      '{}'.format(e))
                         raise RuntimeError
                     else:
                         log.info ('wall-time spent in remapping mask: {}'

@@ -36,10 +36,6 @@ from astropy.visualization import ZScaleInterval as zscale
 import astroscrappy
 from acstools.satdet import detsat, make_mask, update_dq
 import shutil
-try:
-    from StringIO import StringIO
-except ImportError:
-    from io import StringIO
 #from slackclient import SlackClient as sc
 import ephem
 from watchdog.observers import Observer
@@ -1193,9 +1189,9 @@ def pool_func (func, filelist, *args, log=None, nproc=1):
         #    log.info ('result from pool.apply_async: {}'.format(results))
     except Exception as e:
         if log is not None:
-            log.info (traceback.format_exc())
-            log.error ('exception was raised during [pool.apply_async({})]: {}'
-                       .format(func, e))
+            #log.exception (traceback.format_exc())
+            log.exception ('exception was raised during [pool.apply_async({})]: '
+                           '{}'.format(func, e))
 
         #logging.shutdown()
         #raise SystemExit
@@ -1243,9 +1239,9 @@ def fpack (filename, log=None):
 
     except Exception as e:
         if log is not None:
-            log.info (traceback.format_exc())
-            log.error ('exception was raised in fpacking of image {}: {}'
-                       .format(filename,e))
+            #log.exception (traceback.format_exc())
+            log.exception ('exception was raised in fpacking of image {}: {}'
+                           .format(filename,e))
 
     return filename
 
@@ -1296,9 +1292,9 @@ def create_jpg (filename, log=None):
 
     except Exception as e:
         if log is not None:
-            log.info (traceback.format_exc())
-            log.error ('exception was raised in creating jpg of image {}: {}'
-                       .format(filename,e))
+            #log.exception (traceback.format_exc())
+            log.exception ('exception was raised in creating jpg of image {}: {}'
+                           .format(filename,e))
 
 
 ################################################################################
@@ -1309,9 +1305,11 @@ class WrapException(Exception):
     def __init__(self):
         exc_type, exc_value, exc_tb = sys.exc_info()
         self.exception = exc_value
-        self.formatted = ''.join(traceback.format_exception(exc_type, exc_value, exc_tb))
+        self.formatted = ''.join(traceback.format_exception(exc_type, exc_value,
+                                                            exc_tb))
     def __str__(self):
-        return '{}\nOriginal traceback:\n{}'.format(Exception.__str__(self), self.formatted)
+        return '{}\nOriginal traceback:\n{}'.format(Exception.__str__(self),
+                                                    self.formatted)
         
 
 ################################################################################
@@ -1356,10 +1354,10 @@ def blackbox_reduce (filename):
     try:
         header = read_hdulist(filename, get_data=False, get_header=True)
     except Exception as e:
-        genlog.info (traceback.format_exc())
-        genlog.error ('exception was raised in read_hdulist at top of '
-                      '[blackbox_reduce]: {}\nnot processing {}'
-                      .format(e, filename))
+        #genlog.exception (traceback.format_exc())
+        genlog.exception ('exception was raised in read_hdulist at top of '
+                          '[blackbox_reduce]: {}\nnot processing {}'
+                          .format(e, filename))
         return None
 
 
@@ -1407,8 +1405,8 @@ def blackbox_reduce (filename):
     # then also return
     imgtype = header['IMAGETYP'].lower()
     if imgtype not in imgtypes2process:
-        genlog.warning ('image type ({}) not in [imgtypes] ({}); not processing {}'
-                        .format(imgtype, imgtypes2process, filename))
+        genlog.warning ('image type ({}) not in [imgtypes] ({}); not processing '
+                        '{}'.format(imgtype, imgtypes2process, filename))
         return None
 
 
@@ -1416,10 +1414,10 @@ def blackbox_reduce (filename):
     try: 
         header = set_header(header, filename)
     except Exception as e:
-        genlog.info (traceback.format_exc())
-        genlog.error ('exception was raised during [set_header] of image {}: {}; '
-                      'returning without making dummy catalogs'
-                      .format(filename, e))
+        #genlog.exception (traceback.format_exc())
+        genlog.exception ('exception was raised during [set_header] of image {}: '
+                          '{}; returning without making dummy catalogs'
+                          .format(filename, e))
         return None
     
     
@@ -1562,7 +1560,7 @@ def blackbox_reduce (filename):
              get_par(set_bb.force_reproc_new,tel))):
 
         # create a logger that will append the log commands to [logfile]
-        log = create_log (logfile)
+        log = create_log (logfile, name='log')
 
         text_tmp = ('corresponding reduced {} image {} already exists; '
                     'skipping its reduction and copying existing products '
@@ -1605,7 +1603,7 @@ def blackbox_reduce (filename):
 
 
         # create a logger that will append the log commands to [logfile]
-        log = create_log (logfile)
+        log = create_log (logfile, name='log')
 
         # immediately write some info to the log
         if file_present:
@@ -1636,8 +1634,8 @@ def blackbox_reduce (filename):
         try:
             data = read_hdulist(filename, dtype='float32')
         except:
-            log.error('problem reading image {}; leaving function blackbox_reduce'
-                      .format(fits_out))
+            log.exception('problem reading image {}; leaving function '
+                          'blackbox_reduce'.format(fits_out))
             close_log(log, logfile)
             return None
 
@@ -1645,10 +1643,11 @@ def blackbox_reduce (filename):
         # determine number of pixels with infinite/nan values
         mask_infnan = ~np.isfinite(data)
         n_infnan = np.sum(mask_infnan)
-        header['N-INFNAN'] = (n_infnan, 'number of pixels with infinite/nan values')
+        header['N-INFNAN'] = (n_infnan, 'number of pixels with infinite/nan '
+                              'values')
         if n_infnan > 0:
-            log.info('warning: {} pixels with infinite/nan values; replacing with zero'
-                     .format(n_infnan))
+            log.warning('{} pixels with infinite/nan values; replacing '
+                        'with zero'.format(n_infnan))
             data[mask_infnan] = 0
         
     
@@ -1662,9 +1661,9 @@ def blackbox_reduce (filename):
             gain_processed = False
             data = gain_corr(data, header, tel=tel, log=log)
         except Exception as e:
-            log.info(traceback.format_exc())
-            log.error('exception was raised during [gain_corr] of image {}: {}'
-                      .format(filename, e))
+            #log.exception(traceback.format_exc())
+            log.exception('exception was raised during [gain_corr] of image {}: '
+                          '{}'.format(filename, e))
         else:
             gain_processed = True
         finally:
@@ -1692,9 +1691,9 @@ def blackbox_reduce (filename):
                 crosstalk_file = get_par(set_bb.crosstalk_file,tel)
                 data = xtalk_corr (data, crosstalk_file, log=log)
             except Exception as e:
-                log.info(traceback.format_exc())
-                log.error('exception was raised during [xtalk_corr] of image {}: '
-                          '{}'.format(filename, e))
+                #log.exception(traceback.format_exc())
+                log.exception('exception was raised during [xtalk_corr] of image '
+                              '{}: {}'.format(filename, e))
             else:
                 xtalk_processed = True
             finally:
@@ -1714,9 +1713,9 @@ def blackbox_reduce (filename):
             os_processed = False
             data = os_corr(data, header, imgtype, tel=tel, log=log)
         except Exception as e:
-            log.info(traceback.format_exc())
-            log.error('exception was raised during [os_corr] of image {}: {}'
-                      .format(filename, e))
+            #log.exception(traceback.format_exc())
+            log.exception('exception was raised during [os_corr] of image {}: {}'
+                          .format(filename, e))
         else:
             os_processed = True
         finally:
@@ -1730,7 +1729,8 @@ def blackbox_reduce (filename):
         # non-linearity correction
         ##########################
         nonlin_corr_processed = False
-        header['NONLIN-P'] = (nonlin_corr_processed, 'corrected for non-linearity?')
+        header['NONLIN-P'] = (nonlin_corr_processed, 'corrected for '
+                              'non-linearity?')
         header['NONLIN-F'] = ('None', 'name non-linearity correction file')
     
         if imgtype != 'bias' and get_par(set_bb.correct_nonlin,tel):
@@ -1742,9 +1742,9 @@ def blackbox_reduce (filename):
                 header['NONLIN-F'] = (nonlin_corr_file.split('/')[-1],
                                       'name non-linearity correction file')
             except Exception as e:
-                log.info(traceback.format_exc())
-                log.error('exception was raised during [nonlin_corr] of image '
-                          '{}: {}'.format(filename, e))
+                #log.exception(traceback.format_exc())
+                log.exception('exception was raised during [nonlin_corr] of '
+                              'image {}: {}'.format(filename, e))
             else:
                 nonlin_corr_processed = True
             finally:
@@ -1778,9 +1778,9 @@ def blackbox_reduce (filename):
             fits_mbias = master_prep (fits_master, data.shape, log=log)
 
         except Exception as e:
-            log.info(traceback.format_exc())
-            log.error('exception was raised during bias [master_prep] of master '
-                      '{}: {}'.format(fits_master, e))
+            #log.exception(traceback.format_exc())
+            log.exception('exception was raised during bias [master_prep] of '
+                          'master {}: {}'.format(fits_master, e))
 
         finally:
             lock.release()
@@ -1813,9 +1813,9 @@ def blackbox_reduce (filename):
                         '[days] time between image and master bias used')
 
             except Exception as e:
-                log.info(traceback.format_exc())
-                log.error('exception was raised during master bias subtraction '
-                          'of image {}: {}'.format(filename, e))
+                #log.exception(traceback.format_exc())
+                log.exception('exception was raised during master bias '
+                              'subtraction of image {}: {}'.format(filename, e))
             else:
                 mbias_processed = True
             finally:
@@ -1836,9 +1836,9 @@ def blackbox_reduce (filename):
                 data_mask, header_mask = mask_init (data, header, filt, imgtype,
                                                     log=log)
             except Exception as e:
-                log.info(traceback.format_exc())
-                log.error('exception was raised during [mask_init] for image {}: '
-                          '{}'.format(filename, e))
+                #log.exception(traceback.format_exc())
+                log.exception('exception was raised during [mask_init] for image '
+                              '{}: {}'.format(filename, e))
             else:
                 mask_processed = True
             finally:
@@ -1883,9 +1883,9 @@ def blackbox_reduce (filename):
             fits_mflat = master_prep (fits_master, data.shape, log=log)
 
         except Exception as e:
-            log.info(traceback.format_exc())
-            log.error('exception was raised during flat [master_prep] of master '
-                      '{}: {}'.format(fits_master, e))
+            #log.exception(traceback.format_exc())
+            log.exception('exception was raised during flat [master_prep] of '
+                          'master {}: {}'.format(fits_master, e))
             
         finally:
             lock.release()
@@ -1915,9 +1915,9 @@ def blackbox_reduce (filename):
                         '[days] time between image and master flat used')
 
             except Exception as e:
-                log.info(traceback.format_exc())
-                log.error('exception was raised during master flat division of '
-                          'image {}: {}'.format(filename, e))
+                #log.exception(traceback.format_exc())
+                log.exception('exception was raised during master flat division '
+                              'of image {}: {}'.format(filename, e))
             else:
                 mflat_processed = True
             finally:
@@ -1946,9 +1946,9 @@ def blackbox_reduce (filename):
                                            log=log)
         except Exception as e:
             header['NCOSMICS'] = ('None', '[/s] number of cosmic rays identified')
-            log.info(traceback.format_exc())
-            log.error('exception was raised during [cosmics_corr] of image {}: '
-                      '{}'.format(filename, e))
+            #log.exception(traceback.format_exc())
+            log.exception('exception was raised during [cosmics_corr] of image '
+                          '{}: {}'.format(filename, e))
         else:
             cosmics_processed = True
         finally:
@@ -1977,9 +1977,9 @@ def blackbox_reduce (filename):
                                        tmp_path, log=log)
         except Exception as e:
             header['NSATS'] = ('None', 'number of satellite trails identified')
-            log.info(traceback.format_exc())
-            log.error('exception was raised during [sat_detect] of image {}: {}'
-                      .format(filename, e))
+            #log.exception(traceback.format_exc())
+            log.exception('exception was raised during [sat_detect] of image {}: '
+                          '{}'.format(filename, e))
         else:
             if get_par(set_bb.detect_sats,tel):
                 sat_processed = True
@@ -2293,9 +2293,9 @@ def blackbox_reduce (filename):
                 set_file='set_zogy', log=log, verbose=None, redo_new=None,
                 nthreads=get_par(set_bb.nthreads,tel), telescope=tel)
         except Exception as e:
-            log.info(traceback.format_exc())
-            log.error('exception was raised during [optimal_subtraction] for '
-                      'new-only image {}: {}'.format(new_fits, e))
+            #log.exception(traceback.format_exc())
+            log.exception('exception was raised during [optimal_subtraction] for '
+                          'new-only image {}: {}'.format(new_fits, e))
         else:
             zogy_processed = True
         finally:
@@ -2319,10 +2319,10 @@ def blackbox_reduce (filename):
                     qc_flag = run_qc_check (header_new, tel, log=log,
                                             check_key_type='full')
                 except Exception as e:
-                    log.info(traceback.format_exc())
-                    log.error('exception was raised during [run_qc_check] for '
-                              'new-only image {}: {}'.format(new_fits, e))
-
+                    #log.exception(traceback.format_exc())
+                    log.exception('exception was raised during [run_qc_check] '
+                                  'for new-only image {}: {}'.format(new_fits, e))
+                    
                 if qc_flag=='red':
                     log.error('red QC flag in [header_new] returned by new-only '
                               '[optimal_subtraction]; making dummy catalogs')
@@ -2372,9 +2372,9 @@ def blackbox_reduce (filename):
                 set_file='set_zogy', log=log, verbose=None, redo_ref=None,
                 nthreads=get_par(set_bb.nthreads,tel), telescope=tel)
         except Exception as e:
-            log.info(traceback.format_exc())
-            log.error('exception was raised during [optimal_subtraction] for '
-                      'reference-only image {}: {}'.format(new_fits, e))
+            #log.exception(traceback.format_exc())
+            log.exception('exception was raised during [optimal_subtraction] for '
+                          'reference-only image {}: {}'.format(new_fits, e))
         else:
             zogy_processed = True
         finally:
@@ -2504,10 +2504,10 @@ def blackbox_reduce (filename):
                 verbose=None, redo_new=None, redo_ref=None,
                 nthreads=get_par(set_bb.nthreads,tel), telescope=tel)
         except Exception as e:
-            log.info(traceback.format_exc())
-            log.error('exception was raised during [optimal_subtraction] for '
-                      'new image {} and reference image {}: {}'
-                      .format(new_fits, ref_fits, e))
+            #log.exception(traceback.format_exc())
+            log.exception('exception was raised during [optimal_subtraction] for '
+                          'new image {} and reference image {}: {}'
+                          .format(new_fits, ref_fits, e))
         else:
             zogy_processed = True
         finally:
@@ -2753,9 +2753,9 @@ def create_obslog (date, email=True, tel=None, log=None):
             subprocess.call(cmd)
         except Exception as e:
             if log is not None:
-                log.error ('exception occurred while making screenshot of SAAO '
-                           'weather page (https://suthweather.saao.ac.za): {}'
-                           .format(e))
+                log.exception ('exception occurred while making screenshot of '
+                               'SAAO weather page '
+                               '(https://suthweather.saao.ac.za): {}'.format(e))
     else:
         png_name = None
 
@@ -2777,8 +2777,8 @@ def create_obslog (date, email=True, tel=None, log=None):
                         use_SSL=get_par(set_bb.use_SSL,tel))
         except Exception as e:
             if log is not None:
-                log.error ('exception occurred during sending of email: {}'
-                           .format(e))
+                log.exception('exception occurred during sending of email: {}'
+                              .format(e))
 
 
     return
@@ -3030,9 +3030,9 @@ def try_func (func, args_in, args_out, log=None):
         args[0] = func (args[1:])
     except Exception as e:
         if log is not None:
-            log.info(traceback.format_exc())
-            log.error('exception was raised during [{}]: {}'
-                      .format(func_name, e))
+            #log.exception(traceback.format_exc())
+            log.exception('exception was raised during [{}]: {}'
+                          .format(func_name, e))
     else:
         proc_ok = True
 
@@ -3246,7 +3246,8 @@ def sat_detect (data, header, data_mask, header_mask, tmp_path, log=None):
     for j in range(3):
         #write binned data to tmp file
         fits_binned_mask = ('{}/{}'.format(
-            tmp_path, tmp_path.split('/')[-1].replace('_red','_binned_satmask.fits')))
+            tmp_path, tmp_path.split('/')[-1].replace('_red',
+                                                      '_binned_satmask.fits')))
         fits.writeto(fits_binned_mask, binned_data, overwrite=True)
         #detect satellite trails
         try:
@@ -3256,7 +3257,8 @@ def sat_detect (data, header, data_mask, header_mask, tmp_path, log=None):
                                      verbose=False)
         except Exception as e:
             if log is not None:
-                log.error('exception was raised during [detsat]: {}'.format(e))
+                log.exception('exception was raised during [detsat]: {}'
+                              .format(e))
             # raise exception
             raise RuntimeError ('problem with running detsat module')
         else:
@@ -3265,7 +3267,7 @@ def sat_detect (data, header, data_mask, header_mask, tmp_path, log=None):
                 if log is not None:
                     log.error('detsat errors: {}'.format(errors))
                 raise RuntimeError ('problem with running detsat module')
-            
+
         #create satellite trail if found
         trail_coords = results[(fits_binned_mask,0)] 
         #continue if satellite trail found
@@ -3278,10 +3280,11 @@ def sat_detect (data, header, data_mask, header_mask, tmp_path, log=None):
             except ValueError:
                 #if error occurs, add comment
                 if log is not None:
-                    log.info ('Warning: satellite trail found but could not be '
-                              'fitted for file {} and is not included in the mask'
-                              .format(tmp_path.split('/')[-1]))
+                    log.exception ('satellite trail found but could not be '
+                                   'fitted for file {} and is not included in '
+                                   'the mask'.format(tmp_path.split('/')[-1]))
                 break
+
             satellite_fitting = True
             binned_data[mask_binned == 1] = np.median(binned_data)
             fits_old_mask = '{}/old_mask.fits'.format(tmp_path)
@@ -4028,9 +4031,9 @@ def check_header1 (header, filename):
         try:
             int(obj)
         except Exception as e:
-            genlog.error ('keyword OBJECT (or FIELD_ID if present) does '
-                          'not contain digits only; not processing {}'
-                          .format(filename))
+            genlog.exception ('keyword OBJECT (or FIELD_ID if present) does '
+                              'not contain digits only; not processing {}'
+                              .format(filename))
             header_ok = False
 
         else:
@@ -4718,9 +4721,9 @@ def os_corr(data, header, imgtype, tel=None, log=None):
         except Exception as e:
             polyfit_ok = False
             if log is not None:
-                log.info(traceback.format_exc())
-                log.info('exception was raised during polynomial fit to channel {} '
-                         'vertical overscan'.format(i_chan))
+                #log.exception(traceback.format_exc())
+                log.exception('exception was raised during polynomial fit to '
+                              'channel {} vertical overscan'.format(i_chan))
 
         # add fit coefficients to image header
         for nc in range(len(p)):
@@ -5364,7 +5367,7 @@ def action(queue):
             # [run_blackbox]
             filename = event
             filetype = 'pre-existing'
-            genlog.info ('exception: {}'.format(e))
+            genlog.exception ('exception occurred: {}'.format(e))
 
 
         genlog.info ('detected a {} file: {}'.format(filetype, filename))
@@ -5405,9 +5408,9 @@ def action(queue):
 
                     process = False
                     if nsleep==0:
-                        genlog.info ('problem reading file {} but will keep '
-                                     'trying for {}s; current exception: {}'
-                                     .format(filename, wait_max, e))
+                        genlog.exception ('problem reading file {} but will keep '
+                                          'trying for {}s; current exception: {}'
+                                          .format(filename, wait_max, e))
 
                     # give file a bit of time to arrive before next read attempt
                     time.sleep(5)
