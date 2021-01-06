@@ -1063,8 +1063,8 @@ def prep_ref (imagelist, field_ID, filt, radec):
     exists, ref_fits_temp = already_exists (ref_fits_out, get_filename=True)
     if exists:
 
-        genlog.info ('reference image {} already exists; not remaking it'
-                     .format(ref_fits_out))
+        genlog.warning ('reference image {} already exists; not remaking it'
+                        .format(ref_fits_out))
         return
         
 
@@ -1139,10 +1139,29 @@ def prep_ref (imagelist, field_ID, filt, radec):
 
         log.warning ('only a single image available for field ID {} in filter {}'
                      '; using it as the reference image'.format(field_ID, filt))
-        fits_tmp = imagelist[0]
+
+
+        # copy image itself to ref_fits in tmp_path
+        fits_tmp = unzip (imagelist[0], put_lock=False)
         shutil.copy2 (fits_tmp, ref_fits)
-        fits_mask_tmp = fits_tmp.replace('red.fits', 'mask.fits')
+        fpack (fits_tmp, log=log)
+
+
+        # same for the mask
+        fits_mask_tmp = unzip (imagelist[0].replace('red.fits', 'mask.fits'),
+                               put_lock=False)
         shutil.copy2 (fits_mask_tmp, ref_fits_mask)
+        fpack (fits_mask_tmp, log=log)
+
+
+        # same for the bkg_std_mini image
+        fits_bkg_std_mini_tmp = unzip (imagelist[0].replace(
+            'red.fits', 'red_bkg_std_mini.fits'), put_lock=False, log=log)
+        ref_fits_bkg_std_mini = ref_fits.replace(
+            'red.fits', 'red_bkg_std_mini.fits')
+        shutil.copy2 (fits_bkg_std_mini_tmp, ref_fits_bkg_std_mini)
+        fpack (fits_bkg_std_mini_tmp, log=log)
+
 
     else:
 
