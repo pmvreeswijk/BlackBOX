@@ -5195,7 +5195,7 @@ def sort_files(read_path, search_str, recursive=False):
 
 ################################################################################
 
-def unzip(imgname, put_lock=True, timeout=None):
+def unzip(imgname, put_lock=True, timeout=None, log=None):
 
     """Unzip a gzipped of fpacked file.
        Same [subpipe] function STAP_unzip.
@@ -5205,11 +5205,13 @@ def unzip(imgname, put_lock=True, timeout=None):
         lock.acquire()
 
     if '.gz' in imgname:
-        genlog.info ('gunzipping {}'.format(imgname))
+        if log is not None:
+            log.info ('gunzipping {}'.format(imgname))
         subprocess.call(['gunzip',imgname])
         imgname = imgname.replace('.gz','')
     elif '.fz' in imgname:
-        genlog.info ('funpacking {}'.format(imgname))
+        if log is not None:
+            log.info ('funpacking {}'.format(imgname))
         subprocess.call(['funpack','-D',imgname])
         imgname = imgname.replace('.fz','')
 
