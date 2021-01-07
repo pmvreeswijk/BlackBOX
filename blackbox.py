@@ -2041,7 +2041,7 @@ def blackbox_reduce (filename):
                                      get_par(set_bb.all_2keep,tel),
                                      move=(not get_par(set_bb.keep_tmp,tel)),
                                      log=log)
-            clean_tmp(tmp_path, log=log)
+            clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel), log=log)
             close_log(log, logfile)
             return fits_out
 
@@ -2075,14 +2075,14 @@ def blackbox_reduce (filename):
                                      get_par(set_bb.img_reduce_exts,tel),
                                      move=(not get_par(set_bb.keep_tmp,tel)),
                                      log=log)
-            clean_tmp(tmp_path, log=log)
+            clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel), log=log)
             close_log(log, logfile)
             return fits_out
 
         else:
             # if reduction steps were skipped, reduced img products
             # should still be present
-            clean_tmp(tmp_path, log=log)
+            clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel), log=log)
             close_log(log, logfile)
             return None
 
@@ -2115,7 +2115,7 @@ def blackbox_reduce (filename):
             log.info ('all {} data products already present in reduced folder, '
                       'nothing left to do for {}'.format(text, filename))
             
-            clean_tmp(tmp_path, log=log)
+            clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel), log=log)
             close_log(log, logfile)
 
             if do_reduction:
@@ -2308,7 +2308,7 @@ def blackbox_reduce (filename):
                                          get_par(set_bb.img_reduce_exts,tel),
                                          move=(not get_par(set_bb.keep_tmp,tel)),
                                          log=log)
-                clean_tmp(tmp_path, log=log)
+                clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel), log=log)
                 close_log(log, logfile)
                 return None
 
@@ -2394,7 +2394,7 @@ def blackbox_reduce (filename):
                           'the [ref_ID_filt] queue')
                 result = check_ref(ref_ID_filt, (obj, filt), method='remove')
 
-                clean_tmp(tmp_path, log=log)
+                clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel), log=log)
                 close_log(log, logfile)
                 return None
 
@@ -2520,7 +2520,7 @@ def blackbox_reduce (filename):
                                          get_par(set_bb.img_reduce_exts,tel),
                                          move=(not get_par(set_bb.keep_tmp,tel)),
                                          log=log)
-                clean_tmp(tmp_path, log=log)
+                clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel), log=log)
                 close_log(log, logfile)
                 return None
 
@@ -2593,7 +2593,7 @@ def blackbox_reduce (filename):
         log_timing_memory (t0=t_blackbox_reduce, label='blackbox_reduce at end',
                            log=log)
 
-    clean_tmp(tmp_path, log=log)
+    clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel), log=log)
     close_log(log, logfile)
     
     return fits_out
@@ -3114,8 +3114,8 @@ def make_dir (path, empty=False, put_lock=True, lock=None):
 
 ################################################################################
 
-def clean_tmp (tmp_path, log=None):
-
+def clean_tmp (tmp_path, keep_tmp, log=None):
+    
     """ Function that removes the tmp folder corresponding to the
         reduced image / reference image if [set_bb.keep_tmp] not True.
     """
@@ -3124,7 +3124,7 @@ def clean_tmp (tmp_path, log=None):
     if os.path.isdir(tmp_path):
 
         # delete [tmp_path] folder if [set_bb.keep_tmp] not True
-        if not get_par(set_bb.keep_tmp,tel):
+        if not keep_tmp:
             shutil.rmtree(tmp_path)
             if log is not None:
                 log.info ('removing temporary folder: {}'.format(tmp_path))
