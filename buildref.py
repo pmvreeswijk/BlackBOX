@@ -1152,7 +1152,55 @@ def prep_ref (imagelist, field_ID, filt, radec):
         result = copy_files2keep(new_base, ref_base, exts2keep, move=False,
                                  log=log)
 
-        
+        # update header of 'single' ref image just like inside [imcombine]
+        with fits.open(ref_fits_out, 'update') as hdulist:
+            hdr = hdulist[-1].header
+
+            # buildref version
+            hdr['R-V'] = (__version__, 'reference building module '
+                          'version used')
+
+            # time when module was started
+            hdr['R-TSTART'] = (time_refstart, 'UT time that module was started')
+            
+            # number of images used
+            hdr['R-NUSED'] = (len(imagelist), 'number of images used to combine')
+
+            # names of images that were used
+            for nimage, image in enumerate(imagelist):
+                image = image.split('/')[-1].split('.fits')[0]
+                hdr['R-IM{}'.format(nimage+1)] = (image, 'image {} used to '
+                                                  'combine'.format(nimage+1))
+
+            # combination method
+            hdr['R-COMB-M'] = (get_par(set_br.combine_type,tel),
+                               'input images combination method')
+
+            # background subtraction method
+            hdr['R-BKG-M'] = (get_par(set_br.back_type,tel),
+                              'input images background subtraction method')
+
+            # centering method
+            hdr['R-CNTR-M'] = (get_par(set_br.center_type,tel),
+                               'reference image centering method')
+
+            # discarded mask values
+            hdr['R-MSKREJ'] = (get_par(set_br.masktype_discard,tel),
+                               'reject pixels with mask values part of this sum')
+    
+            val_str = '[{},{}]'.format(start_date, end_date)
+            hdr['R-TRANGE'] = (val_str,
+                               '[date/days wrt R-TSTART] image time range')
+    
+            hdr['R-QCMAX'] = (max_qc_flag, 'maximum image QC flag')
+            hdr['R-SEEMAX'] = (max_seeing, '[arcsec] maximum image seeing')
+
+            # time stamp of writing file
+            ut_now = Time.now().isot
+            hdr['DATEFILE'] = (ut_now, 'UTC date of writing file')
+            hdr['R-DATE'] = (ut_now, 'time stamp reference image creation')
+
+
     else:
 
         # run imcombine
