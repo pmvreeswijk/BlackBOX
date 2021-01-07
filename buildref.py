@@ -39,7 +39,7 @@ import aplpy
 from blackbox import date2mjd, str2bool, unzip
 from blackbox import get_par, already_exists, copy_files2keep
 from blackbox import create_log, close_log, define_sections, make_dir
-from blackbox import pool_func, fpack, create_jpg
+from blackbox import pool_func, fpack, create_jpg, clean_tmp
 from qc import qc_check, run_qc_check
 
 import set_zogy
@@ -1131,6 +1131,7 @@ def prep_ref (imagelist, field_ID, filt, radec):
 
         log.error ('no images available to combine for field ID {} in filter {}'
                    .format(field_ID, filt))
+        clean_tmp(tmp_path, get_par(set_br.keep_tmp,tel), log=log)
         close_log(log, logfile)
         return
 
@@ -1140,29 +1141,18 @@ def prep_ref (imagelist, field_ID, filt, radec):
         log.warning ('only a single image available for field ID {} in filter {}'
                      '; using it as the reference image'.format(field_ID, filt))
 
+        # copy/move files to the reference folder
+        new_base = imagelist[0].split('_red.fits')[0]
+        ref_base = ref_fits_out.split('_red.fits')[0]
+        
+        # selected extensions
+        exts2keep = ['_red.fits', '_mask.fits', 'std_mini.fits', '_red.log',
+                     '_cat.fits', '_psf.fits', '_psfex.cat']
+        
+        result = copy_files2keep(new_base, ref_base, exts2keep, move=False,
+                                 log=log)
 
-        # copy image itself to ref_fits in tmp_path
-        fits_tmp = unzip (imagelist[0], put_lock=False)
-        shutil.copy2 (fits_tmp, ref_fits)
-        fpack (fits_tmp, log=log)
-
-
-        # same for the mask
-        fits_mask_tmp = unzip (imagelist[0].replace('red.fits', 'mask.fits'),
-                               put_lock=False)
-        shutil.copy2 (fits_mask_tmp, ref_fits_mask)
-        fpack (fits_mask_tmp, log=log)
-
-
-        # same for the bkg_std_mini image
-        fits_bkg_std_mini_tmp = unzip (imagelist[0].replace(
-            'red.fits', 'red_bkg_std_mini.fits'), put_lock=False, log=log)
-        ref_fits_bkg_std_mini = ref_fits.replace(
-            'red.fits', 'red_bkg_std_mini.fits')
-        shutil.copy2 (fits_bkg_std_mini_tmp, ref_fits_bkg_std_mini)
-        fpack (fits_bkg_std_mini_tmp, log=log)
-
-
+        
     else:
 
         # run imcombine
@@ -1187,61 +1177,62 @@ def prep_ref (imagelist, field_ID, filt, radec):
             #log.exception (traceback.format_exc())
             log.exception ('exception was raised during [imcombine]: {}'
                            .format(e))
+            clean_tmp(tmp_path, get_par(set_br.keep_tmp,tel), log=log)
             close_log(log, logfile)
             raise RuntimeError
 
 
-    # run zogy on newly prepared reference image
-    try:
-        zogy_processed = False
-        header_optsub = optimal_subtraction(
-            ref_fits=ref_fits, ref_fits_mask=ref_fits_mask,
-            set_file='set_zogy', log=log, verbose=None,
-            nthreads=get_par(set_br.nthreads,tel), telescope=tel)
-    except Exception as e:
-        #log.exception (traceback.format_exc())
-        log.exception ('exception was raised during reference '
-                       '[optimal_subtraction]: {}'.format(e))
+        # run zogy on newly prepared reference image
+        try:
+            zogy_processed = False
+            header_optsub = optimal_subtraction(
+                ref_fits=ref_fits, ref_fits_mask=ref_fits_mask,
+                set_file='set_zogy', log=log, verbose=None,
+                nthreads=get_par(set_br.nthreads,tel), telescope=tel)
+        except Exception as e:
+            #log.exception (traceback.format_exc())
+            log.exception ('exception was raised during reference '
+                           '[optimal_subtraction]: {}'.format(e))
 
-    else:
-        zogy_processed = True
-
-    finally:
-        if not zogy_processed:
-            log.error ('due to exception: returning without copying reference '
-                       'files')
-            close_log(log, logfile)
-            return
-
-    log.info('zogy_processed: {}'.format(zogy_processed))
-
-
-    # copy/move files to the reference folder
-    tmp_base = ref_fits.split('_red.fits')[0]
-    ref_base = ref_fits_out.split('_red.fits')[0]
-
-    # (re)move old reference files
-    oldfiles = glob.glob('{}*'.format(ref_base))
-    if len(oldfiles)!=0:
-        if False:
-            # remove them
-            for f in oldfiles:
-                os.remove(f)
         else:
-            # or move them to an Old folder instead
-            old_path = '{}/Old/'.format(ref_path)
-            make_dir (old_path, lock=lock)
-            for f in oldfiles:
-                f_dst = '{}/{}'.format(old_path,f.split('/')[-1])
-                shutil.move (f, f_dst)
+            zogy_processed = True
+
+        finally:
+            if not zogy_processed:
+                log.error ('due to exception: returning without copying '
+                           'reference files')
+
+                clean_tmp(tmp_path, get_par(set_br.keep_tmp,tel), log=log)
+                close_log(log, logfile)
+                return
+            
+
+        log.info('zogy_processed: {}'.format(zogy_processed))
+
+
+        # copy/move files to the reference folder
+        tmp_base = ref_fits.split('_red.fits')[0]
+        ref_base = ref_fits_out.split('_red.fits')[0]
+
+        # (re)move old reference files
+        oldfiles = glob.glob('{}*'.format(ref_base))
+        if len(oldfiles)!=0:
+            if False:
+                # remove them
+                for f in oldfiles:
+                    os.remove(f)
+            else:
+                # or move them to an Old folder instead
+                old_path = '{}/Old/'.format(ref_path)
+                make_dir (old_path, lock=lock)
+                for f in oldfiles:
+                    f_dst = '{}/{}'.format(old_path,f.split('/')[-1])
+                    shutil.move (f, f_dst)
 
                 
-    # now move [ref_2keep] to the reference directory
-    result = copy_files2keep(tmp_base, ref_base, get_par(set_bb.ref_2keep,tel),
-                             move=False, log=log)
-    # include full background and background standard deviation images
-    #bkg_2keep = ['_bkg.fits', '_bkg_std.fits']
-    #result = copy_files2keep(tmp_base, ref_base, bkg_2keep, move=False, log=log)
+        # now move [ref_2keep] to the reference directory
+        result = copy_files2keep(tmp_base, ref_base,
+                                 get_par(set_bb.ref_2keep,tel), move=False, log=log)
     
 
     # also build a couple of alternative reference images for
@@ -1291,11 +1282,6 @@ def prep_ref (imagelist, field_ID, filt, radec):
 
 
 
-    # delete [tmp_path] if [set_br.keep_tmp] not True
-    if not get_par(set_br.keep_tmp,tel) and os.path.isdir(tmp_path):
-        shutil.rmtree(tmp_path)
-
-
     log.info('finished making reference image: {}'.format(ref_fits_out))
 
     if False:
@@ -1318,6 +1304,7 @@ def prep_ref (imagelist, field_ID, filt, radec):
                      .format(ref_fits))
 
 
+    clean_tmp(tmp_path, get_par(set_br.keep_tmp,tel), log=log)
     close_log(log, logfile)
     return
     
