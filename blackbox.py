@@ -28,7 +28,7 @@ from multiprocessing import Pool, Manager, Lock, Queue, Array
 import datetime as dt 
 from dateutil.tz import gettz
 from astropy.stats import sigma_clipped_stats
-from astropy.coordinates import Angle
+from astropy.coordinates import Angle, SkyCoord, FK5 
 from astropy.time import Time
 from astropy import units as u
 from astropy.visualization import ZScaleInterval as zscale
@@ -4205,27 +4205,6 @@ def set_header(header, filename):
     edit_head(header, 'DOMEAZ', value='None',
               comments='[deg] Dome azimuth (N=0;E=90)')
     
-    # RA
-    if 'RA' in header:
-        if ':' in str(header['RA']):
-            # convert sexagesimal to decimal degrees
-            ra_deg = Angle(header['RA'], unit=u.hour).degree
-        else:
-            # convert RA decimal hours to degrees
-            ra_deg = header['RA'] * 15.
-        edit_head(header, 'RA', value=ra_deg,
-                  comments='[deg] Telescope right ascension')
-
-    # DEC
-    if 'DEC' in header:
-        if ':' in str(header['DEC']):
-            # convert sexagesimal to decimal degrees
-            dec_deg = Angle(header['DEC'], unit=u.deg).degree
-        else:
-            # for airmass determination below
-            dec_deg = header['DEC']
-        edit_head(header, 'DEC', value=dec_deg,
-                  comments='[deg] Telescope declination')
 
     edit_head(header, 'FLIPSTAT', value='None',
               comments='Telescope side of the pier')
@@ -4294,6 +4273,7 @@ def set_header(header, filename):
               comments='GPS timing start of opening shutter')
     edit_head(header, 'GPSEND', value='None',
               comments='GPS timing end of opening shutter')
+
     if imgtype == 'object':
         edit_head(header, 'GPS-SHUT', value='None',
                   comments='[s] Shutter time:(GPSEND-GPSSTART)-EXPTIME')
@@ -4320,8 +4300,36 @@ def set_header(header, filename):
     lat = get_par(set_zogy.obs_lat,tel)
     lon = get_par(set_zogy.obs_lon,tel)
     height = get_par(set_zogy.obs_height,tel)
-    
+
+
     if 'RA' in header and 'DEC' in header:
+
+        # RA
+        if ':' in str(header['RA']):
+            # convert sexagesimal to decimal degrees
+            ra_deg = Angle(header['RA'], unit=u.hour).degree
+        else:
+            # convert RA decimal hours to degrees
+            ra_deg = header['RA'] * 15.
+
+        # DEC
+        if ':' in str(header['DEC']):
+            # convert sexagesimal to decimal degrees
+            dec_deg = Angle(header['DEC'], unit=u.deg).degree
+        else:
+            # for airmass determination below
+            dec_deg = header['DEC']
+
+        # assuming RA,DEC are JNOW, convert them to J2000/ICRS
+        equinox = Time(mjd_obs, format='mjd').jyear_str
+        ra_icrs, dec_icrs = jnow2icrs (ra_deg, dec_deg, equinox)
+
+        edit_head(header, 'RA', value=ra_icrs,
+                  comments='[deg] Telescope right ascension (ICRS)')
+        edit_head(header, 'DEC', value=dec_icrs,
+                  comments='[deg] Telescope declination (ICRS)')
+
+
         # for ML1, the RA and DEC were incorrectly referring to the
         # subsequent image up to 9 Feb 2019 (except when put in by
         # hand with the sexagesimal notation, in which case keywords
@@ -4331,15 +4339,18 @@ def set_header(header, filename):
             tcorr_radec = Time('2019-02-09T00:00:00', format='isot').mjd
             if (mjd_obs < tcorr_radec and 'RA-REF' in header and
                 'DEC-REF' in header):
-                ra_deg = Angle(header['RA-REF'], unit=u.hour).degree
-                dec_deg = Angle(header['DEC-REF'], unit=u.deg).degree
-                edit_head(header, 'RA', value=ra_deg,
+                ra_icrs = Angle(header['RA-REF'], unit=u.hour).degree
+                dec_icrs = Angle(header['DEC-REF'], unit=u.deg).degree
+                
+                # RA-REF and DEC-REF are assumed to be J2000/ICRS,
+                # so no need to convert from JNOW
+                edit_head(header, 'RA', value=ra_icrs,
                           comments='[deg] Telescope right ascension (=RA-REF)')
-                edit_head(header, 'DEC', value=dec_deg,
+                edit_head(header, 'DEC', value=dec_icrs,
                           comments='[deg] Telescope declination (=DEC-REF)')
 
         # determine airmass
-        airmass, alt, az = get_airmass(ra_deg, dec_deg, date_obs_str, lat, lon,
+        airmass, alt, az = get_airmass(ra_icrs, dec_icrs, date_obs_str, lat, lon,
                                        height, get_altaz=True)
         edit_head(header, 'AIRMASS', value=float(airmass), 
                   comments='Airmass (based on RA, DEC, DATE-OBS)')
@@ -4347,15 +4358,18 @@ def set_header(header, filename):
         # ALTITUDE and AZIMUTH not always present in raw header, so
         # add the values calculated using [get_airmass] above
         if 'ALTITUDE' in header:
-            genlog.info ('ALTITUDE in raw header: {}, value calculated using '
-                         '[get_airmass]: {}'.format(header['ALTITUDE'], alt))
+            genlog.info ('ALTITUDE in raw header: {:.2f}, value calculated using '
+                         '[get_airmass]: {:.2f}; adopting the latter'
+                         .format(header['ALTITUDE'], alt))
 
-        if 'AZIMUTH' in header:
-            genlog.info ('AZIMUTH in raw header: {}, value calculated using '
-                         '[get_airmass]: {}'.format(header['AZIMUTH'], az))
-            
         edit_head(header, 'ALTITUDE', value=float(alt),
                   comments='[deg] Telescope altitude')
+
+        if 'AZIMUTH' in header:
+            genlog.info ('AZIMUTH in raw header: {:.2f}, value calculated using '
+                         '[get_airmass]: {:.2f}; adopting the latter'
+                         .format(header['AZIMUTH'], az))
+
         edit_head(header, 'AZIMUTH', value=float(az),
                   comments='[deg] Telescope azimuth (N=0;E=90)')
 
@@ -4369,27 +4383,48 @@ def set_header(header, filename):
     # yet, create them with 'None' values - needed for the Database
     edit_head(header, 'RA-REF', value='None',
               comments='Requested right ascension')
-
-    # convert RA-TEL value from hours to degrees; assume that until
-    # 15-03-2019 RA-TEL was in degrees, afterwards in hours, although
-    # for many bias and other calibration frames it was still in
-    # degrees after this date
-    ra_tel_deg = None
-    if tel=='ML1':
-        tcorr = Time('2019-03-16T12:00:00', format='isot').mjd
-        if mjd_obs > tcorr and 'RA-TEL' in header:
-            ra_tel_deg = 15. * float(header['RA-TEL'])
-
-    edit_head(header, 'RA-TEL', value=ra_tel_deg,
-              comments='[deg] Telescope right ascension')
     edit_head(header, 'DEC-REF', value='None', comments='Requested declination')
-    edit_head(header, 'DEC-TEL', comments='[deg] Telescope declination')
+
+    # do not consider RA-TEL and DEC-TEL anymore for the reduced header
+    if False:
+    
+        if 'RA-TEL' in header and 'DEC-TEL' in header:
+
+            ra_tel_deg = float(header['RA-TEL'])
+            dec_tel_deg = float(header['DEC-TEL'])
+            
+            # convert RA-TEL value from hours to degrees; assume that
+            # until 15-03-2019 RA-TEL was in degrees, afterwards in hours,
+            # although for many bias and other calibration frames it was
+            # still in degrees after this date
+            if tel=='ML1':
+                tcorr = Time('2019-03-16T12:00:00', format='isot').mjd
+                if mjd_obs > tcorr and ra_tel_deg < 24:
+                    ra_tel_deg *= 15.
+
+            # assuming RA-TEL,DEC-TEL are JNOW, convert them to J2000/ICRS
+            equinox = Time(mjd_obs, format='mjd').jyear_str
+            ra_tel_icrs, dec_tel_icrs = jnow2icrs (ra_tel_deg, dec_tel_deg, equinox)
+            
+            edit_head(header, 'RA-TEL', value=ra_tel_icrs,
+                      comments='[deg] Telescope right ascension (ICRS)')
+            edit_head(header, 'DEC-TEL', value=dec_tel_icrs,
+                      comments='[deg] Telescope declination (ICRS)')
+
+        else:
+        
+            # if not available in raw header, add them with 'None' values
+            edit_head(header, 'RA-TEL', value='None',
+                      comments='[deg] Telescope right ascension')
+            edit_head(header, 'DEC-TEL', value='None',
+                      comments='[deg] Telescope declination')
+
     
     # now that RA/DEC are (potentially) corrected, determine local
     # hour angle this keyword was in the raw image header for a while,
     # but seems to have disappeared during the 2nd half of March 2019
     if 'RA' in header:
-        lha_deg = lst_deg - ra_deg
+        lha_deg = lst_deg - ra_icrs
         # PaulG noticed some lha_deg values are between -340 and -360
         # and between +340 and +360:
         if lha_deg < -180:
@@ -4562,7 +4597,8 @@ def set_header(header, filename):
     # remove the following keywords:
     keys_2remove = ['FILTWHID', 'FOC-ID', 'EXPOSURE', 'END-OBS', 'FOCUSMIT', 
                     'FOCUSAMT', 'OWNERGNM', 'OWNERGID', 'OWNERID',
-                    'AZ-REF', 'ALT-REF', 'CCDFULLH', 'CCDFULLW', 'RADECSYS']
+                    'AZ-REF', 'ALT-REF', 'CCDFULLH', 'CCDFULLW', 'RADECSYS',
+                    'RA-TEL', 'DEC-TEL']
     for key in keys_2remove:
         if key in header:
             genlog.info ('removing keyword {}'.format(key))
@@ -4574,7 +4610,8 @@ def set_header(header, filename):
                  'BUNIT', 'BSCALE', 'BZERO',
                  'XBINNING', 'YBINNING',
                  'ALTITUDE', 'AZIMUTH', 'DOMEAZ', 'RADESYS', 'EPOCH',
-                 'RA', 'RA-REF', 'RA-TEL', 'DEC', 'DEC-REF', 'DEC-TEL',
+                 #'RA', 'RA-REF', 'RA-TEL', 'DEC', 'DEC-REF', 'DEC-TEL',
+                 'RA', 'RA-REF', 'DEC', 'DEC-REF',
                  'HA', 'FLIPSTAT', 'ISTRACKI',
                  'OBJECT', 'IMAGETYP', 'FILTER', 'EXPTIME',
                  'ACQSTART', 'ACQEND', 'GPSSTART', 'GPSEND', 'GPS-SHUT',
@@ -4601,6 +4638,27 @@ def set_header(header, filename):
             genlog.warning ('keyword {} not in header'.format(key))            
 
     return header_sort
+
+
+################################################################################
+
+def jnow2icrs (ra_in, dec_in, equinox, icrs2jnow=False):
+
+    """function to convert RA and DEC coordinates in decimal degrees to
+       ICRS, or back using icrs2jnow=True
+    
+    """
+
+    if icrs2jnow:
+        coords = SkyCoord(ra_in*u.degree, dec=dec_in*u.degree, frame='icrs')
+        jnow = FK5(equinox=equinox)
+        coords_out = coords.transform_to(jnow)
+        
+    else:
+        coords_out = SkyCoord(ra_in*u.degree, dec_in*u.degree, frame='fk5',
+                              equinox=equinox).icrs
+        
+    return coords_out.ra.value, coords_out.dec.value
 
 
 ################################################################################
