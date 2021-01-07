@@ -713,44 +713,47 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
                               .format(e))
             raise RuntimeError
 
+    # not needed anymore; fpacking and jpegging is now done inside
+    # BB's [copy_files2keep]
+    if False:
         
-    # fpack reference fits files
-    # --------------------------
-    genlog.info ('fpacking reference fits images')
-    ref_dir = get_par(set_bb.ref_dir,tel)
-    list_2pack = []
-    for field_ID in objs_uniq:
-        ref_path = '{}/{:0>5}'.format(ref_dir, field_ID)
-        if ext is not None:
-            ref_path = '{}{}'.format(ref_path, ext)
+        # fpack reference fits files
+        # --------------------------
+        genlog.info ('fpacking reference fits images')
+        ref_dir = get_par(set_bb.ref_dir,tel)
+        list_2pack = []
+        for field_ID in objs_uniq:
+            ref_path = '{}/{:0>5}'.format(ref_dir, field_ID)
+            if ext is not None:
+                ref_path = '{}{}'.format(ref_path, ext)
+                
+            list_2pack.append(glob.glob('{}/*.fits'.format(ref_path)))
+            list_2pack.append(glob.glob('{}/Old/*.fits'.format(ref_path)))
 
-        list_2pack.append(glob.glob('{}/*.fits'.format(ref_path)))
-        list_2pack.append(glob.glob('{}/Old/*.fits'.format(ref_path)))
-
-    # unnest nested list_2pack
-    list_2pack = list(itertools.chain.from_iterable(list_2pack))
-
-    # use [pool_func] to process the list
-    result = pool_func (fpack, list_2pack, genlog, log=genlog, nproc=nproc)
+        # unnest nested list_2pack
+        list_2pack = list(itertools.chain.from_iterable(list_2pack))
+        
+        # use [pool_func] to process the list
+        result = pool_func (fpack, list_2pack, genlog, log=genlog, nproc=nproc)
 
 
-    # create jpg images for reference frames
-    # --------------------------------------
-    genlog.info ('creating jpg images')
-    # create list of files to jpg
-    list_2jpg = []
-    for field_ID in objs_uniq:
-        ref_path = '{}/{:0>5}'.format(ref_dir, field_ID)
-        if ext is not None:
-            ref_path = '{}{}'.format(ref_path, ext)
+        # create jpg images for reference frames
+        # --------------------------------------
+        genlog.info ('creating jpg images')
+        # create list of files to jpg
+        list_2jpg = []
+        for field_ID in objs_uniq:
+            ref_path = '{}/{:0>5}'.format(ref_dir, field_ID)
+            if ext is not None:
+                ref_path = '{}{}'.format(ref_path, ext)
+                
+            list_2jpg.append(glob.glob('{}/*_red.fits.fz'.format(ref_path)))
 
-        list_2jpg.append(glob.glob('{}/*_red.fits.fz'.format(ref_path)))
+        # unnest nested list_2pack
+        list_2jpg = list(itertools.chain.from_iterable(list_2jpg))
 
-    # unnest nested list_2pack
-    list_2jpg = list(itertools.chain.from_iterable(list_2jpg))
-
-    # use [pool_func] to process the list
-    result = pool_func (create_jpg, list_2jpg, genlog, log=genlog, nproc=nproc)
+        # use [pool_func] to process the list
+        result = pool_func (create_jpg, list_2jpg, genlog, log=genlog, nproc=nproc)
 
 
     logging.shutdown()
@@ -1144,15 +1147,16 @@ def prep_ref (imagelist, field_ID, filt, radec):
         # copy/move files to the reference folder
         new_base = imagelist[0].split('_red.fits')[0]
         ref_base = ref_fits_out.split('_red.fits')[0]
-        
+
         # selected extensions
         exts2keep = ['_red.fits', '_mask.fits', 'std_mini.fits', '_red.log',
-                     '_cat.fits', '_psf.fits', '_psfex.cat']
-        
+                     '_red_limmag.fits', '_cat.fits', '_psf.fits', '_psfex.cat']
+
         result = copy_files2keep(new_base, ref_base, exts2keep, move=False,
                                  log=log)
 
         # update header of 'single' ref image just like inside [imcombine]
+        exists, ref_fits_out = already_exists (ref_fits_out, get_filename=True)
         with fits.open(ref_fits_out, 'update') as hdulist:
             hdr = hdulist[-1].header
 
@@ -1174,14 +1178,14 @@ def prep_ref (imagelist, field_ID, filt, radec):
                     else:
                         break
 
-            
+
             # buildref version
             hdr['R-V'] = (__version__, 'reference building module '
                           'version used')
 
             # time when module was started
             hdr['R-TSTART'] = (time_refstart, 'UT time that module was started')
-            
+
             # number of images used
             hdr['R-NUSED'] = (len(imagelist), 'number of images used to combine')
 
@@ -1206,11 +1210,11 @@ def prep_ref (imagelist, field_ID, filt, radec):
             # discarded mask values
             hdr['R-MSKREJ'] = (get_par(set_br.masktype_discard,tel),
                                'reject pixels with mask values part of this sum')
-    
+
             val_str = '[{},{}]'.format(start_date, end_date)
             hdr['R-TRANGE'] = (val_str,
                                '[date/days wrt R-TSTART] image time range')
-    
+
             hdr['R-QCMAX'] = (max_qc_flag, 'maximum image QC flag')
             hdr['R-SEEMAX'] = (max_seeing, '[arcsec] maximum image seeing')
 
@@ -1218,7 +1222,8 @@ def prep_ref (imagelist, field_ID, filt, radec):
             ut_now = Time.now().isot
             hdr['DATEFILE'] = (ut_now, 'UTC date of writing file')
             hdr['R-DATE'] = (ut_now, 'time stamp reference image creation')
-            
+
+
 
     else:
 
@@ -1299,8 +1304,9 @@ def prep_ref (imagelist, field_ID, filt, radec):
                 
         # now move [ref_2keep] to the reference directory
         result = copy_files2keep(tmp_base, ref_base,
-                                 get_par(set_bb.ref_2keep,tel), move=False, log=log)
-    
+                                 get_par(set_bb.ref_2keep,tel), move=False,
+                                 log=log)
+
 
     # also build a couple of alternative reference images for
     # comparison; name these ...._whatever_red.fits, so that they do
