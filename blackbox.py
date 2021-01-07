@@ -3215,9 +3215,10 @@ def copy_files2keep (src_base, dest_base, ext2keep, move=True,
                         shutil.move(src_file, dest_file)
 
 
-                    # if do_fpack is True, i.e. files are being copied
-                    # from tmp to red or ref and not vice versa, and
-                    # file is reduced, D or Scorr image, create a jpg
+                    # create a jpg image if do_fpack is True,
+                    # i.e. files are being copied from tmp to red or
+                    # ref and not vice versa, and file is reduced, D
+                    # or Scorr image
                     if do_fpack and ('_red.fits' in dest_file or
                                      '_D.fits' in dest_file or
                                      '_Scorr.fits' in dest_file):
@@ -4196,8 +4197,6 @@ def set_header(header, filename):
                   comments='[pix] Binning factor Y axis')
 
 
-    edit_head(header, 'ALTITUDE', comments='[deg] Telescope altitude')
-    edit_head(header, 'AZIMUTH', comments='[deg] Telescope azimuth (N=0;E=90)')
     edit_head(header, 'RADESYS', value='ICRS',
               comments='Coordinate reference frame')
     edit_head(header, 'EPOCH', value=2015.5,
@@ -4340,11 +4339,28 @@ def set_header(header, filename):
                           comments='[deg] Telescope declination (=DEC-REF)')
 
         # determine airmass
-        airmass = get_airmass(ra_deg, dec_deg, date_obs_str, lat, lon, height)
+        airmass, alt, az = get_airmass(ra_deg, dec_deg, date_obs_str, lat, lon,
+                                       height, get_altaz=True)
         edit_head(header, 'AIRMASS', value=float(airmass), 
                   comments='Airmass (based on RA, DEC, DATE-OBS)')
 
-        
+        # ALTITUDE and AZIMUTH not always present in raw header, so
+        # add the values calculated using [get_airmass] above
+        if 'ALTITUDE' in header:
+            genlog.info ('ALTITUDE in raw header: {}, value calculated using '
+                         '[get_airmass]: {}'.format(header['ALTITUDE'], alt))
+
+        if 'AZIMUTH' in header:
+            genlog.info ('AZIMUTH in raw header: {}, value calculated using '
+                         '[get_airmass]: {}'.format(header['AZIMUTH'], az))
+            
+        edit_head(header, 'ALTITUDE', value=float(alt),
+                  comments='[deg] Telescope altitude')
+        edit_head(header, 'AZIMUTH', value=float(az),
+                  comments='[deg] Telescope azimuth (N=0;E=90)')
+
+
+
     edit_head(header, 'SITELAT',  value=lat, comments='[deg] Site latitude')
     edit_head(header, 'SITELONG', value=lon, comments='[deg] Site longitude')
     edit_head(header, 'ELEVATIO', value=height, comments='[m] Site elevation')
