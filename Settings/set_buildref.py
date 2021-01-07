@@ -55,9 +55,10 @@ back_type = 'blackbox'
 # Select subset to combine in case of many images of the same field/filter
 #===============================================================================
 
-# use absolute target limiting magnitudes suggested by PaulG:
+# use absolute target limiting magnitudes suggested by PaulG; see his
+# email from 2021-01-06
 use_abslimits = True
-limmag_target = {'u': 21.5, 'g': 22.5, 'q': 23.5, 'r': 22.0, 'i': 22.0, 'z': 21.0}
+limmag_target = {'u': 21.0, 'g': 22.3, 'q': 22.5, 'r': 22.0, 'i': 21.3, 'z': 20.5}
 
 # if [use_abslimits] is False, use the settings below
 # nmin1: bare minimum number of images to combine
