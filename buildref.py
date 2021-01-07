@@ -1156,6 +1156,25 @@ def prep_ref (imagelist, field_ID, filt, radec):
         with fits.open(ref_fits_out, 'update') as hdulist:
             hdr = hdulist[-1].header
 
+            # delete qc keywords in single image header; reference
+            # image header do not contain these
+            keys = ['DUMCAT', 'QC-FLAG', 'QCRED', 'QCORA', 'QCYEL'] 
+            for key in keys:
+                if 'QCRED' in key or 'QCORA' in key or 'QCYEL' in key:
+                    keys2del = ['{}{}'.format(key[0:5], i)
+                                for i in range(1,100)]
+                else:
+                    keys2del = [key]
+                    
+                for key2del in keys2del:
+                    if key2del in hdr:
+                        log.info ('deleting keyword {} from header of {}'
+                                  .format(key2del, ref_fits_out))
+                        del hdr[key2del]
+                    else:
+                        break
+
+            
             # buildref version
             hdr['R-V'] = (__version__, 'reference building module '
                           'version used')
@@ -1199,7 +1218,7 @@ def prep_ref (imagelist, field_ID, filt, radec):
             ut_now = Time.now().isot
             hdr['DATEFILE'] = (ut_now, 'UTC date of writing file')
             hdr['R-DATE'] = (ut_now, 'time stamp reference image creation')
-
+            
 
     else:
 
