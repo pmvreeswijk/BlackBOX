@@ -973,7 +973,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
  
         else:
             # use [pool_func] to process list of files
-            filenames_reduced = pool_func (try_blackbox_reduce, filenames,
+            filenames_reduced = pool_func (blackbox_reduce, filenames,
                                            log=genlog, nproc=nproc)
             
 
@@ -2035,6 +2035,11 @@ def blackbox_reduce (filename):
             run_qc_check (header, tel, cat_type='trans', cat_dummy=fits_tmp_trans,
                           log=log, check_key_type='trans')
 
+            # verify headers of catalogs
+            success = verify_header (fits_tmp_cat, ['raw','full'], log=log)
+            success = verify_header (fits_tmp_trans, ['raw','full','trans'],
+                                     log=log)
+
             # copy selected output files to new directory and remove tmp folder
             # corresponding to the object image
             result = copy_files2keep(tmp_base, new_base,
@@ -2068,6 +2073,9 @@ def blackbox_reduce (filename):
         log.info('main processing switches cat_extract and trans_extract are off, '
                  'nothing left to do for {}'.format(filename))
 
+        # verify image header
+        success = verify_header (new_fits, ['raw'], log=log)
+        
         if do_reduction:
             # if reduction steps were performed, copy selected output
             # files to new directory and clean up tmp folder if needed
@@ -2302,8 +2310,7 @@ def blackbox_reduce (filename):
             if not zogy_processed:
                 # copy selected output files to red directory and
                 # remove tmp folder corresponding to the image
-                log.warning ('due to exception, only copy image reduction '
-                             'products')
+                log.error ('due to exception, only copy image reduction products')
                 result = copy_files2keep(tmp_base, new_base,
                                          get_par(set_bb.img_reduce_exts,tel),
                                          move=(not get_par(set_bb.keep_tmp,tel)),
@@ -2381,8 +2388,7 @@ def blackbox_reduce (filename):
             if not zogy_processed:
                 # copy selected output files to red directory and
                 # remove tmp folder corresponding to the image
-                log.warning ('due to exception, only copy image reduction '
-                             'products')
+                log.error ('due to exception, only copy image reduction products')
                 result = copy_files2keep(tmp_base, new_base,
                                          get_par(set_bb.img_reduce_exts,tel),
                                          move=(not get_par(set_bb.keep_tmp,tel)),
@@ -2514,8 +2520,7 @@ def blackbox_reduce (filename):
             if not zogy_processed:
                 # copy selected output files to red directory and
                 # remove tmp folder corresponding to the image
-                log.warning ('due to exception, only copy image reduction '
-                             'products')
+                log.error ('due to exception, only copy image reduction products')
                 result = copy_files2keep(tmp_base, new_base,
                                          get_par(set_bb.img_reduce_exts,tel),
                                          move=(not get_par(set_bb.keep_tmp,tel)),
@@ -2569,6 +2574,11 @@ def blackbox_reduce (filename):
 
 
 
+    # verify headers of catalogs
+    success = verify_header (fits_tmp_cat, ['raw','full'], log=log)
+    success = verify_header (fits_tmp_trans, ['raw','full','trans'],
+                             log=log)
+
     # list of files to copy/move to reduced folder; need to include
     # the img_reduce products in any case because the header will have
     # been updated with fresh QC flags
@@ -2597,6 +2607,348 @@ def blackbox_reduce (filename):
     close_log(log, logfile)
     
     return fits_out
+
+
+################################################################################
+
+def verify_header (filename, htypes=None, log=None):
+    
+    """function to verify the presence of keywords in the header of the
+       input fits file [filename], where the type of header to check
+       is determined by [htypes]. The latter can be a string or list
+       of strings with one or more of the following relevant values:
+       'raw', 'bias', 'mbias', 'flat', 'mflat', 'mask', 'full', 'ref'
+       or 'trans'.
+
+    """
+    
+    # dictionary 
+    dict_head = {
+        # raw header
+        'SIMPLE':   {'htype':'raw', 'dtype':bool,  'DB':False, 'None_OK':True},
+        'BITPIX':   {'htype':'raw', 'dtype':int,   'DB':False, 'None_OK':True},
+        'NAXIS':    {'htype':'raw', 'dtype':int,   'DB':False, 'None_OK':True},
+        'NAXIS1':   {'htype':'raw', 'dtype':int,   'DB':False, 'None_OK':True},
+        'NAXIS2':   {'htype':'raw', 'dtype':int,   'DB':False, 'None_OK':True},
+        'BUNIT':    {'htype':'raw', 'dtype':str,   'DB':False, 'None_OK':True},
+        'BSCALE':   {'htype':'raw', 'dtype':float, 'DB':False, 'None_OK':True},
+        'BZERO':    {'htype':'raw', 'dtype':float, 'DB':False, 'None_OK':True},
+        #'CCD-AMP':  {'htype':'raw', 'dtype':str,   'DB':False, 'None_OK':True},
+        'SET-TEMP': {'htype':'raw', 'dtype':float, 'DB':False, 'None_OK':True},
+        'CCD-TEMP': {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':True},
+        'XBINNING': {'htype':'raw', 'dtype':int,   'DB':False, 'None_OK':True},
+        'YBINNING': {'htype':'raw', 'dtype':int,   'DB':False, 'None_OK':True},
+        #'CCD-SET':  {'htype':'raw', 'dtype':str,   'DB':False, 'None_OK':True},
+        'ALTITUDE': {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':True},
+        'AZIMUTH':  {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':True},
+        'DOMEAZ':   {'htype':'raw', 'dtype':float, 'DB':False, 'None_OK':True},
+        'RADESYS':  {'htype':'raw', 'dtype':str,   'DB':False, 'None_OK':True},
+        'EPOCH':    {'htype':'raw', 'dtype':str,   'DB':False, 'None_OK':True},
+        'RA':       {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':False},
+        'RA-REF':   {'htype':'raw', 'dtype':str,   'DB':True,  'None_OK':True},
+        #'RA-TEL':   {'htype':'raw', 'dtype':float, 'DB':False, 'None_OK':True},
+        'DEC':      {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':False},
+        'DEC-REF':  {'htype':'raw', 'dtype':str,   'DB':True,  'None_OK':True},
+        #'DEC-TEL':  {'htype':'raw', 'dtype':float, 'DB':False, 'None_OK':True},
+        'HA':       {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':False},
+        'FLIPSTAT': {'htype':'raw', 'dtype':str,   'DB':True,  'None_OK':True},
+        'EXPTIME':  {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':False},
+        'ISTRACKI': {'htype':'raw', 'dtype':bool,  'DB':False, 'None_OK':True},
+        'ACQSTART': {'htype':'raw', 'dtype':str,   'DB':True,  'None_OK':False},
+        'ACQEND':   {'htype':'raw', 'dtype':str,   'DB':True,  'None_OK':True},
+        'GPSSTART': {'htype':'raw', 'dtype':str,   'DB':True,  'None_OK':True},
+        'GPSEND':   {'htype':'raw', 'dtype':str,   'DB':True,  'None_OK':True},
+        'GPS-SHUT': {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':True},
+        'DATE-OBS': {'htype':'raw', 'dtype':str,   'DB':True,  'None_OK':False},
+        'MJD-OBS':  {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':False},
+        'LST':      {'htype':'raw', 'dtype':str,   'DB':True,  'None_OK':False},
+        'UTC':      {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':False},
+        'TIMESYS':  {'htype':'raw', 'dtype':str,   'DB':False, 'None_OK':True},
+        'ORIGIN':   {'htype':'raw', 'dtype':str,   'DB':False, 'None_OK':True},
+        'MPC-CODE': {'htype':'raw', 'dtype':str,   'DB':True,  'None_OK':False},
+        'TELESCOP': {'htype':'raw', 'dtype':str,   'DB':True,  'None_OK':False},
+        'CL-BASE':  {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':True},
+        'RH-MAST':  {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':True},
+        'RH-DOME':  {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':True},
+        'RH-AIRCO': {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':True},
+        'RH-PIER':  {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':True},
+        'PRESSURE': {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':True},
+        'T-PIER':   {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':True},
+        'T-DOME':   {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':True},
+        'T-ROOF':   {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':True},
+        'T-AIRCO':  {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':True},
+        'T-MAST':   {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':True},
+        'T-STRUT':  {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':True},
+        'T-CRING':  {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':True},
+        'T-SPIDER': {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':True},
+        'T-FWN':    {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':True},
+        'T-FWS':    {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':True},
+        'T-M2HOLD': {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':True},
+        'T-GUICAM': {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':True},
+        'T-M1':     {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':True},
+        'T-CRYWIN': {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':True},
+        'T-CRYGET': {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':True},
+        'T-CRYCP':  {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':True},
+        'PRES-CRY': {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':True},
+        'WINDAVE':  {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':True},
+        'WINDGUST': {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':True},
+        'WINDDIR':  {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':True},
+        'SITELAT':  {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':True},
+        'SITELONG': {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':True},
+        'ELEVATIO': {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':True},
+        #'WEATIME':  {'htype':'raw', 'dtype':str,   'DB':False, 'None_OK':True},
+        'FILTER':   {'htype':'raw', 'dtype':str,   'DB':True,  'None_OK':False},
+        #'FILTERID': {'htype':'raw', 'dtype':str,   'DB':False, 'None_OK':True},
+        'CCD-ID':   {'htype':'raw', 'dtype':str,   'DB':True,  'None_OK':True},
+        'CONTROLL': {'htype':'raw', 'dtype':str,   'DB':True,  'None_OK':True},
+        'DETSPEED': {'htype':'raw', 'dtype':int,   'DB':True,  'None_OK':True},
+        'CCD-NW':   {'htype':'raw', 'dtype':int,   'DB':False, 'None_OK':True},
+        'CCD-NH':   {'htype':'raw', 'dtype':int,   'DB':False, 'None_OK':True},
+        'INSTRUME': {'htype':'raw', 'dtype':str,   'DB':True,  'None_OK':True},
+        'FOCUSPOS': {'htype':'raw', 'dtype':int,   'DB':True,  'None_OK':True},
+        'IMAGETYP': {'htype':'raw', 'dtype':str,   'DB':False, 'None_OK':True},
+        'OBJECT':   {'htype':'raw', 'dtype':str,   'DB':True,  'None_OK':False},
+        'AIRMASS':  {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':False},
+        'ORIGFILE': {'htype':'raw', 'dtype':str,   'DB':True,  'None_OK':False},
+        'OBSERVER': {'htype':'raw', 'dtype':str,   'DB':True,  'None_OK':True},
+        'ABOTVER':  {'htype':'raw', 'dtype':str,   'DB':True,  'None_OK':True},
+        'PROGNAME': {'htype':'raw', 'dtype':str,   'DB':True,  'None_OK':True},
+        'PROGID':   {'htype':'raw', 'dtype':str,   'DB':True,  'None_OK':True},
+        'GUIDERST': {'htype':'raw', 'dtype':str,   'DB':True,  'None_OK':True},
+        'GUIDERFQ': {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':True},
+        'TRAKTIME': {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':True},
+        'ADCX':     {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':True},
+        'ADCY':     {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':True},
+        #
+        # full header
+        'BB-V':     {'htype':'full', 'dtype':str,   'DB':True,  'None_OK':False},
+        'BB-START': {'htype':'full', 'dtype':str,   'DB':True,  'None_OK':False},
+        'KW-V':     {'htype':'full', 'dtype':str,   'DB':True,  'None_OK':False},
+        'LOG':      {'htype':'full', 'dtype':str,   'DB':False, 'None_OK':True},
+        'LOG-IMA':  {'htype':'full', 'dtype':str,   'DB':False, 'None_OK':True},
+        'N-INFNAN': {'htype':'full', 'dtype':int,   'DB':True,  'None_OK':True},
+        'XTALK-P':  {'htype':'full', 'dtype':bool,  'DB':True,  'None_OK':False},
+        'XTALK-F':  {'htype':'full', 'dtype':str,   'DB':False, 'None_OK':True},
+        'NONLIN-P': {'htype':'full', 'dtype':bool,  'DB':True,  'None_OK':False},
+        'NONLIN-F': {'htype':'full', 'dtype':str,   'DB':False, 'None_OK':True},
+        'GAIN-P':   {'htype':'full', 'dtype':bool,  'DB':True,  'None_OK':False},
+        'GAIN':     {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'GAIN1':    {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'GAIN16':   {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'OS-P':     {'htype':'full', 'dtype':bool,  'DB':True,  'None_OK':False},
+        'BIASMEAN': {'htype':'full', 'dtype':float, 'DB':True,  'None_OK':True},
+        'BIASM1':   {'htype':'full', 'dtype':float, 'DB':True,  'None_OK':True},
+        'BIASM16':  {'htype':'full', 'dtype':float, 'DB':True,  'None_OK':True},
+        'RDNOISE':  {'htype':'full', 'dtype':float, 'DB':True,  'None_OK':True},
+        'RDN1':     {'htype':'full', 'dtype':float, 'DB':True,  'None_OK':True},
+        'RDN16':    {'htype':'full', 'dtype':float, 'DB':True,  'None_OK':True},
+        'BIAS1A0':  {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'BIAS1A1':  {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'VFITOK1':  {'htype':'full', 'dtype':bool,  'DB':False, 'None_OK':True},
+        'BIAS16A0': {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'BIAS16A1': {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'VFITOK16': {'htype':'full', 'dtype':bool,  'DB':False, 'None_OK':True},
+        'MBIAS-P':  {'htype':'full', 'dtype':bool,  'DB':True,  'None_OK':False},
+        'MBIAS-F':  {'htype':'full', 'dtype':str,   'DB':True,  'None_OK':True},
+        'MB-NDAYS': {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'SATURATE': {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'NOBJ-SAT': {'htype':'full', 'dtype':int,   'DB':False, 'None_OK':True},
+        'MFLAT-P':  {'htype':'full', 'dtype':bool,  'DB':True,  'None_OK':False},
+        'MFLAT-F':  {'htype':'full', 'dtype':str,   'DB':True,  'None_OK':True},
+        'MF-NDAYS': {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'MFRING-P': {'htype':'full', 'dtype':bool,  'DB':True,  'None_OK':False},
+        'MFRING-F': {'htype':'full', 'dtype':str,   'DB':True,  'None_OK':True},
+        'FRRATIO':  {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'COSMIC-P': {'htype':'full', 'dtype':bool,  'DB':True,  'None_OK':False},
+        'NCOSMICS': {'htype':'full', 'dtype':int,   'DB':True,  'None_OK':True},
+        'SAT-P':    {'htype':'full', 'dtype':bool,  'DB':True,  'None_OK':False},
+        'NSATS':    {'htype':'full', 'dtype':int,   'DB':True,  'None_OK':True},
+        'REDFILE':  {'htype':'full', 'dtype':str,   'DB':True,  'None_OK':True},
+        'MASKFILE': {'htype':'full', 'dtype':str,   'DB':True,  'None_OK':True},
+        'S-P':      {'htype':'full', 'dtype':bool,  'DB':True,  'None_OK':False},
+        'S-V':      {'htype':'full', 'dtype':str,   'DB':False, 'None_OK':True},
+        'S-NOBJ':   {'htype':'full', 'dtype':int,   'DB':True,  'None_OK':True},
+        'S-FWHM':   {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'S-FWSTD':  {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'S-SEEING': {'htype':'full', 'dtype':float, 'DB':True,  'None_OK':True},
+        'S-SEESTD': {'htype':'full', 'dtype':float, 'DB':True,  'None_OK':True},
+        'S-ELONG':  {'htype':'full', 'dtype':float, 'DB':True,  'None_OK':True},
+        'S-ELOSTD': {'htype':'full', 'dtype':float, 'DB':True,  'None_OK':True},
+        'S-BKG':    {'htype':'full', 'dtype':float, 'DB':True,  'None_OK':True},
+        'S-BKGSTD': {'htype':'full', 'dtype':float, 'DB':True,  'None_OK':True},
+        'S-VIGNET': {'htype':'full', 'dtype':int,   'DB':False, 'None_OK':True},
+        'BKG-CORR': {'htype':'full', 'dtype':bool,  'DB':False, 'None_OK':True},
+        'BKG-CHI2': {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'BKG-CF1':  {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'BKG-CF16': {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'BKG-FDEG': {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'BKG-FC0':  {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'A-P':      {'htype':'full', 'dtype':bool,  'DB':True,  'None_OK':False},
+        'A-V':      {'htype':'full', 'dtype':str,   'DB':False, 'None_OK':True},
+        'A-INDEX':  {'htype':'full', 'dtype':str,   'DB':False, 'None_OK':True},
+        'A-PSCALE': {'htype':'full', 'dtype':float, 'DB':True,  'None_OK':True},
+        'A-PSCALX': {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'A-PSCALY': {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'A-ROT':    {'htype':'full', 'dtype':float, 'DB':True,  'None_OK':True},
+        'A-ROTX':   {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'A-ROTY':   {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'A-CAT-F':  {'htype':'full', 'dtype':str,   'DB':True,  'None_OK':True},
+        'A-NAST':   {'htype':'full', 'dtype':int,   'DB':True,  'None_OK':True},
+        'A-TNAST':  {'htype':'full', 'dtype':int,   'DB':False, 'None_OK':True},
+        'A-NAMAX':  {'htype':'full', 'dtype':int,   'DB':False, 'None_OK':True},
+        'A-DRA':    {'htype':'full', 'dtype':float, 'DB':True,  'None_OK':True},
+        'A-DRASTD': {'htype':'full', 'dtype':float, 'DB':True,  'None_OK':True},
+        'A-DDEC':   {'htype':'full', 'dtype':float, 'DB':True,  'None_OK':True},
+        'A-DDESTD': {'htype':'full', 'dtype':float, 'DB':True,  'None_OK':True},
+        'PSF-P':    {'htype':'full', 'dtype':bool,  'DB':True,  'None_OK':False},
+        'PSF-V':    {'htype':'full', 'dtype':str,   'DB':False, 'None_OK':True},
+        'PSF-RAD':  {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'PSF-RADP': {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'PSF-SIZE': {'htype':'full', 'dtype':int,   'DB':True,  'None_OK':True},
+        'PSF-FRAC': {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'PSF-SAMP': {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'PSF-CFGS': {'htype':'full', 'dtype':int,   'DB':True,  'None_OK':True},
+        'PSF-NOBJ': {'htype':'full', 'dtype':int,   'DB':True,  'None_OK':True},
+        'PSF-FIX':  {'htype':'full', 'dtype':bool,  'DB':False, 'None_OK':True},
+        'PSF-PLDG': {'htype':'full', 'dtype':int,   'DB':False, 'None_OK':True},
+        'PSF-CHI2': {'htype':'full', 'dtype':float, 'DB':True,  'None_OK':True},
+        'PSF-FWHM': {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'PSF-SEE':  {'htype':'full', 'dtype':float, 'DB':True,  'None_OK':True},
+        'PSF-PMIN': {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'PSF-PMAX': {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'PSF-PMED': {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'PSF-PSTD': {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'PSF-BMIN': {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'PSF-BMAX': {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'PSF-BMED': {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'PSF-BSTD': {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'PSF-EMNM': {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'PSF-EMXM': {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'PSF-EMDM': {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'PSF-ESTM': {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'PSF-FMNM': {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'PSF-FMXM': {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'PSF-FMDM': {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'PSF-FSTM': {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'PSF-EMNG': {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'PSF-EMXG': {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'PSF-EMDG': {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'PSF-ESTG': {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'PSF-FMNG': {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'PSF-FMXG': {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'PSF-FMDG': {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'PSF-FSTG': {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'PC-P':     {'htype':'full', 'dtype':bool,  'DB':True,  'None_OK':False},
+        'PC-CAT-F': {'htype':'full', 'dtype':str,   'DB':True,  'None_OK':True},
+        'PC-NCAL':  {'htype':'full', 'dtype':int,   'DB':True,  'None_OK':True},
+        'PC-TNCAL': {'htype':'full', 'dtype':int,   'DB':False, 'None_OK':True},
+        'PC-FNCAL': {'htype':'full', 'dtype':int,   'DB':False, 'None_OK':True},
+        'PC-NCMAX': {'htype':'full', 'dtype':int,   'DB':False, 'None_OK':True},
+        'PC-NCMIN': {'htype':'full', 'dtype':int,   'DB':False, 'None_OK':True},
+        'PC-ZPFDG': {'htype':'full', 'dtype':int,   'DB':False, 'None_OK':True},
+        'PC-ZPF0':  {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'PC-TNSUB': {'htype':'full', 'dtype':int,   'DB':False, 'None_OK':True},
+        'PC-NSUB':  {'htype':'full', 'dtype':int,   'DB':False, 'None_OK':True},
+        'PC-MZPD':  {'htype':'full', 'dtype':float, 'DB':True,  'None_OK':True},
+        'PC-MZPS':  {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'PC-ZPDEF': {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'PC-ZP':    {'htype':'full', 'dtype':float, 'DB':True,  'None_OK':True},
+        'PC-ZPSTD': {'htype':'full', 'dtype':float, 'DB':True,  'None_OK':True},
+        'PC-EXTCO': {'htype':'full', 'dtype':float, 'DB':True,  'None_OK':True},
+        'AIRMASSC': {'htype':'full', 'dtype':float, 'DB':True,  'None_OK':True},
+        'RA-CNTR':  {'htype':'full', 'dtype':float, 'DB':True,  'None_OK':True},
+        'DEC-CNTR': {'htype':'full', 'dtype':float, 'DB':True,  'None_OK':True},
+        'PC-AIRM':  {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'NSIGMA':   {'htype':'full', 'dtype':int,   'DB':True,  'None_OK':True},
+        'LIMEFLUX': {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'LIMMAG':   {'htype':'full', 'dtype':float, 'DB':True,  'None_OK':True},
+        'NOBJECTS': {'htype':'full', 'dtype':int,   'DB':True,  'None_OK':True},
+        'FORMAT-P': {'htype':'full', 'dtype':bool,  'DB':False, 'None_OK':True},
+        'DUMCAT':   {'htype':'full', 'dtype':bool,  'DB':True,  'None_OK':False},
+        'QC-FLAG':  {'htype':'full', 'dtype':str,   'DB':True,  'None_OK':False},
+        'DATEFILE': {'htype':'full', 'dtype':str,   'DB':False, 'None_OK':True},
+        #
+        # transient header
+        'SWARP-P':  {'htype':'trans', 'dtype':bool,  'DB':True,  'None_OK':False},
+        'SWARP-V':  {'htype':'trans', 'dtype':str,   'DB':False, 'None_OK':True},
+        'Z-REF-F':  {'htype':'trans', 'dtype':str,   'DB':False, 'None_OK':True},
+        'Z-DXYLOC': {'htype':'trans', 'dtype':bool,  'DB':False, 'None_OK':True},
+        'Z-DX':     {'htype':'trans', 'dtype':float, 'DB':True,  'None_OK':True},
+        'Z-DY':     {'htype':'trans', 'dtype':float, 'DB':True,  'None_OK':True},
+        'Z-DXSTD':  {'htype':'trans', 'dtype':float, 'DB':True,  'None_OK':True},
+        'Z-DYSTD':  {'htype':'trans', 'dtype':float, 'DB':True,  'None_OK':True},
+        'Z-FNRLOC': {'htype':'trans', 'dtype':bool,  'DB':False, 'None_OK':True},
+        'Z-FNR':    {'htype':'trans', 'dtype':float, 'DB':True,  'None_OK':True},
+        'Z-FNRSTD': {'htype':'trans', 'dtype':float, 'DB':True,  'None_OK':True},
+        'Z-P':      {'htype':'trans', 'dtype':bool,  'DB':True,  'None_OK':False},
+        'Z-V':      {'htype':'trans', 'dtype':str,   'DB':False, 'None_OK':True},
+        'Z-SIZE':   {'htype':'trans', 'dtype':int,   'DB':False, 'None_OK':True},
+        'Z-BSIZE':  {'htype':'trans', 'dtype':int,   'DB':False, 'None_OK':True},
+        'Z-SCMED':  {'htype':'trans', 'dtype':float, 'DB':True,  'None_OK':True},
+        'Z-SCSTD':  {'htype':'trans', 'dtype':float, 'DB':True,  'None_OK':True},
+        'Z-FPEMED': {'htype':'trans', 'dtype':float, 'DB':False, 'None_OK':True},
+        'Z-FPESTD': {'htype':'trans', 'dtype':float, 'DB':False, 'None_OK':True},
+        'T-NSIGMA': {'htype':'trans', 'dtype':int,   'DB':True,  'None_OK':True},
+        'T-LFLUX':  {'htype':'trans', 'dtype':float, 'DB':False, 'None_OK':True},
+        'T-NTRANS': {'htype':'trans', 'dtype':int,   'DB':True,  'None_OK':True},
+        'T-FTRANS': {'htype':'trans', 'dtype':float, 'DB':True,  'None_OK':True},
+        'T-LMAG':   {'htype':'trans', 'dtype':float, 'DB':True,  'None_OK':True},
+        'T-NFAKE':  {'htype':'trans', 'dtype':int,   'DB':False, 'None_OK':True},
+        'T-FAKESN': {'htype':'trans', 'dtype':float, 'DB':False, 'None_OK':True},
+        'MC-P':     {'htype':'trans', 'dtype':bool,  'DB':True,  'None_OK':False},
+        'MC-V':     {'htype':'trans', 'dtype':str,   'DB':False, 'None_OK':True},
+        'MC-MODEL': {'htype':'trans', 'dtype':str,   'DB':False, 'None_OK':True},
+        'TDUMCAT':  {'htype':'trans', 'dtype':bool,  'DB':True,  'None_OK':False},
+        'TQC-FLAG': {'htype':'trans', 'dtype':str,   'DB':True,  'None_OK':False},
+    }
+
+    # read header of filename
+    if os.path.isfile (filename):
+        header = read_hdulist (filename, get_data=False, get_header=True)
+    else:
+        # return success=False if it does not exist
+        if log is not None:
+            log.warning ('file {} does not exist; not able to verify its header'
+                         .format(filename))
+        return False
+
+
+    # force [htypes] to be a list
+    htypes_list = list(htypes)
+
+    # loop keys in dict_head
+    success = True
+    for key in dict_head.keys():
+
+        # only check keywords with htype matching the input [htypes]
+        if dict_head[key]['htype'] not in htypes_list:
+            continue
+
+        # check that key is present in header
+        if key in header:
+
+            # provide warning if dtype not as expected
+            if log is not None:
+                if dict_head[key]['dtype'] != type(key):
+                    log.warning ('dtype of keyword {}: {} does not match the '
+                                 'expected dtype: {} in header of {}'
+                                 .format(key, type(key), dict_head[key]['dtype'],
+                                         filename))
+
+            # if key goes to DataBase and value is 'None' or None
+            # while 'None_OK' is False, raise an exception
+            if (dict_head[key]['DB'] and not dict_head[key]['None_OK'] and
+                (header[key] is None or header[key] == 'None')):
+                raise ValueError ('DataBase keyword {} not allowed to have '
+                                  '\'None\' or None value in header of {}'
+                                  .format(key, filename))
+        else:
+            success = False
+            raise KeyError ('keyword {} not present in header of {}'
+                            .format(key, filename))
+
+
+    return success
 
 
 ################################################################################
@@ -5501,7 +5853,7 @@ def action(queue):
 
             if process:
                 # if fits file was read fine, process it
-                filename_reduced = try_blackbox_reduce (filename)
+                filename_reduced = blackbox_reduce (filename)
                 filenames_reduced.append(filename_reduced)
                 
             else:
