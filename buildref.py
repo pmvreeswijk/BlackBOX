@@ -2083,8 +2083,8 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
         nysubs,bkg_boxsize,-1,bkg_boxsize).swapaxes(1,2).reshape(nysubs,nxsubs,-1)
     # get clipped statistics
     __, mini_median, mini_std_alt = sigma_clipped_stats (
-        data_out_reshaped.astype('float64'),
-        sigma=get_par(set_zogy.bkg_nsigma,tel), axis=2, mask_value=0)
+        data_out_reshaped, sigma=get_par(set_zogy.bkg_nsigma,tel), axis=2,
+        mask_value=0)
 
     # compare ratio of [mini_std_alt] over [mini_std]
     mini_std_ratio = np.nanmedian (mini_std_alt / mini_std)
