@@ -2017,7 +2017,7 @@ def blackbox_reduce (filename):
         qc_flag = run_qc_check (header, tel, log=log, check_key_type='full')
 
         # update [new_fits] header with qc-flags
-        with fits.open(new_fits, 'update') as hdulist:
+        with fits.open(new_fits, 'update', memmap=True) as hdulist:
             for key in header:
                 if 'QC' in key or 'DUMCAT' in key:
                     log.info ('updating header keyword {} with: {} for image {}'
@@ -2170,7 +2170,7 @@ def blackbox_reduce (filename):
 
 
             # clear any pre-existing qc-flags from [new_fits] header
-            with fits.open(new_fits, 'update') as hdulist:
+            with fits.open(new_fits, 'update', memmap=True) as hdulist:
                 keys = ['DUMCAT', 'QC-FLAG', 'QCRED', 'QCORA', 'QCYEL'] 
                 for key in keys:
                     if 'QCRED' in key or 'QCORA' in key or 'QCYEL' in key:
@@ -2971,7 +2971,7 @@ def verify_header (filename, htypes=None, log=None):
 
 def update_cathead (filename, header, log=None):
     
-    with fits.open(filename, 'update') as hdulist:
+    with fits.open(filename, 'update', memmap=True) as hdulist:
         for key in header:
             if 'QC' in key or 'DUMCAT' in key:
                 hdulist[-1].header[key] = (header[key], header.comments[key])
@@ -2984,7 +2984,7 @@ def update_imhead (filename, header):
     # update image header with extended header from ZOGY's
     # optimal_subtraction
     header['DATEFILE'] = (Time.now().isot, 'UTC date of writing file')
-    with fits.open(filename, 'update') as hdulist:
+    with fits.open(filename, 'update', memmap=True) as hdulist:
         hdulist[-1].header = header
 
 
