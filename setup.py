@@ -10,7 +10,7 @@ setup(
     license='MIT',
     packages=find_packages(),
     install_requires=[#'numpy', 'astropy', 'matplotlib', 'scipy', 'pyfftw',
-                      #'lmfit', 'sip_tpv', 'scikit-image', 'bottleneck',
+                      #'lmfit', 'sip_tpv', 'scikit-image',
                       # dependencies above: zogy
                       # dependencies below: blackbox
                       'watchdog', 'astroscrappy', 'acstools', 'ephem',
