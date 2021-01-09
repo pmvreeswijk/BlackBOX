@@ -2620,18 +2620,20 @@ def verify_header (filename, htypes=None, log=None):
        or 'trans'.
 
     """
-    
+
     # dictionary 
     dict_head = {
         # raw header
+        # commenting out SIMPLE, BSCALE and BZERO - basic keywords
+        # that will be present in images but not in binary fits tables
         #'SIMPLE':   {'htype':'raw', 'dtype':bool,  'DB':False, 'None_OK':True},
+        #'BSCALE':   {'htype':'raw', 'dtype':float, 'DB':False, 'None_OK':True},
+        #'BZERO':    {'htype':'raw', 'dtype':float, 'DB':False, 'None_OK':True},
         'BITPIX':   {'htype':'raw', 'dtype':int,   'DB':False, 'None_OK':True},
         'NAXIS':    {'htype':'raw', 'dtype':int,   'DB':False, 'None_OK':True},
         'NAXIS1':   {'htype':'raw', 'dtype':int,   'DB':False, 'None_OK':True},
         'NAXIS2':   {'htype':'raw', 'dtype':int,   'DB':False, 'None_OK':True},
         'BUNIT':    {'htype':'raw', 'dtype':str,   'DB':False, 'None_OK':True},
-        'BSCALE':   {'htype':'raw', 'dtype':float, 'DB':False, 'None_OK':True},
-        'BZERO':    {'htype':'raw', 'dtype':float, 'DB':False, 'None_OK':True},
         #'CCD-AMP':  {'htype':'raw', 'dtype':str,   'DB':False, 'None_OK':True},
         'SET-TEMP': {'htype':'raw', 'dtype':float, 'DB':False, 'None_OK':True},
         'CCD-TEMP': {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':True},
@@ -2759,7 +2761,7 @@ def verify_header (filename, htypes=None, log=None):
         'MFRING-F': {'htype':'full', 'dtype':str,   'DB':True,  'None_OK':True},
         'FRRATIO':  {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
         'COSMIC-P': {'htype':'full', 'dtype':bool,  'DB':True,  'None_OK':False},
-        'NCOSMICS': {'htype':'full', 'dtype':int,   'DB':True,  'None_OK':True},
+        'NCOSMICS': {'htype':'full', 'dtype':float, 'DB':True,  'None_OK':True},
         'SAT-P':    {'htype':'full', 'dtype':bool,  'DB':True,  'None_OK':False},
         'NSATS':    {'htype':'full', 'dtype':int,   'DB':True,  'None_OK':True},
         'REDFILE':  {'htype':'full', 'dtype':str,   'DB':True,  'None_OK':True},
@@ -2927,11 +2929,11 @@ def verify_header (filename, htypes=None, log=None):
 
             # provide warning if dtype not as expected
             if log is not None:
-                if dict_head[key]['dtype'] != type(key):
+                if dict_head[key]['dtype'] != type(header[key]):
                     log.warning ('dtype of keyword {}: {} does not match the '
                                  'expected dtype: {} in header of {}'
-                                 .format(key, type(key), dict_head[key]['dtype'],
-                                         filename))
+                                 .format(key, type(header[key]),
+                                         dict_head[key]['dtype'], filename))
 
             # if key goes to DataBase and value is 'None' or None
             # while 'None_OK' is False, raise an exception
@@ -2939,17 +2941,27 @@ def verify_header (filename, htypes=None, log=None):
                 (header[key] is None or header[key] == 'None')):
                 msg = ('DataBase keyword {} not allowed to have \'None\' or '
                        'None value in header of {}'.format(key, filename))
+                
                 if log is not None:
                     log.error (msg)
-                else:
-                    raise ValueError (msg)
+
+                raise ValueError (msg)
+
 
         else:
             msg = 'keyword {} not present in header of {}'.format(key, filename)
-            if log is not None:
-                log.error (msg)
-            else:
+            # if keyword will be ingested into the database, raise an exception
+            if dict_head[key]['DB']:
+
+                if log is not None:
+                    log.error (msg)
+
                 raise KeyError (msg)
+
+            else:
+                
+                if log is not None:
+                    log.warning (msg)
 
 
     return
