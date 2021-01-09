@@ -1667,7 +1667,7 @@ def blackbox_reduce (filename):
         else:
             gain_processed = True
         finally:
-            header['GAIN'] = (1, '[e-/ADU] effective gain all channels')
+            header['GAIN'] = (1.0, '[e-/ADU] effective gain all channels')
             header['GAIN-P'] = (gain_processed, 'corrected for gain?')
 
         
@@ -2782,7 +2782,7 @@ def verify_header (filename, htypes=None, log=None):
         'BKG-CHI2': {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
         'BKG-CF1':  {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
         'BKG-CF16': {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
-        'BKG-FDEG': {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'BKG-FDEG': {'htype':'full', 'dtype':int,   'DB':False, 'None_OK':True},
         'BKG-FC0':  {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
         'A-P':      {'htype':'full', 'dtype':bool,  'DB':True,  'None_OK':False},
         'A-V':      {'htype':'full', 'dtype':str,   'DB':False, 'None_OK':True},
@@ -4572,10 +4572,10 @@ def set_header(header, filename):
 
     edit_head(header, 'RADESYS', value='ICRS',
               comments='Coordinate reference frame')
-    edit_head(header, 'EPOCH', value=2015.5,
+    edit_head(header, 'EPOCH', value='2015.5',
               comments='Coordinate reference epoch')
 
-    edit_head(header, 'DOMEAZ', value='None',
+    edit_head(header, 'DOMEAZ', value='None', dtype=float,
               comments='[deg] Dome azimuth (N=0;E=90)')
     
 
