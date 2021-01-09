@@ -2036,9 +2036,8 @@ def blackbox_reduce (filename):
                           log=log, check_key_type='trans')
 
             # verify headers of catalogs
-            success = verify_header (fits_tmp_cat, ['raw','full'], log=log)
-            success = verify_header (fits_tmp_trans, ['raw','full','trans'],
-                                     log=log)
+            verify_header (fits_tmp_cat, ['raw','full'], log=log)
+            verify_header (fits_tmp_trans, ['raw','full','trans'], log=log)
 
             # copy selected output files to new directory and remove tmp folder
             # corresponding to the object image
@@ -2074,8 +2073,8 @@ def blackbox_reduce (filename):
                  'nothing left to do for {}'.format(filename))
 
         # verify image header
-        success = verify_header (new_fits, ['raw'], log=log)
-        
+        verify_header (new_fits, ['raw'], log=log)
+
         if do_reduction:
             # if reduction steps were performed, copy selected output
             # files to new directory and clean up tmp folder if needed
@@ -2575,9 +2574,9 @@ def blackbox_reduce (filename):
 
 
     # verify headers of catalogs
-    success = verify_header (fits_tmp_cat, ['raw','full'], log=log)
-    success = verify_header (fits_tmp_trans, ['raw','full','trans'],
-                             log=log)
+    verify_header (fits_tmp_cat, ['raw','full'], log=log)
+    verify_header (fits_tmp_trans, ['raw','full','trans'], log=log)
+
 
     # list of files to copy/move to reduced folder; need to include
     # the img_reduce products in any case because the header will have
@@ -2625,7 +2624,7 @@ def verify_header (filename, htypes=None, log=None):
     # dictionary 
     dict_head = {
         # raw header
-        'SIMPLE':   {'htype':'raw', 'dtype':bool,  'DB':False, 'None_OK':True},
+        #'SIMPLE':   {'htype':'raw', 'dtype':bool,  'DB':False, 'None_OK':True},
         'BITPIX':   {'htype':'raw', 'dtype':int,   'DB':False, 'None_OK':True},
         'NAXIS':    {'htype':'raw', 'dtype':int,   'DB':False, 'None_OK':True},
         'NAXIS1':   {'htype':'raw', 'dtype':int,   'DB':False, 'None_OK':True},
@@ -2917,7 +2916,6 @@ def verify_header (filename, htypes=None, log=None):
     htypes_list = list(htypes)
 
     # loop keys in dict_head
-    success = True
     for key in dict_head.keys():
 
         # only check keywords with htype matching the input [htypes]
@@ -2939,16 +2937,22 @@ def verify_header (filename, htypes=None, log=None):
             # while 'None_OK' is False, raise an exception
             if (dict_head[key]['DB'] and not dict_head[key]['None_OK'] and
                 (header[key] is None or header[key] == 'None')):
-                raise ValueError ('DataBase keyword {} not allowed to have '
-                                  '\'None\' or None value in header of {}'
-                                  .format(key, filename))
+                msg = ('DataBase keyword {} not allowed to have \'None\' or '
+                       'None value in header of {}'.format(key, filename))
+                if log is not None:
+                    log.error (msg)
+                else:
+                    raise ValueError (msg)
+
         else:
-            success = False
-            raise KeyError ('keyword {} not present in header of {}'
-                            .format(key, filename))
+            msg = 'keyword {} not present in header of {}'.format(key, filename)
+            if log is not None:
+                log.error (msg)
+            else:
+                raise KeyError (msg)
 
 
-    return success
+    return
 
 
 ################################################################################
