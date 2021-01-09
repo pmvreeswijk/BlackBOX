@@ -4115,7 +4115,7 @@ def master_prep (fits_master, data_shape, pick_alt=True, log=None):
                 # "full" image statistics
                 index_stat = get_rand_indices(master_median.shape)
                 __, median_master, std_master = sigma_clipped_stats(
-                    master_median[index_stat].astype('float64'), mask_value=0)
+                    master_median[index_stat], mask_value=0)
                 header_master['MFMED'] = (median_master, 'median master flat')
                 header_master['MFSTD'] = (std_master, 'sigma (STD) master flat')
 
@@ -4239,13 +4239,15 @@ def master_prep (fits_master, data_shape, pick_alt=True, log=None):
                 # add some header keywords to the master bias
                 index_stat = get_rand_indices(master_median.shape)
                 mean_master, __, std_master = sigma_clipped_stats(
-                    master_median[index_stat].astype('float64'), mask_value=0)
+                    master_median[index_stat], mask_value=0)
                 header_master['MBMEAN'] = (mean_master, '[e-] mean master bias')
-                header_master['MBRDN'] = (std_master, '[e-] sigma (STD) master bias')
+                header_master['MBRDN'] = (std_master, '[e-] sigma (STD) master '
+                                          'bias')
 
                 # including the means and standard deviations of the master
                 # bias in the separate channels
-                __, __, __, __, data_sec_red = define_sections(data_shape, tel=tel)
+                __, __, __, __, data_sec_red = define_sections(data_shape,
+                                                               tel=tel)
                 nchans = np.shape(data_sec_red)[0]
                 mean_chan = np.zeros(nchans)
                 std_chan = np.zeros(nchans)
@@ -4254,22 +4256,25 @@ def master_prep (fits_master, data_shape, pick_alt=True, log=None):
                     data_chan = master_median[data_sec_red[i_chan]]
                     index_stat = get_rand_indices(data_chan.shape)
                     mean_chan[i_chan], __, std_chan[i_chan] = sigma_clipped_stats(
-                        data_chan[index_stat].astype('float64'), mask_value=0)
+                        data_chan[index_stat], mask_value=0)
                 for i_chan in range(nchans):
                     header_master['MBIASM{}'.format(i_chan+1)] = (
-                        mean_chan[i_chan], '[e-] channel {} mean master bias'.format(i_chan+1))
+                        mean_chan[i_chan], '[e-] channel {} mean master bias'
+                        .format(i_chan+1))
                 for i_chan in range(nchans):
                     header_master['MBRDN{}'.format(i_chan+1)] = (
-                        std_chan[i_chan], '[e-] channel {} sigma (STD) master bias'.format(i_chan+1))
+                        std_chan[i_chan], '[e-] channel {} sigma (STD) master '
+                        'bias'.format(i_chan+1))
 
             # call [run_qc_check] to update master header with any QC flags
             run_qc_check (header_master, tel, log=log)
             # make dir for output file if it doesn't exist yet
             make_dir (os.path.split(fits_master)[0], put_lock=False)
             # write to output file
-            header_master['DATEFILE'] = (Time.now().isot, 'UTC date of writing file')
-            fits.writeto(fits_master, master_median.astype('float32'), header_master,
-                         overwrite=True)
+            header_master['DATEFILE'] = (Time.now().isot, 'UTC date of writing '
+                                         'file')
+            fits.writeto(fits_master, master_median.astype('float32'),
+                         header_master, overwrite=True)
             # fpack
             fits_master = fpack (fits_master, log=log)
             # create jpg
@@ -5140,8 +5145,7 @@ def os_corr(data, header, imgtype, tel=None, log=None):
 
         # determine clipped mean for each row
         data_vos = data[os_sec_vert[i_chan]]
-        mean_vos_col, __, __ = sigma_clipped_stats(data_vos.astype('float64'),
-                                                   axis=1, mask_value=0)
+        mean_vos_col, __, __ = sigma_clipped_stats(data_vos, axis=1, mask_value=0)
 
         y_vos = np.arange(nrows_chan)
         # fit low order polynomial
@@ -5192,8 +5196,7 @@ def os_corr(data, header, imgtype, tel=None, log=None):
 
         data_vos = data[os_sec_vert[i_chan]]
         # determine mean and std of overscan subtracted vos:
-        __, __, std_vos[i_chan] = sigma_clipped_stats(data_vos.astype('float64'),
-                                                      mask_value=0)
+        __, __, std_vos[i_chan] = sigma_clipped_stats(data_vos, mask_value=0)
 
 
         # -------------------
@@ -5217,7 +5220,7 @@ def os_corr(data, header, imgtype, tel=None, log=None):
                                            dpix=10, k=2, log=log)
         
         # determine clipped mean for each column
-        mean_hos, __, __ = sigma_clipped_stats(data_hos.astype('float64'), axis=0,
+        mean_hos, __, __ = sigma_clipped_stats(data_hos, axis=0,
                                                mask_value=0)
         if dcol > 1:
             oscan = [np.median(mean_hos[max(k-dcol_half,0):min(k+dcol_half+1,ncols)])
@@ -5274,8 +5277,7 @@ def os_corr(data, header, imgtype, tel=None, log=None):
 
         # full image statistics
         index_stat = get_rand_indices(data_out.shape)
-        __, median, std = sigma_clipped_stats(data_out[index_stat].astype('float64'),
-                                              mask_value=0)
+        __, median, std = sigma_clipped_stats(data_out[index_stat], mask_value=0)
         header['FLATMED'] = (median, '[e-] median flat')
         header['FLATSTD'] = (std, '[e-] sigma (STD) flat')
 
