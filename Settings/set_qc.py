@@ -215,7 +215,7 @@ qc_range = {
 
         # Astrometry.net        
         'A-PSCALE': {'default':'None', 'val_type': 'sigma',   'val_range': [ (0.5642, 0.0001) ],                'key_type': 'full', 'pos': True , 'comment': '[arcsec/pix] pixel scale WCS solution'},
-        'A-ROT'   : {'default':'None', 'val_type': 'sigma',   'val_range': [ (-90, 0.3) ],                      'key_type': 'full', 'pos': False, 'comment': '[deg] rotation WCS solution'},
+        'A-ROT'   : {'default':'None', 'val_type': 'sigma',   'val_range': [ (-90, 0.3) ],                      'key_type': 'full', 'pos': False, 'comment': '[deg] rotation WCS solution (E of N for "up")'},
 
         'A-CAT-F' : {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full', 'pos': False, 'comment': 'astrometric catalog'},
         'A-NAST'  : {'default':'None', 'val_type': 'min_max', 'val_range': [ (5e2,1e4), (100, 3e4), (20, 1e5) ],'key_type': 'full', 'pos': True , 'comment': 'number of brightest stars used for WCS'},
