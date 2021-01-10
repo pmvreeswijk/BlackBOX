@@ -2927,9 +2927,11 @@ def verify_header (filename, htypes=None, log=None):
         # check that key is present in header
         if key in header:
 
-            # provide warning if dtype not as expected
+            # provide warning if dtype not as expected and header
+            # keyword value is not 'None'
             if log is not None:
-                if dict_head[key]['dtype'] != type(header[key]):
+                if (dict_head[key]['dtype'] != type(header[key]) and
+                    header[key] != 'None'):
                     log.warning ('dtype of keyword {}: {} does not match the '
                                  'expected dtype: {} in header of {}'
                                  .format(key, type(header[key]),
