@@ -2644,7 +2644,7 @@ def verify_header (filename, htypes=None, log=None):
         'AZIMUTH':  {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':True},
         'DOMEAZ':   {'htype':'raw', 'dtype':float, 'DB':False, 'None_OK':True},
         'RADESYS':  {'htype':'raw', 'dtype':str,   'DB':False, 'None_OK':True},
-        'EPOCH':    {'htype':'raw', 'dtype':str,   'DB':False, 'None_OK':True},
+        'EPOCH':    {'htype':'raw', 'dtype':float, 'DB':False, 'None_OK':True},
         'RA':       {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':False},
         'RA-REF':   {'htype':'raw', 'dtype':str,   'DB':True,  'None_OK':True},
         #'RA-TEL':   {'htype':'raw', 'dtype':float, 'DB':False, 'None_OK':True},
@@ -4572,7 +4572,7 @@ def set_header(header, filename):
 
     edit_head(header, 'RADESYS', value='ICRS',
               comments='Coordinate reference frame')
-    edit_head(header, 'EPOCH', value='2015.5',
+    edit_head(header, 'EPOCH', value=2015.5,
               comments='Coordinate reference epoch')
 
     edit_head(header, 'DOMEAZ', value='None', dtype=float,
