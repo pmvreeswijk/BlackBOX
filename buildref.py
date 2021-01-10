@@ -519,6 +519,7 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
     obj_list = []
     filt_list = []
     radec_list = []
+    nfiles_list = []
     for obj in objs_uniq:
         
         # skip fields '00000' and those beyond 20,000
@@ -538,7 +539,8 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
             else:
                 genlog.error ('field ID/OBJECT {} not present in ML/BG '
                               'grid definition file {}'.format(obj, mlbg_fieldIDs))
-
+                continue
+                
         elif center_type == 'median':
             # otherwise let [radec] refer to a tuple pair containing
             # the median RA-CNTR and DEC-CNTR for all images of a
@@ -677,7 +679,7 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
             obj_list.append(obj)
             filt_list.append(filt)
             radec_list.append(radec)
-
+            nfiles_list.append(nfiles)
 
 
     if len(table)==0:
@@ -696,7 +698,8 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
     # for a particular field and filter combination, using
     # the [imcombine] function
     result = pool_func_lists (prep_ref, list_of_imagelists, obj_list,
-                              filt_list, radec_list, log=genlog, nproc=nproc)
+                              filt_list, radec_list, nfiles_list, log=genlog,
+                              nproc=nproc)
 
 
     # make color figures
@@ -1052,7 +1055,7 @@ def prep_colfig (field_ID, filters, log=None):
     
 ################################################################################
 
-def prep_ref (imagelist, field_ID, filt, radec):
+def prep_ref (imagelist, field_ID, filt, radec, nfiles):
 
     # determine and create reference directory
     ref_path = '{}/{:0>5}'.format(get_par(set_bb.ref_dir,tel), field_ID)
@@ -1187,6 +1190,7 @@ def prep_ref (imagelist, field_ID, filt, radec):
             hdr['R-TSTART'] = (time_refstart, 'UT time that module was started')
 
             # number of images used
+            hdr['R-NFILES'] = (nfiles, 'number of images within constraints available')
             hdr['R-NUSED'] = (len(imagelist), 'number of images used to combine')
 
             # names of images that were used
@@ -1237,6 +1241,7 @@ def prep_ref (imagelist, field_ID, filt, radec):
                        tempdir = tmp_path,
                        ra_center = ra_center,
                        dec_center = dec_center,
+                       nfiles = nfiles,
                        back_type = get_par(set_br.back_type,tel),
                        back_size = get_par(set_zogy.bkg_boxsize,tel),
                        back_filtersize = get_par(set_zogy.bkg_filtersize,tel),
@@ -1333,11 +1338,12 @@ def prep_ref (imagelist, field_ID, filt, radec):
             ref_fits_temp = ref_fits.replace('.fits', ext_tmp)
 
             imcombine (field_ID, imagelist, ref_fits_temp, combine_type,
-                       ra_center=ra_center, dec_center=dec_center,
+                       ra_center=ra_center, dec_center=dec_center, nfiles=nfiles,
                        back_type=back_type, back_default=back_default,
                        back_size=back_size, back_filtersize=back_filtersize,
                        masktype_discard=masktype_discard, tempdir=tmp_path,
-                       remap_each=False, swarp_cfg=get_par(set_zogy.swarp_cfg,tel),
+                       remap_each=False,
+                       swarp_cfg=get_par(set_zogy.swarp_cfg,tel),
                        nthreads=get_par(set_br.nthreads,tel), log=log)
 
             # copy combined image to reference folder
@@ -1385,12 +1391,11 @@ def prep_ref (imagelist, field_ID, filt, radec):
 ################################################################################
 
 def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
-               masktype_discard=None, tempdir='.temp',
-               ra_center=None, dec_center=None, use_wcs_center=True,
-               back_type='auto', back_default=0,
-               back_size=120, back_filtersize=3, resample_suffix='_resamp.fits',
-               remap_each=False, remap_suffix='_remap.fits', swarp_cfg=None,
-               nthreads=0, log=None):
+               masktype_discard=None, tempdir='.temp', ra_center=None,
+               dec_center=None, nfiles=0, use_wcs_center=True, back_type='auto',
+               back_default=0, back_size=120, back_filtersize=3,
+               resample_suffix='_resamp.fits', remap_each=False,
+               remap_suffix='_remap.fits', swarp_cfg=None, nthreads=0, log=None):
 
 
     """Module to combine MeerLICHT/BlackGEM images.  The headers of the
@@ -1978,8 +1983,10 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
     # time when module was started
     header_out['R-TSTART'] = (time_refstart, 'UT time that module was started')
     
-    # number of images used
-    header_out['R-NUSED'] = (len(imagelist), 'number of images used to combine')
+    # number of images available and used
+    header_out['R-NFILES'] = (nfiles, 'number of images within constraints '
+                              'available')
+    header_out['R-NUSED'] = (len(image_names), 'number of images used to combine')
     # names of images that were used
     for nimage, image in enumerate(image_names):
         image = image.split('/')[-1].split('.fits')[0]
