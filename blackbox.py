@@ -1421,7 +1421,7 @@ def blackbox_reduce (filename):
         return None
     
     
-    # 2nd header check using function [check_header2]
+    # 2nd header check following [set_header] using function [check_header2]
     header_ok = check_header2 (header, filename)
     if not header_ok:
         return None
@@ -4467,18 +4467,23 @@ def check_header2 (header, filename):
     if imgtype=='object':
         obj = header['OBJECT']
         # use REF coords:
-        if header['RA-REF'] != 'None' and header['DEC-REF'] != 'None':
-            key_ext = '-REF'
-            ra_deg = Angle(header['RA-REF'], unit=u.hour).degree
-            dec_deg = Angle(header['DEC-REF'], unit=u.deg).degree
-        else:
-            # if RA-REF and DEC-REF keywords set to 'None' (done in
-            # function set_header), use RA and DEC instead (already
-            # converted to decimal degrees in set_header)
-            key_ext = ''
-            ra_deg = header['RA']
-            dec_deg = header['DEC']
+        #if header['RA-REF'] != 'None' and header['DEC-REF'] != 'None':
+        #    key_ext = '-REF'
+        #    ra_deg = Angle(header['RA-REF'], unit=u.hour).degree
+        #    dec_deg = Angle(header['DEC-REF'], unit=u.deg).degree
+        #else:
+        #    # if RA-REF and DEC-REF keywords set to 'None' (done in
+        #    # function set_header), use RA and DEC instead (already
+        #    # converted to decimal degrees in set_header)
 
+        # before check was done on RA-REF and DEC-REF if they were
+        # available, but better to do it on RA and DEC; if all is
+        # well, RA and DEC will be close to RA-REF and DEC-REF, but it
+        # is possible for RA and DEC to be very different, and that is
+        # likely to be close to the actual pointing of the telescope
+        key_ext = ''
+        ra_deg = header['RA']
+        dec_deg = header['DEC']
 
         # check if there is a match with the defined field IDs
         mask_match = (table_ID['ID']==int(obj))
