@@ -1425,7 +1425,13 @@ def blackbox_reduce (filename):
     header_ok = check_header2 (header, filename)
     if not header_ok:
         return None
-    
+
+
+    # initialize ERROR keyword that can be used in blackbox or zogy to
+    # flag an image red in case of a problem that is not caught by
+    # [qc_check]
+    header['ERROR'] = (False, 'keyword to indicate a problem; none so far')
+
 
     # add additional header keywords
     header['PYTHON-V'] = (platform.python_version(), 'Python version used')
@@ -2582,17 +2588,21 @@ def blackbox_reduce (filename):
     # the img_reduce products in any case because the header will have
     # been updated with fresh QC flags
     list_2keep = copy.deepcopy (get_par(set_bb.img_reduce_exts,tel))
+    # source extraction products
     if get_par(set_bb.cat_extract,tel):
         list_2keep += get_par(set_bb.cat_extract_exts,tel)
-    if ref_present:
-        if get_par(set_bb.trans_extract,tel):
-            list_2keep += get_par(set_bb.trans_extract_exts,tel)
-    else:
-        # in case of a red flag when reference image was being
-        # prepared, also copy the dummy transient cat
-        if not get_par(set_bb.trans_extract,tel) and qc_flag == 'red':
-            list_2keep += ['_trans.fits']
+    elif qc_flag == 'red':
+        # make sure to copy dummy source catalog in case of a red flag
+        list_2keep += ['_cat.fits']
 
+    # transient extraction products
+    if get_par(set_bb.trans_extract,tel):
+        list_2keep += get_par(set_bb.trans_extract_exts,tel)
+    elif qc_flag == 'red':
+        # make sure to copy dummy source catalog in case of a red flag
+        list_2keep += ['_trans.fits']
+
+    # copy/move files over
     result = copy_files2keep(tmp_base, new_base, list_2keep,
                              # if tmp folder is cleaned up afterwards,
                              # move the files instead of copying
