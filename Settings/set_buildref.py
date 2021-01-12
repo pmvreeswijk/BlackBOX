@@ -19,7 +19,7 @@ nthreads = 2
 # additional directory; the switch below determines whether to keep
 # the reference tmp directory (True) or delete it right after the
 # reference image has been built
-keep_tmp = True
+keep_tmp = False
 
 #===============================================================================
 # Imcombine settings
