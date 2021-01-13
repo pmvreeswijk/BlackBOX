@@ -3002,11 +3002,17 @@ def update_imhead (filename, header):
 
 ################################################################################
 
-def update_hdrfile (filename, header):
-        
-    # create separate header fits file with content header
+def update_hdrfile (filename, header, log=None):
+
+    # create separate header fits file with content header;
+    # output_exception='ignore' was added following the exception
+    # 'NAXISj keyword out of range ('NAXIS1' when NAXIS == 0)'
+    # probably due to the header_newtrans being a combination of image
+    # and fits table headers containing both NAXIS=0 and the NAXIS1
+    # and NAXIS2 keywords
     hdulist = fits.HDUList(fits.PrimaryHDU(header=header))
-    hdulist.writeto(filename.replace('.fits', '_hdr.fits'), overwrite=True)
+    hdulist.writeto(filename.replace('.fits', '_hdr.fits'), overwrite=True,
+                    output_verify='ignore')
 
     
 ################################################################################
@@ -4498,18 +4504,19 @@ def check_header2 (header, filename):
 
         else:
             i_ID = np.nonzero(mask_match)[0][0]
+            offset_max_deg = 1.
             if haversine(table_ID['RA'][i_ID], table_ID['DEC'][i_ID], 
-                         ra_deg, dec_deg) > 10./60:
+                         ra_deg, dec_deg) > offset_max_deg:
                 genlog.error ('input header field ID, RA and DEC combination '
-                              'is inconsistent (>10\') with definition of field '
+                              'is inconsistent (>{}\') with definition of field '
                               'IDs\n'
                               'header field ID: {}, RA{:4s}: {:.4f}, '
                               'DEC{:4s}: {:.4f}\nvs.    field ID: {}, RA    : '
                               '{:.4f}, DEC    : {:.4f} in {}\nnot processing {}'
-                              .format(obj, key_ext, ra_deg, key_ext, dec_deg,
-                                      table_ID['ID'][i_ID], table_ID['RA'][i_ID],
-                                      table_ID['DEC'][i_ID], mlbg_fieldIDs,
-                                      filename))
+                              .format(offset_max, obj, key_ext, ra_deg, key_ext,
+                                      dec_deg, table_ID['ID'][i_ID],
+                                      table_ID['RA'][i_ID], table_ID['DEC'][i_ID],
+                                      mlbg_fieldIDs, filename))
                 header_ok = False
 
 
