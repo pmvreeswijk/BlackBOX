@@ -1427,12 +1427,6 @@ def blackbox_reduce (filename):
         return None
 
 
-    # initialize ERROR keyword that can be used in blackbox or zogy to
-    # flag an image red in case of a problem that is not caught by
-    # [qc_check]
-    header['ERROR'] = (False, 'keyword to indicate a problem; none so far')
-
-
     # add additional header keywords
     header['PYTHON-V'] = (platform.python_version(), 'Python version used')
     header['BB-V'] = (__version__, 'BlackBOX version used')
@@ -1510,7 +1504,7 @@ def blackbox_reduce (filename):
         
         ref_present, ref_fits_temp = already_exists (ref_fits_out,
                                                      get_filename=True)
-        if ref_present:
+        if ref_present and get_par(set_bb.create_ref,tel):
             header_ref = read_hdulist(ref_fits_temp, get_data=False,
                                       get_header=True)
             utdate_ref, uttime_ref = get_date_time(header_ref)
@@ -2283,16 +2277,21 @@ def blackbox_reduce (filename):
                   'OBJECT: {}, FILTER: {}'.format(obj, filt))
         
 
-    # if ref image has not yet been processed:
+    # if ref image needs to be created but it has not been processed
+    # yet:
     ref_present = already_exists (ref_fits_out)
-    log.info('has reference image: {} been made already?: {}'
-             .format(ref_fits_out, ref_present))
-                         
+    log.info ('ref image {} for current image {} already present?: {}'
+              .format(ref_fits_out, filename, ref_present))
+    log.info ('ref image needs to be created from the current image {}?: {}'
+              .format(filename, get_par(set_bb.create_ref,tel)))
 
-    # in case transient extraction step is switched off, run zogy on
-    # new image only
-    if not get_par(set_bb.trans_extract,tel):
-        
+
+    # in case transient extraction step is switched off, or in case
+    # the ref image does not exist and it is not to be created from
+    # this image, run zogy on new image only
+    if (not get_par(set_bb.trans_extract,tel) or
+        (not get_par(set_bb.create_ref,tel) and not ref_present)):
+
         log.info('set_bb.trans_extract={}; processing new image only, '
                  'without comparison to ref image'
                  .format(get_par(set_bb.trans_extract,tel)))
@@ -2305,6 +2304,11 @@ def blackbox_reduce (filename):
                 new_fits=new_fits, new_fits_mask=new_fits_mask, 
                 set_file='set_zogy', log=log, verbose=None, redo_new=None,
                 nthreads=get_par(set_bb.nthreads,tel), telescope=tel)
+            
+            # add offset between RA/DEC-CNTR coords and ML/BG field
+            # definition to the header
+            check_radec_offset (header_new, filename, log=log)
+
         except Exception as e:
             #log.exception(traceback.format_exc())
             log.exception('exception was raised during [optimal_subtraction] for '
@@ -2366,7 +2370,7 @@ def blackbox_reduce (filename):
 
 
 
-    elif not ref_present:
+    elif get_par(set_bb.create_ref,tel) and not ref_present:
 
         # update [ref_ID_filt] queue with a tuple with this OBJECT
         # and FILTER combination
@@ -2383,6 +2387,11 @@ def blackbox_reduce (filename):
                 ref_fits=new_fits, ref_fits_mask=new_fits_mask, 
                 set_file='set_zogy', log=log, verbose=None, redo_ref=None,
                 nthreads=get_par(set_bb.nthreads,tel), telescope=tel)
+
+            # add offset between RA/DEC-CNTR coords and ML/BG field
+            # definition to the header
+            check_radec_offset (header_ref, filename, log=log)
+
         except Exception as e:
             #log.exception(traceback.format_exc())
             log.exception('exception was raised during [optimal_subtraction] for '
@@ -2468,12 +2477,10 @@ def blackbox_reduce (filename):
                              .format(header_ref['REDFILE'],
                                      header_ref['ORIGFILE']))
 
-
-
     else:
 
         # block that runs zogy on two images: new and ref
-        
+
         # make symbolic links to all files in the reference
         # directory with the same filter
         ref_files = glob.glob('{}/{}_{}_*'.format(ref_path, tel, filt))
@@ -2514,6 +2521,11 @@ def blackbox_reduce (filename):
                 ref_fits_mask=ref_fits_mask, set_file='set_zogy', log=log, 
                 verbose=None, redo_new=None, redo_ref=None,
                 nthreads=get_par(set_bb.nthreads,tel), telescope=tel)
+
+            # add offset between RA/DEC-CNTR coords and ML/BG field
+            # definition to the new header
+            check_radec_offset (header_new, filename, log=log)
+
         except Exception as e:
             #log.exception(traceback.format_exc())
             log.exception('exception was raised during [optimal_subtraction] for '
@@ -2530,6 +2542,9 @@ def blackbox_reduce (filename):
                                          get_par(set_bb.img_reduce_exts,tel),
                                          move=(not get_par(set_bb.keep_tmp,tel)),
                                          log=log)
+
+                # remove cat_extract and trans_extract products?
+
                 clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel), log=log)
                 close_log(log, logfile)
                 return None
@@ -4460,6 +4475,60 @@ def check_header1 (header, filename):
 
 ################################################################################
 
+def check_radec_offset (header, filename, log=None):
+
+    # check if the RA-CNTR and DEC-CNTR determined in [zogy] is
+    # consistent with the definition of ML/BG field IDs; see also
+    # [check_header2]
+
+    # offset limit in minutes
+    offset_max = 60.
+
+    # ML/BG field definition
+    mlbg_fieldIDs = get_par(set_bb.mlbg_fieldIDs,tel)
+    table_ID = ascii.read(mlbg_fieldIDs, names=['ID', 'RA', 'DEC'], data_start=0)
+    imgtype = header['IMAGETYP'].lower()
+
+    if imgtype=='object' and 'RA-CNTR' in header and 'DEC-CNTR' in header:
+
+        ra_cntr = header['RA-CNTR']
+        dec_cntr = header['DEC-CNTR']
+
+        # find relevant object/field ID in field definition
+        mask_match = (table_ID['ID']==int(obj))
+        i_ID = np.nonzero(mask_match)[0][0]
+
+        # calculate offset in degrees
+        offset_deg = haversine(table_ID['RA'][i_ID], table_ID['DEC'][i_ID], 
+                               ra_cntr, dec_cntr)
+
+        if offset_deg > offset_max/60.:
+            genlog.error (
+                'input header field ID, RA-CNTR and DEC-CNTR combination '
+                'is inconsistent (>{}\') with definition of field IDs\n'
+                'header field ID: {}, RA-CNTR: {:.4f}, DEC-CNTR: {:.4f}\n'
+                'vs.    field ID: {}, RA     : {:.4f}, DEC     : {:.4f} '
+                'in {}\nnot processing {}'
+                .format(offset_max, obj, ra_cntr, dec_cntr,
+                        table_ID['ID'][i_ID], table_ID['RA'][i_ID],
+                        table_ID['DEC'][i_ID], mlbg_fieldIDs, filename))
+
+    else:
+
+        # set offset to zero
+        offset_deg = 0.
+
+
+    # add header keywords
+    header['RADECOFF'] = (offset_deg, '[deg] offset RA/DEC-CNTR wrt field'
+                          'definition')
+
+
+    return
+
+
+################################################################################
+
 def check_header2 (header, filename):
     
     header_ok = True
@@ -4467,63 +4536,52 @@ def check_header2 (header, filename):
     # check if the field ID and RA-REF, DEC-REF combination is
     # consistent with definition of ML/BG field IDs; threshold used:
     # 10 arc minutes
+    offset_max = 10.
+
     mlbg_fieldIDs = get_par(set_bb.mlbg_fieldIDs,tel)
     table_ID = ascii.read(mlbg_fieldIDs, names=['ID', 'RA', 'DEC'], data_start=0)
     imgtype = header['IMAGETYP'].lower()
     if imgtype=='object':
         obj = header['OBJECT']
-        # use REF coords:
-        #if header['RA-REF'] != 'None' and header['DEC-REF'] != 'None':
-        #    key_ext = '-REF'
-        #    ra_deg = Angle(header['RA-REF'], unit=u.hour).degree
-        #    dec_deg = Angle(header['DEC-REF'], unit=u.deg).degree
-        #else:
-        #    # if RA-REF and DEC-REF keywords set to 'None' (done in
-        #    # function set_header), use RA and DEC instead (already
-        #    # converted to decimal degrees in set_header)
+        # use REF coords; do not use RA, DEC because they could be off
+        if header['RA-REF'] != 'None' and header['DEC-REF'] != 'None':
+            ra_deg = Angle(header['RA-REF'], unit=u.hour).degree
+            dec_deg = Angle(header['DEC-REF'], unit=u.deg).degree
 
-        # before check was done on RA-REF and DEC-REF if they were
-        # available, but better to do it on RA and DEC; if all is
-        # well, RA and DEC will be close to RA-REF and DEC-REF, but it
-        # is possible for RA and DEC to be very different, and that is
-        # likely to be close to the actual pointing of the telescope
-        key_ext = ''
-        ra_deg = header['RA']
-        dec_deg = header['DEC']
 
-        # check if there is a match with the defined field IDs
-        mask_match = (table_ID['ID']==int(obj))
-        if sum(mask_match) == 0:
-            # observed field is not present in definition of field IDs
-            header_ok = False
-            genlog.error ('input header field ID not present in definition of '
-                          'field IDs:\n{}\nheader field ID: {}, RA{}: {:.4f}, '
-                          'DEC{}: {:.4f}\nnot processing {}'
-                          .format(mlbg_fieldIDs, obj, key_ext, ra_deg,
-                                  key_ext, dec_deg, filename))
-
-        else:
-            i_ID = np.nonzero(mask_match)[0][0]
-            offset_max_deg = 1.
-            if haversine(table_ID['RA'][i_ID], table_ID['DEC'][i_ID], 
-                         ra_deg, dec_deg) > offset_max_deg:
-                genlog.error ('input header field ID, RA and DEC combination '
-                              'is inconsistent (>{}\') with definition of field '
-                              'IDs\n'
-                              'header field ID: {}, RA{:4s}: {:.4f}, '
-                              'DEC{:4s}: {:.4f}\nvs.    field ID: {}, RA    : '
-                              '{:.4f}, DEC    : {:.4f} in {}\nnot processing {}'
-                              .format(offset_max, obj, key_ext, ra_deg, key_ext,
-                                      dec_deg, table_ID['ID'][i_ID],
-                                      table_ID['RA'][i_ID], table_ID['DEC'][i_ID],
-                                      mlbg_fieldIDs, filename))
+            # check if there is a match with the defined field IDs
+            mask_match = (table_ID['ID']==int(obj))
+            if sum(mask_match) == 0:
+                # observed field is not present in definition of field IDs
                 header_ok = False
+                genlog.error ('input header field ID not present in definition '
+                              'of field IDs:\n{}\nheader field ID: {}, RA-REF: '
+                              '{:.4f}, DEC-REF: {:.4f}\nnot processing {}'
+                              .format(mlbg_fieldIDs, obj, ra_deg, dec_deg,
+                                      filename))
+
+            else:
+                i_ID = np.nonzero(mask_match)[0][0]
+                if haversine(table_ID['RA'][i_ID], table_ID['DEC'][i_ID], 
+                             ra_deg, dec_deg) > offset_max/60.:
+                    genlog.error (
+                        'input header field ID, RA-REF and DEC-REF combination '
+                        'is inconsistent (>{}\') with definition of field IDs\n'
+                        'header field ID: {}, RA-REF: {:.4f}, DEC-REF: {:.4f}\n'
+                        'vs.    field ID: {}, RA    : {:.4f}, DEC    : {:.4f} '
+                        'in {}\nnot processing {}'
+                        .format(offset_max, obj, ra_deg, dec_deg,
+                                table_ID['ID'][i_ID], table_ID['RA'][i_ID],
+                                table_ID['DEC'][i_ID], mlbg_fieldIDs, filename))
+
+                    header_ok = False
 
 
     # if binning is not 1x1, also skip processing
     if 'XBINNING' in header and 'YBINNING' in header: 
         if header['XBINNING'] != 1 or header['YBINNING'] != 1:
             genlog.error ('BINNING not 1x1; not processing {}'.format(filename))
+
             header_ok = False
 
 
