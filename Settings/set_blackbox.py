@@ -24,13 +24,17 @@ trans_extract = False
 # switched on
 force_reproc_new = True
 
+# switch to create the reference image/folder from the image being
+# processed in case it does not exist yet for that combination of
+# OBJECT/FieldID and filter
+create_ref = False
+
 # subtract master bias
 subtract_mbias = False
 # perform satellite detection
 detect_sats = True
 # perform non-linearity correction
 correct_nonlin = False
-
 
 # time window [days] within which to include biases in master bias 
 # (0=only same night, 1=including previous and next night, etc.)
