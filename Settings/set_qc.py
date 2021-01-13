@@ -81,7 +81,7 @@ qc_range = {
         'SWARP-P' : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'key_type': 'trans', 'pos': False, 'comment': 'reference image successfully SWarped?'},
         'Z-P'     : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'key_type': 'trans', 'pos': False, 'comment': 'successfully processed by ZOGY?'},
         'MC-P'    : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'key_type': 'trans', 'pos': False, 'comment': 'successfully processed by MeerCRAB?'},
-        
+
         # Channel bias levels [e-]
         # 2019 values
         'BIASMEAN': {'default':'None', 'val_type': 'sigma','val_range': [ (  7370, 30) ],            'key_type': 'full', 'pos': True , 'comment': 'average all channel means vertical overscan'},
@@ -287,7 +287,7 @@ qc_range = {
                                                                             'q': [ (20.5, 23.9), (19.8, 23.9), (0, 30) ],
                                                                             'r': [ (19.8, 23.1), (19.1, 23.1), (0, 30) ],
                                                                             'i': [ (19.2, 22.5), (18.5, 22.5), (0, 30) ],
-                                                                            'z': [ (18.0, 21.3), (17.3, 21.3), (0, 30) ]}, 'key_type': 'full', 'pos': True , 'comment': '[mag] full-frame 5-sigma limiting magnitude'},
+                                                                            'z': [ (18.0, 21.3), (17.3, 21.3), (0, 30) ]}, 'key_type': 'full', 'pos': True , 'comment': '[mag] full-frame 5-sigma limiting mag'},
         # previously using sigma method
         #'LIMMAG'  : {'default':'None', 'val_type': 'sigma',   'val_range': {'u': [ (19.2, 0.15) ],
         #                                                                    'g': [ (20.3, 0.15) ],
@@ -322,7 +322,7 @@ qc_range = {
                                                                             'q': [ (20.3, 23.6), (21.6, 23.6), (0, 30) ],
                                                                             'r': [ (19.6, 22.9), (18.9, 22.9), (0, 30) ],
                                                                             'i': [ (19.0, 22.3), (18.3, 22.3), (0, 30) ],
-                                                                            'z': [ (17.9, 21.2), (17.2, 21.2), (0, 30) ]}, 'key_type': 'trans', 'pos': True , 'comment': '[mag] full-frame transient [T-NSIGMA]-sigma limiting mag'},
+                                                                            'z': [ (17.9, 21.2), (17.2, 21.2), (0, 30) ]}, 'key_type': 'trans', 'pos': True , 'comment': '[mag] full-frame transient [T-NSIGMA]-sigma lim. mag'},
         # previously using sigma method:
         #'T-LMAG' :  {'default':'None', 'val_type': 'sigma',   'val_range': {'u': [ (19.0, 0.15) ],
         #                                                                    'g': [ (20.1, 0.15) ],
@@ -330,6 +330,9 @@ qc_range = {
         #                                                                    'r': [ (19.9, 0.15) ],
         #                                                                    'i': [ (19.3, 0.15) ],
         #                                                                    'z': [ (18.2, 0.15) ]},              'key_type': 'trans', 'pos': True , 'comment': '[mag] full-frame transient [T-NSIGMA]-sigma limiting mag'},
+
+        # check on offset between RA-CNTR, DEC-CNTR and the RA, DEC corresponding to the ML/BG field definition for a particular OBJECT or field ID
+        'RADECOFF': {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 0.15) ],                       'key_type': 'full',   'pos': True , 'comment': '[deg] offset RA/DEC-CNTR wrt field definition'},
 
         
         # some additional ones to make sure these are listed in the dummy output catalogs
