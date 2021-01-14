@@ -332,7 +332,7 @@ qc_range = {
         #                                                                    'z': [ (18.2, 0.15) ]},              'key_type': 'trans', 'pos': True , 'comment': '[mag] full-frame transient [T-NSIGMA]-sigma limiting mag'},
 
         # check on offset between RA-CNTR, DEC-CNTR and the RA, DEC corresponding to the ML/BG field definition for a particular OBJECT or field ID
-        'RADECOFF': {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 0.15) ],                       'key_type': 'full',   'pos': True , 'comment': '[deg] offset RA/DEC-CNTR wrt field definition'},
+        'RADECOFF': {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 0.15) ],                       'key_type': 'full',   'pos': True , 'comment': '[deg] offset RA,DEC-CNTR wrt ML/BG field grid'},
 
         
         # some additional ones to make sure these are listed in the dummy output catalogs
