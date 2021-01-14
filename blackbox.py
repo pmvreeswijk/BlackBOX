@@ -2280,9 +2280,9 @@ def blackbox_reduce (filename):
     # if ref image needs to be created but it has not been processed
     # yet:
     ref_present = already_exists (ref_fits_out)
-    log.info ('ref image {} for current image {} already present?: {}'
+    log.info ('reference image {} for current image {} already present?: {}'
               .format(ref_fits_out, filename, ref_present))
-    log.info ('ref image needs to be created from the current image {}?: {}'
+    log.info ('reference image needs to be created from the current image {}?: {}'
               .format(filename, get_par(set_bb.create_ref,tel)))
 
 
@@ -3000,7 +3000,7 @@ def update_cathead (filename, header, log=None):
     
     with fits.open(filename, 'update', memmap=True) as hdulist:
         for key in header:
-            if 'QC' in key or 'DUMCAT' in key:
+            if 'QC' in key or 'DUMCAT' in key or 'RADECOFF' in key:
                 hdulist[-1].header[key] = (header[key], header.comments[key])
 
 
@@ -4477,24 +4477,22 @@ def check_header1 (header, filename):
 
 def check_radec_offset (header, filename, log=None):
 
-    # check if the RA-CNTR and DEC-CNTR determined in [zogy] is
-    # consistent with the definition of ML/BG field IDs; see also
-    # [check_header2]
-
-    # offset limit in minutes
-    offset_max = 60.
+    # determine the offset between the RA-CNTR and DEC-CNTR (inferred
+    # in [zogy]) and the expected RA and DEC from the definition of
+    # ML/BG field IDs, and add the offset to the header. The header
+    # value can be used in the QC check.
 
     # ML/BG field definition
     mlbg_fieldIDs = get_par(set_bb.mlbg_fieldIDs,tel)
     table_ID = ascii.read(mlbg_fieldIDs, names=['ID', 'RA', 'DEC'], data_start=0)
-    imgtype = header['IMAGETYP'].lower()
 
-    if imgtype=='object' and 'RA-CNTR' in header and 'DEC-CNTR' in header:
-
+    if 'RA-CNTR' in header and 'DEC-CNTR' in header:
+        
         ra_cntr = header['RA-CNTR']
         dec_cntr = header['DEC-CNTR']
-
+        
         # find relevant object/field ID in field definition
+        obj = header['OBJECT']
         mask_match = (table_ID['ID']==int(obj))
         i_ID = np.nonzero(mask_match)[0][0]
 
@@ -4502,13 +4500,14 @@ def check_radec_offset (header, filename, log=None):
         offset_deg = haversine(table_ID['RA'][i_ID], table_ID['DEC'][i_ID], 
                                ra_cntr, dec_cntr)
 
+        offset_max = 60.
         if offset_deg > offset_max/60.:
-            genlog.error (
+            log.warning (
                 'input header field ID, RA-CNTR and DEC-CNTR combination '
                 'is inconsistent (>{}\') with definition of field IDs\n'
                 'header field ID: {}, RA-CNTR: {:.4f}, DEC-CNTR: {:.4f}\n'
                 'vs.    field ID: {}, RA     : {:.4f}, DEC     : {:.4f} '
-                'in {}\nnot processing {}'
+                'in {} for {}'
                 .format(offset_max, obj, ra_cntr, dec_cntr,
                         table_ID['ID'][i_ID], table_ID['RA'][i_ID],
                         table_ID['DEC'][i_ID], mlbg_fieldIDs, filename))
@@ -4520,8 +4519,8 @@ def check_radec_offset (header, filename, log=None):
 
 
     # add header keywords
-    header['RADECOFF'] = (offset_deg, '[deg] offset RA/DEC-CNTR wrt field'
-                          'definition')
+    header['RADECOFF'] = (offset_deg, '[deg] offset RA,DEC-CNTR wrt ML/BG field '
+                          'grid')
 
 
     return
