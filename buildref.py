@@ -506,9 +506,10 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
     if center_type == 'grid':
         # read from grid definition file located in ${ZOGYHOME}/CalFiles
         mlbg_fieldIDs = get_par(set_bb.mlbg_fieldIDs,tel)
-        table_grid = ascii.read(mlbg_fieldIDs, names=['ID', 'RA', 'DEC'],
-                                data_start=0)
-        
+        #table_grid = ascii.read(mlbg_fieldIDs, names=['ID', 'RA', 'DEC'],
+        #                        data_start=0)
+        table_grid = Table.read(mlbg_fieldIDs)
+
 
     # for table entries that have survived the cuts, prepare the list
     # of imagelists with the accompanying lists of field_IDs and
@@ -529,16 +530,18 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
 
         # table mask of this particular field_ID
         mask_obj = (table['OBJECT'] == obj)
-
+        
         if center_type == 'grid':
             # for 'grid' centering, let [radec] refer to a tuple pair
             # containing the RA and DEC coordinates
-            mask_grid = (table_grid['ID'] == obj)
+            mask_grid = (table_grid['field_id'] == int(obj))
             if np.sum(mask_grid) > 0:
-                radec = (table_grid[mask_id]['RA'], table_grid[mask_id]['DEC'])
+                radec = (table_grid[mask_grid]['ra_c'],
+                         table_grid[mask_grid]['dec_c'])
             else:
                 genlog.error ('field ID/OBJECT {} not present in ML/BG '
-                              'grid definition file {}'.format(obj, mlbg_fieldIDs))
+                              'grid definition file {}'
+                              .format(obj, mlbg_fieldIDs))
                 continue
                 
         elif center_type == 'median':
