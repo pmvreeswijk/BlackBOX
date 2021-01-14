@@ -4485,8 +4485,9 @@ def radec_offset (header, filename, log=None):
     # ML/BG field definition contained in fits table with columns
     # 'field_id', 'ra_c', 'dec_c'; previously an ASCII file
     mlbg_fieldIDs = get_par(set_bb.mlbg_fieldIDs,tel)
-    #table_ID = ascii.read(mlbg_fieldIDs, names=['ID', 'RA', 'DEC'], data_start=0)
-    table_ID = Table.read(mlbg_fieldIDs)
+    #table_grid = ascii.read(mlbg_fieldIDs, names=['ID', 'RA', 'DEC'],
+    #                        data_start=0)
+    table_grid = Table.read(mlbg_fieldIDs)
     
     
     if 'RA-CNTR' in header and 'DEC-CNTR' in header:
@@ -4496,12 +4497,12 @@ def radec_offset (header, filename, log=None):
         
         # find relevant object/field ID in field definition
         obj = header['OBJECT']
-        mask_match = (table_ID['field_id']==int(obj))
-        i_ID = np.nonzero(mask_match)[0][0]
+        mask_match = (table_grid['field_id']==int(obj))
+        i_grid = np.nonzero(mask_match)[0][0]
 
         # calculate offset in degrees
-        offset_deg = haversine(table_ID['ra_c'][i_ID], table_ID['dec_c'][i_ID], 
-                               ra_cntr, dec_cntr)
+        offset_deg = haversine(table_grid['ra_c'][i_grid],
+                               table_grid['dec_c'][i_grid], ra_cntr, dec_cntr)
 
         offset_max = 60.
         if offset_deg > offset_max/60.:
@@ -4512,8 +4513,9 @@ def radec_offset (header, filename, log=None):
                 'vs.    field ID: {}, RA     : {:.4f}, DEC     : {:.4f} '
                 'in {} for {}'
                 .format(offset_max, obj, ra_cntr, dec_cntr,
-                        table_ID['field_id'][i_ID], table_ID['ra_c'][i_ID],
-                        table_ID['dec_c'][i_ID], mlbg_fieldIDs, filename))
+                        table_grid['field_id'][i_grid],
+                        table_grid['ra_c'][i_grid],
+                        table_grid['dec_c'][i_grid], mlbg_fieldIDs, filename))
 
     else:
 
@@ -4541,8 +4543,7 @@ def check_header2 (header, filename):
     offset_max = 10.
 
     mlbg_fieldIDs = get_par(set_bb.mlbg_fieldIDs,tel)
-    #table_ID = ascii.read(mlbg_fieldIDs, names=['ID', 'RA', 'DEC'], data_start=0)
-    table_ID = Table.read(mlbg_fieldIDs)
+    table_grid = Table.read(mlbg_fieldIDs)
     imgtype = header['IMAGETYP'].lower()
     if imgtype=='object':
         obj = header['OBJECT']
@@ -4553,7 +4554,7 @@ def check_header2 (header, filename):
 
 
             # check if there is a match with the defined field IDs
-            mask_match = (table_ID['field_id']==int(obj))
+            mask_match = (table_grid['field_id']==int(obj))
             if sum(mask_match) == 0:
                 # observed field is not present in definition of field IDs
                 header_ok = False
@@ -4564,8 +4565,9 @@ def check_header2 (header, filename):
                                       filename))
 
             else:
-                i_ID = np.nonzero(mask_match)[0][0]
-                if haversine(table_ID['ra_c'][i_ID], table_ID['dec_c'][i_ID], 
+                i_grid = np.nonzero(mask_match)[0][0]
+                if haversine(table_grid['ra_c'][i_grid],
+                             table_grid['dec_c'][i_grid],
                              ra_deg, dec_deg) > offset_max/60.:
                     genlog.error (
                         'input header field ID, RA-REF and DEC-REF combination '
@@ -4574,8 +4576,10 @@ def check_header2 (header, filename):
                         'vs.    field ID: {}, RA    : {:.4f}, DEC    : {:.4f} '
                         'in {}\nnot processing {}'
                         .format(offset_max, obj, ra_deg, dec_deg,
-                                table_ID['field_id'][i_ID], table_ID['ra_c'][i_ID],
-                                table_ID['dec_c'][i_ID], mlbg_fieldIDs, filename))
+                                table_grid['field_id'][i_grid],
+                                table_grid['ra_c'][i_grid],
+                                table_grid['dec_c'][i_grid], mlbg_fieldIDs,
+                                filename))
 
                     header_ok = False
 
