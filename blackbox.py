@@ -2307,7 +2307,7 @@ def blackbox_reduce (filename):
             
             # add offset between RA/DEC-CNTR coords and ML/BG field
             # definition to the header
-            check_radec_offset (header_new, filename, log=log)
+            radec_offset (header_new, filename, log=log)
 
         except Exception as e:
             #log.exception(traceback.format_exc())
@@ -2390,7 +2390,7 @@ def blackbox_reduce (filename):
 
             # add offset between RA/DEC-CNTR coords and ML/BG field
             # definition to the header
-            check_radec_offset (header_ref, filename, log=log)
+            radec_offset (header_ref, filename, log=log)
 
         except Exception as e:
             #log.exception(traceback.format_exc())
@@ -2524,7 +2524,7 @@ def blackbox_reduce (filename):
 
             # add offset between RA/DEC-CNTR coords and ML/BG field
             # definition to the new header
-            check_radec_offset (header_new, filename, log=log)
+            radec_offset (header_new, filename, log=log)
 
         except Exception as e:
             #log.exception(traceback.format_exc())
@@ -4475,17 +4475,20 @@ def check_header1 (header, filename):
 
 ################################################################################
 
-def check_radec_offset (header, filename, log=None):
+def radec_offset (header, filename, log=None):
 
     # determine the offset between the RA-CNTR and DEC-CNTR (inferred
     # in [zogy]) and the expected RA and DEC from the definition of
     # ML/BG field IDs, and add the offset to the header. The header
     # value can be used in the QC check.
 
-    # ML/BG field definition
+    # ML/BG field definition contained in fits table with columns
+    # 'field_id', 'ra_c', 'dec_c'; previously an ASCII file
     mlbg_fieldIDs = get_par(set_bb.mlbg_fieldIDs,tel)
-    table_ID = ascii.read(mlbg_fieldIDs, names=['ID', 'RA', 'DEC'], data_start=0)
-
+    #table_ID = ascii.read(mlbg_fieldIDs, names=['ID', 'RA', 'DEC'], data_start=0)
+    table_ID = Table.read(mlbg_fieldIDs)
+    
+    
     if 'RA-CNTR' in header and 'DEC-CNTR' in header:
         
         ra_cntr = header['RA-CNTR']
@@ -4493,11 +4496,11 @@ def check_radec_offset (header, filename, log=None):
         
         # find relevant object/field ID in field definition
         obj = header['OBJECT']
-        mask_match = (table_ID['ID']==int(obj))
+        mask_match = (table_ID['field_id']==int(obj))
         i_ID = np.nonzero(mask_match)[0][0]
 
         # calculate offset in degrees
-        offset_deg = haversine(table_ID['RA'][i_ID], table_ID['DEC'][i_ID], 
+        offset_deg = haversine(table_ID['ra_c'][i_ID], table_ID['dec_c'][i_ID], 
                                ra_cntr, dec_cntr)
 
         offset_max = 60.
@@ -4509,8 +4512,8 @@ def check_radec_offset (header, filename, log=None):
                 'vs.    field ID: {}, RA     : {:.4f}, DEC     : {:.4f} '
                 'in {} for {}'
                 .format(offset_max, obj, ra_cntr, dec_cntr,
-                        table_ID['ID'][i_ID], table_ID['RA'][i_ID],
-                        table_ID['DEC'][i_ID], mlbg_fieldIDs, filename))
+                        table_ID['field_id'][i_ID], table_ID['ra_c'][i_ID],
+                        table_ID['dec_c'][i_ID], mlbg_fieldIDs, filename))
 
     else:
 
@@ -4538,7 +4541,8 @@ def check_header2 (header, filename):
     offset_max = 10.
 
     mlbg_fieldIDs = get_par(set_bb.mlbg_fieldIDs,tel)
-    table_ID = ascii.read(mlbg_fieldIDs, names=['ID', 'RA', 'DEC'], data_start=0)
+    #table_ID = ascii.read(mlbg_fieldIDs, names=['ID', 'RA', 'DEC'], data_start=0)
+    table_ID = Table.read(mlbg_fieldIDs)
     imgtype = header['IMAGETYP'].lower()
     if imgtype=='object':
         obj = header['OBJECT']
@@ -4549,7 +4553,7 @@ def check_header2 (header, filename):
 
 
             # check if there is a match with the defined field IDs
-            mask_match = (table_ID['ID']==int(obj))
+            mask_match = (table_ID['field_id']==int(obj))
             if sum(mask_match) == 0:
                 # observed field is not present in definition of field IDs
                 header_ok = False
@@ -4561,7 +4565,7 @@ def check_header2 (header, filename):
 
             else:
                 i_ID = np.nonzero(mask_match)[0][0]
-                if haversine(table_ID['RA'][i_ID], table_ID['DEC'][i_ID], 
+                if haversine(table_ID['ra_c'][i_ID], table_ID['dec_c'][i_ID], 
                              ra_deg, dec_deg) > offset_max/60.:
                     genlog.error (
                         'input header field ID, RA-REF and DEC-REF combination '
@@ -4570,8 +4574,8 @@ def check_header2 (header, filename):
                         'vs.    field ID: {}, RA    : {:.4f}, DEC    : {:.4f} '
                         'in {}\nnot processing {}'
                         .format(offset_max, obj, ra_deg, dec_deg,
-                                table_ID['ID'][i_ID], table_ID['RA'][i_ID],
-                                table_ID['DEC'][i_ID], mlbg_fieldIDs, filename))
+                                table_ID['field_id'][i_ID], table_ID['ra_c'][i_ID],
+                                table_ID['dec_c'][i_ID], mlbg_fieldIDs, filename))
 
                     header_ok = False
 
