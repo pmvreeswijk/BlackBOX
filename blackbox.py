@@ -2889,6 +2889,7 @@ def verify_header (filename, htypes=None, log=None):
         'LIMEFLUX': {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
         'LIMMAG':   {'htype':'full', 'dtype':float, 'DB':True,  'None_OK':True},
         'NOBJECTS': {'htype':'full', 'dtype':int,   'DB':True,  'None_OK':True},
+        'RADECOFF': {'htype':'full', 'dtype':float, 'DB':True,  'None_OK':True},
         'FORMAT-P': {'htype':'full', 'dtype':bool,  'DB':False, 'None_OK':True},
         'DUMCAT':   {'htype':'full', 'dtype':bool,  'DB':True,  'None_OK':False},
         'QC-FLAG':  {'htype':'full', 'dtype':str,   'DB':True,  'None_OK':False},
