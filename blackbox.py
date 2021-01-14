@@ -4497,7 +4497,7 @@ def radec_offset (header, filename, log=None):
         
         # find relevant object/field ID in field definition
         obj = header['OBJECT']
-        mask_match = (table_grid['field_id']==int(obj))
+        mask_match = (table_grid['field_id'].astype(int) == int(obj))
         i_grid = np.nonzero(mask_match)[0][0]
 
         # calculate offset in degrees
@@ -4554,7 +4554,7 @@ def check_header2 (header, filename):
 
 
             # check if there is a match with the defined field IDs
-            mask_match = (table_grid['field_id']==int(obj))
+            mask_match = (table_grid['field_id'].astype(int) == int(obj))
             if sum(mask_match) == 0:
                 # observed field is not present in definition of field IDs
                 header_ok = False

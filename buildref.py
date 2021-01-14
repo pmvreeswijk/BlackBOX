@@ -534,7 +534,7 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
         if center_type == 'grid':
             # for 'grid' centering, let [radec] refer to a tuple pair
             # containing the RA and DEC coordinates
-            mask_grid = (table_grid['field_id'] == int(obj))
+            mask_grid = (table_grid['field_id'].astype(int) == int(obj))
             if np.sum(mask_grid) > 0:
                 radec = (table_grid[mask_grid]['ra_c'],
                          table_grid[mask_grid]['dec_c'])
