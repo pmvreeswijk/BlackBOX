@@ -296,8 +296,9 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
          the clipped method?? SWarp manual says exptime keyword is
          being propagated, where "EXPTIME: Sum of exposure times in
          the part of the coadd with the most overlaps", but at the
-         moment the header EXPTIME is replaced by the mean of all
-         exposure times.
+         moment the header EXPTIME is replaced by the exposure time
+         of the 1st image, since that is the image that all images
+         are scaled to in flux.
 
          Weighting does not seem to take into account the input
          exposure times. E.g. background standard deviation of
@@ -500,8 +501,8 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
 
 
     # if centering is set to 'grid' in buildref settings file, read
-    # the ascii file that contains the ML/BG field grid definition,
-    # that will be used to fill [radec_list] in the loop below
+    # the file that contains the ML/BG field grid definition, that
+    # will be used to fill [radec_list] in the loop below
     center_type = get_par(set_br.center_type,tel)
     if center_type == 'grid':
         # read from grid definition file located in ${ZOGYHOME}/CalFiles
@@ -540,7 +541,7 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
                          table_grid[mask_grid]['dec_c'])
             else:
                 genlog.error ('field ID/OBJECT {} not present in ML/BG '
-                              'grid definition file {}'
+                              'grid definition file {}; skipping it'
                               .format(obj, mlbg_fieldIDs))
                 continue
                 
@@ -602,8 +603,16 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
                 # add dmag to target magnitude to account for the fact
                 # that the expected limiting magnitude will be
                 # somewhat higher than the actual one
-                dmag = 0.15
+                dmag = 0.2
                 mask_sort_cum = (limmags_sort_cum <= limmag_target + dmag)
+                # use a minimum number of files, adding 1 to images
+                # selected above
+                nmin = get_par(set_br.nimages_min,tel)
+                nuse = max (np.sum(mask_sort_cum)+1, nmin)
+                # [nuse] should not be larger than number of images available
+                nuse = min (nuse, nfiles)
+                # update mask
+                mask_sort_cum[0:nuse] = True
 
 
                 # files that were excluded
@@ -833,7 +842,7 @@ def header2table (filenames):
     # keywords to add to table
     keys = ['MJD-OBS', 'OBJECT', 'FILTER', 'QC-FLAG', 'RA-CNTR', 'DEC-CNTR',
             'LIMMAG', 'S-BKGSTD']
-    keys_dtype = [float, 'S5', 'S1', 'S6', float, float, float, float]
+    keys_dtype = [float, 'U5', 'U1', 'U6', float, float, float, float]
 
     # add keyword that is sorted on if absolute limits are not used
     # and many images are available
@@ -969,7 +978,7 @@ def header2table (filenames):
 
     # create table from rows
     names = ['FILE']
-    dtypes = ['S']
+    dtypes = ['U100']
     for i_key, key in enumerate(keys):
         names.append(key)
         dtypes.append(keys_dtype[i_key])
@@ -1515,29 +1524,19 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
                           format(combine_type, combine_type_list))
 
 
-    # initialize arrays to keep
+    # initialize table with image values to keep
     nimages = len(imagelist)
-    ra_centers = np.zeros(nimages)
-    dec_centers = np.zeros(nimages)
-    xsizes = np.zeros(nimages, dtype=int)
-    ysizes = np.zeros(nimages, dtype=int)
-    zps = np.zeros(nimages)
-    airmasses = np.zeros(nimages)
-    gains = np.zeros(nimages)
-    rdnoises = np.zeros(nimages)
-    saturates = np.zeros(nimages)
-    exptimes = np.zeros(nimages)
-    mjds = np.zeros(nimages)
+    names = ('ra_center', 'dec_center', 'xsize', 'ysize', 'zp', 'airmass',
+             'gain', 'rdnoise', 'saturate', 'exptime', 'mjd_obs', 'fscale',
+             'image_name', 'mask_name')
+    dtypes = ('f8', 'f8', 'i4', 'i4', 'f8', 'f8',
+              'f8', 'f8', 'f8', 'f8', 'f8', 'f8',
+              'U100', 'U100')
+    data_tmp = np.zeros((nimages, len(names)))
+    imtable = Table(data=data_tmp, names=names, dtype=dtypes)
 
-
-    # initialize image_names that refer to fits images in [tempdir]
-    image_names = np.array([])
-    mask_names = np.array([])
-    # not needed as WEIGHT_SUFFIX can be used
-    #weights_names = np.array([])
-
-    # list to record image headers in
-    headers_list = []
+    # mask in case particular image is not used in loop below
+    mask_keep = np.ones(len(imtable), dtype=bool)
 
     # loop input list of images
     for nimage, image in enumerate(imagelist):
@@ -1548,8 +1547,6 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
         # read input image data and header
         data, header = read_hdulist(image, get_header=True)
 
-        # add header to list of headers
-        headers_list.append(header)
         
         # read corresponding mask image
         image_mask = image.replace('red.fits', 'mask.fits')
@@ -1567,6 +1564,8 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
         except Exception as e:
             log.exception('exception was raised when reading header of image {}\n'
                           'not using it in image combination'.format(image, e))
+            # do not use this row
+            mask_keep[nimage] = False
             continue
         
         
@@ -1703,16 +1702,12 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
                        imtype='new', mask_value=mask_value)
         
         # fill arrays with header info
-        xsizes[nimage] = xsize
-        ysizes[nimage] = ysize
-        zps[nimage] = zp
-        airmasses[nimage] = airmass
-        gains[nimage] = gain
-        rdnoises[nimage] = rdnoise
-        saturates[nimage] = saturate
-        exptimes[nimage] = exptime
-        mjds[nimage] = mjd_obs
-        
+        list_tmp = ['xsize', 'ysize', 'zp', 'airmass', 'gain', 'rdnoise',
+                    'saturate', 'exptime', 'mjd_obs']
+        for key in list_tmp:
+            imtable[key][nimage] = eval(key)
+
+
         # calculate flux ratio (fscale in SWarp speak) using the
         # zeropoint difference between image and first image,
         # i.e. scale the fluxes in image to match those in the first
@@ -1724,10 +1719,14 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
         # zp[i] = mag_cal - mag_inst[i] + A[i]*k
         # zp[0] = zp[i] + mag_inst[i] - A[i]*k - mag_inst[0] + A[0]*k
         # mag_inst[0] - mag_inst[i] = zp[i] - zp[0] - k * (A[i] - A[0])
-        #                           = -2.5 * log10(f[0]/f[i])
-        #                           = -2.5 * log10(fscale)
-        # because: fscale * f[i] = f[0] --> fscale = f[0]/f[i]
-        # so finally: fscale = 10**((mag_inst[0]-mag_inst[i])/-2.5)
+        # = -2.5 * log10( (flux[0]/exptime[0]) / (flux[i]/exptime[i]))
+        #
+        # (fscale * flux[i] = flux[0] --> fscale = flux[0] / flux[i])
+        #
+        # dmag = -2.5 * log10( fscale * exptime[i] / exptime[0] )
+        #
+        # so finally:
+        # fscale = 10**(dmag/-2.5) * exptime[0] / exptime[i]
         #
         # And scale all images to an airmass of 1 by setting A[0]=1
         # (the 1st and every other image are then all scaled to A=1).
@@ -1737,15 +1736,20 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
         # confusing; could also scale it to the image with highest zp,
         # but then need to do a separate loop inferring the zps of all
         # images first, but that is not that straightforward.
-        dmag = zps[nimage] - zps[0] - extco * (airmasses[nimage] - 1)
-        fscale = 10**(dmag/-2.5)
 
+        dmag = zp - imtable['zp'][mask_keep][0] - extco * (airmass - 1)
+        fscale = (10**(dmag/-2.5) * imtable['exptime'][mask_keep][0] / exptime)
+        # record in table
+        imtable['fscale'][nimage] = fscale
+        
         # add fscale to image header
-        header['FSCALE'] = (fscale, 'flux ratio wrt to first image and at airmass=1')
-
+        header['FSCALE'] = (fscale, 'flux ratio wrt to first image and at '
+                            'airmass=1')
+        log.info ('FSCALE of image {}: {}'.format(image, fscale))
+        
         # update these header arrays with fscale
-        rdnoises[nimage] *= fscale 
-        saturates[nimage] *= fscale
+        imtable['rdnoise'][nimage] *= fscale
+        imtable['saturate'][nimage] *= fscale
 
         # update weights image with scale factor according to Eq. 26
         # or 27 in SWarp manual:
@@ -1780,8 +1784,9 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
             if ':' in dec_temp:
                 dec_temp = Angle(dec_temp, unit=u.degree).degree
             
-        ra_centers[nimage] = ra_temp
-        dec_centers[nimage] = dec_temp
+
+        imtable['ra_center'][nimage] = ra_temp
+        imtable['dec_center'][nimage] = dec_temp
 
 
         # save image in temp folder; first subtract background if
@@ -1811,8 +1816,8 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
 
         image_temp = tempdir+'/'+image.split('/')[-1].replace('.fz','')
         fits.writeto(image_temp, data, header=header, overwrite=True)
-        # add to array of names
-        image_names = np.append(image_names, image_temp)
+        # add to table
+        imtable['image_name'][nimage] = image_temp
 
 
         # save weights image in the temp folder
@@ -1832,23 +1837,28 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
                                  'flux ratio wrt to first image and at airmass=1')
         fits.writeto(mask_temp, data_mask, header=header_mask, overwrite=True)
         # add to array of names
-        mask_names = np.append(mask_names, mask_temp)
+        imtable['mask_name'][nimage] = mask_temp
 
+
+
+    # clean imtable from images that were not used
+    imtable = imtable[mask_keep]
+    
 
     # for the new reference image, adopt the size of the first image
     # for the moment; could expand that to a bigger image while using
     # [center_type]=all in SWarp
-    refimage_xsize = xsizes[0]
-    refimage_ysize = ysizes[0]
-    size_str = str(refimage_xsize) + ',' + str(refimage_ysize)
+    refimage_xsize = imtable['xsize'][0]
+    refimage_ysize = imtable['ysize'][0]
+    size_str = '{},{}'.format(refimage_xsize, refimage_ysize)
 
 
     # if input [ra_center] or [dec_center] is not defined, use the
     # median RA/DEC of the input images as the center RA/DEC of the
     # output image
     if ra_center is None or dec_center is None:
-        ra_center = np.median(ra_centers)
-        dec_center = np.median(dec_centers)
+        ra_center = np.median(imtable['ra_center'])
+        dec_center = np.median(imtable['dec_center'])
         # centering method for header
         center_type = 'median'
     else:
@@ -1868,49 +1878,22 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
         back_type_SWarp = 'manual'
 
 
-    if False:
-
-        # keywords to copy from input images to reference: add all
-        # keywords that are the same between the images, but avoid copying
-        # keywords like NAXIS1, BITPIX, etc.
-        for i_head, head in enumerate(headers_list):
-            if i_head == 0:
-                # start with the first header
-                head_tmp = head
-            else:
-                # only keep keywords in head_tmp that are also in head and
-                # with the same value
-                head_tmp = {key:head_tmp[key] for key in head_tmp
-                            if key in head and head_tmp[key]==head[key]}
-
-        keys2copy = list(head_tmp.keys())
-        keys2avoid = ['SIMPLE', 'NAXIS', 'NAXIS1', 'NAXIS2', 'BITPIX', 'XTENSION', 
-                      'CTYPE1', 'CUNIT1', 'CRVAL1', 'CRPIX1', 'CD1_1', 'CD1_2',
-                      'CTYPE2', 'CUNIT2', 'CRVAL2', 'CRPIX2', 'CD2_1', 'CD2_2',
-                      'EXPTIME', 'GAIN', 'SATURATE']
-
-        # use sets to remove keys2avoid
-        keys2copy = list(set(keys2copy).difference(set(keys2avoid)))
-
-
-    else:
-
-        # instead just define a list of keywords, mostly those created
-        # in [set_header] function in blackbox.py and a few additional
-        # ones defined in blackbox.py, that do not change between
-        # images; the keywords from zogy.py will be added
-        # automatically as the co-added image is put through zogy.py
-        keys2copy = ['XBINNING', 'YBINNING', 'RADESYS', 'EPOCH', 'FLIPSTAT',
-                     'OBJECT', 'IMAGETYP', 'FILTER',
-                     'TIMESYS', 'SITELAT', 'SITELONG', 'ELEVATIO', 'EQUINOX',
-                     'CCD-ID', 'CONTROLL', 'DETSPEED', 'CCD-NW', 'CCD-NH', 'FOCUSPOS', 
-                     'ORIGIN', 'MPC-CODE', 'TELESCOP', 'INSTRUME', 
-                     'OBSERVER', 'ABOTVER', 'PROGNAME', 'PROGID',
-                     'PYTHON-V', 'BB-V', 'KW-V']
+    # define a list of keywords, mostly those created in [set_header]
+    # function in blackbox.py and a few additional ones defined in
+    # blackbox.py, that do not change between images; the keywords
+    # from zogy.py will be added automatically as the co-added image
+    # is put through zogy.py
+    keys2copy = ['XBINNING', 'YBINNING', 'RADESYS', 'EPOCH', 'FLIPSTAT',
+                 'OBJECT', 'IMAGETYP', 'FILTER',
+                 'TIMESYS', 'SITELAT', 'SITELONG', 'ELEVATIO', 'EQUINOX',
+                 'CCD-ID', 'CONTROLL', 'DETSPEED', 'CCD-NW', 'CCD-NH', 'FOCUSPOS', 
+                 'ORIGIN', 'MPC-CODE', 'TELESCOP', 'INSTRUME', 
+                 'OBSERVER', 'ABOTVER', 'PROGNAME', 'PROGID',
+                 'PYTHON-V', 'BB-V', 'KW-V']
 
 
     # run SWarp
-    cmd = ['swarp', ','.join(image_names),
+    cmd = ['swarp', ','.join(imtable['image_name']),
            '-c', swarp_cfg,
            '-COMBINE', 'Y',
            '-COMBINE_TYPE', combine_type.upper(),
@@ -1963,21 +1946,20 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
     header_out['DEC'] = (dec_center, '[deg] telescope declination')
 
     # with gain, readnoise, saturation level, exptime and mjd-obs
-    gain, rdnoise, saturate, exptime, mjd = calc_headers (
-        combine_type, gains, rdnoises, saturates, exptimes, mjds)
-
-
-    header_out.set('GAIN', gain, '[e-/ADU] effective gain', after='DEC')
-    header_out.set('RDNOISE', rdnoise, '[e-] effective read-out noise',
+    gain_eff, rdnoise_eff, saturate_eff, exptime_eff, mjd_obs_eff = calc_headers(
+        combine_type, imtable)
+    
+    header_out.set('GAIN', gain_eff, '[e-/ADU] effective gain', after='DEC')
+    header_out.set('RDNOISE', rdnoise_eff, '[e-] effective read-out noise',
                    after='GAIN')
-    header_out.set('SATURATE', saturate, '[e-] effective saturation '
+    header_out.set('SATURATE', saturate_eff, '[e-] effective saturation '
                    'threshold', after='RDNOISE')
-    header_out.set('EXPTIME', exptimes[0], '[s] effective exposure time',
+    header_out.set('EXPTIME', exptime_eff, '[s] effective exposure time',
                    after='SATURATE')
-    date_obs = Time(mjd, format='mjd').isot
+    date_obs = Time(mjd_obs_eff, format='mjd').isot
     header_out.set('DATE-OBS', date_obs, 'average date of observation',
                    after='EXPTIME')
-    header_out.set('MJD-OBS', mjd, '[days] average MJD', after='DATE-OBS')
+    header_out.set('MJD-OBS', mjd_obs_eff, '[days] average MJD', after='DATE-OBS')
     
     
     # buildref version
@@ -1989,12 +1971,17 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
     # number of images available and used
     header_out['R-NFILES'] = (nfiles, 'number of images within constraints '
                               'available')
-    header_out['R-NUSED'] = (len(image_names), 'number of images used to combine')
+    header_out['R-NUSED'] = (len(imtable), 'number of images used to combine')
+
     # names of images that were used
-    for nimage, image in enumerate(image_names):
+    for nimage, image in enumerate(imtable['image_name']):
         image = image.split('/')[-1].split('.fits')[0]
         header_out['R-IM{}'.format(nimage+1)] = (image, 'image {} used to combine'
                                                  .format(nimage+1))
+        # also record scaling applied
+        header_out['R-FSC{}'.format(nimage+1)] = (imtable['fscale'][nimage],
+                                                  'image {} FSCALE used in SWarp'
+                                                  .format(nimage+1))
 
     # combination method
     header_out['R-COMB-M'] = (combine_type,
@@ -2131,7 +2118,7 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
 
         # run SWarp twice on mask image with combine_type OR and MIN
         fits_mask_OR = fits_mask_out.replace('mask', 'mask_OR')
-        cmd = ['swarp', ','.join(mask_names),
+        cmd = ['swarp', ','.join(imtable['mask_name']),
                '-c', swarp_cfg,
                '-COMBINE', 'Y',
                '-COMBINE_TYPE', 'OR',
@@ -2168,7 +2155,7 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
         
 
         fits_mask_MIN = fits_mask_out.replace('mask', 'mask_MIN')
-        cmd = ['swarp', ','.join(mask_names),
+        cmd = ['swarp', ','.join(imtable['mask_name']),
                '-c', swarp_cfg,
                '-COMBINE', 'Y',
                '-COMBINE_TYPE', 'MIN',
@@ -2228,10 +2215,10 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
         header_refimage = read_hdulist(refimage, get_data=False, get_header=True)
 
         # initialize combined mask
-        mask_array_shape = (len(mask_names), refimage_ysize, refimage_xsize)
+        mask_array_shape = (len(imtable), refimage_ysize, refimage_xsize)
         data_mask_array = np.zeros(mask_array_shape, dtype='uint8')
         
-        for nimage, image in enumerate(image_names):
+        for nimage, image in enumerate(imtable['image_name']):
 
             # skip remapping of images themselves for the moment; only
             # needed if some combination of the images other than
@@ -2264,9 +2251,9 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
                         
 
             # same for image masks if there are any
-            if len(mask_names) >= nimage:
+            if len(imtable) >= nimage:
 
-                image_mask = mask_names[nimage]
+                image_mask = imtable['mask_name'][nimage]
                 
                 log.info ('processing mask: {}'.format(image_mask))
                 
@@ -2367,27 +2354,27 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
 
 ################################################################################
 
-def calc_headers (combine_type, gains, rdnoises, saturates, exptimes, mjds):
+def calc_headers (combine_type, imtable):
 
-    nimages = len(gains)
-    gain = np.mean(gains)
-    mjd = np.mean(mjds)
-    
+    nimages = len(imtable)
+    gain = np.mean(imtable['gain'])
+    mjd_obs = np.mean(imtable['mjd_obs'])
+
     if combine_type == 'sum':
-        
-        rdnoise = np.sqrt(np.sum(rdnoises**2))
-        saturate = np.sum(saturates)
-        exptime = exptimes[0] * nimages
-        
+
+        rdnoise = np.sqrt(np.sum(imtable['rdnoise']**2))
+        saturate = np.sum(imtable['saturate'])
+        exptime = imtable['exptime'][0] * nimages
+
     else:
-        
-        rdnoise = np.sqrt(np.sum(rdnoises**2)) / nimages
-        saturate = np.amin(saturates)
+
+        rdnoise = np.sqrt(np.sum(imtable['rdnoise']**2)) / nimages
+        saturate = np.amin(imtable['saturate'])
         # all images have been scaled in flux to the 1st image, so
         # effective exposure time is that of the 1st image
-        exptime = exptimes[0]
-        
-    return gain, rdnoise, saturate, exptime, mjd
+        exptime = imtable['exptime'][0]
+
+    return gain, rdnoise, saturate, exptime, mjd_obs
 
 
 ################################################################################
