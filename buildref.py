@@ -522,6 +522,7 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
     filt_list = []
     radec_list = []
     nfiles_list = []
+    limmag_proj_list = []
     for obj in objs_uniq:
         
         # skip fields '00000' and those beyond 20,000
@@ -574,8 +575,8 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
                 files_sort = table[mask]['FILE'][indices_sort]
                 
 
-                # calculate expected cumulative LIMMAG if images would
-                # be combined using simple average
+                # calculate projected cumulative LIMMAG if images
+                # would be combined using simple average
                 limmags_sort_cum = -2.5*np.log10(
                     np.sqrt(np.cumsum((10**(-0.4*limmags_sort))**2))
                     / (np.arange(len(limmags_sort))+1))
@@ -601,9 +602,9 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
                 # filter based on target limiting magnitude
                 limmag_target = get_par(set_br.limmag_target,tel)[filt]
                 # add dmag to target magnitude to account for the fact
-                # that the expected limiting magnitude will be
+                # that the projected limiting magnitude will be
                 # somewhat higher than the actual one
-                dmag = 0.2
+                dmag = 0.15
                 mask_sort_cum = (limmags_sort_cum <= limmag_target + dmag)
                 # use a minimum number of files, adding 1 to images
                 # selected above
@@ -633,18 +634,19 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
                 limmags_2coadd = limmags_sort[mask_sort_cum]
                 bkgstd_2coadd = bkgstd_sort[mask_sort_cum]
                 
-                genlog.info ('files and their limmags and expected cumulative '
+                genlog.info ('files and their limmags and projected cumulative '
                              'limmags used for {}-band coadd:'.format(filt))
                 for i in range(len(files_2coadd)):
                     genlog.info ('{} {:.3f} {:.3f}'
                                  .format(files_2coadd[i], limmags_2coadd[i],
                                          limmags_sort_cum[i]))
 
-                genlog.info ('expected (target) {}-band limiting magnitude of '
+                limmag_proj = limmags_sort_cum[mask_sort_cum][-1]
+                
+                genlog.info ('projected (target) {}-band limiting magnitude of '
                              'co-add: {:.2f} ({})'
-                             .format(filt,limmags_sort_cum[mask_sort_cum][-1],
-                                     limmag_target))
-
+                             .format(filt, limmag_proj, limmag_target))
+                
                 
             else:
             
@@ -692,6 +694,7 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
             filt_list.append(filt)
             radec_list.append(radec)
             nfiles_list.append(nfiles)
+            limmag_proj_list.append(limmag_proj)
 
 
     if len(table)==0:
@@ -710,8 +713,8 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
     # for a particular field and filter combination, using
     # the [imcombine] function
     result = pool_func_lists (prep_ref, list_of_imagelists, obj_list,
-                              filt_list, radec_list, nfiles_list, log=genlog,
-                              nproc=nproc)
+                              filt_list, radec_list, nfiles_list,
+                              limmag_proj_list, log=genlog, nproc=nproc)
 
 
     # make color figures
@@ -1067,7 +1070,7 @@ def prep_colfig (field_ID, filters, log=None):
     
 ################################################################################
 
-def prep_ref (imagelist, field_ID, filt, radec, nfiles):
+def prep_ref (imagelist, field_ID, filt, radec, nfiles, limmag_proj):
 
     # determine and create reference directory
     ref_path = '{}/{:0>5}'.format(get_par(set_bb.ref_dir,tel), field_ID)
@@ -1202,7 +1205,8 @@ def prep_ref (imagelist, field_ID, filt, radec, nfiles):
             hdr['R-TSTART'] = (time_refstart, 'UT time that module was started')
 
             # number of images used
-            hdr['R-NFILES'] = (nfiles, 'number of images within constraints available')
+            hdr['R-NFILES'] = (nfiles, 'number of images within constraints '
+                               'available')
             hdr['R-NUSED'] = (len(imagelist), 'number of images used to combine')
 
             # names of images that were used
@@ -1210,6 +1214,16 @@ def prep_ref (imagelist, field_ID, filt, radec, nfiles):
                 image = image.split('/')[-1].split('.fits')[0]
                 hdr['R-IM{}'.format(nimage+1)] = (image, 'image {} used to '
                                                   'combine'.format(nimage+1))
+                hdr['R-FSC{}'.format(nimage+1)] = (1.0,
+                                                   'image {} FSCALE used in SWarp'
+                                                   .format(nimage+1))
+
+
+            # projected and target limiting magnitudes
+            hdr['R-LMPROJ'] = (limmag_proj, '[mag] projected limiting magnitude')
+            limmag_target = get_par(set_br.limmag_target,tel)[filt]
+            hdr['R-LMTARG'] = (limmag_target, '[mag] target limiting magnitude')
+
 
             # combination method
             hdr['R-COMB-M'] = (get_par(set_br.combine_type,tel),
@@ -1254,6 +1268,7 @@ def prep_ref (imagelist, field_ID, filt, radec, nfiles):
                        ra_center = ra_center,
                        dec_center = dec_center,
                        nfiles = nfiles,
+                       limmag_proj = limmag_proj,
                        back_type = get_par(set_br.back_type,tel),
                        back_size = get_par(set_zogy.bkg_boxsize,tel),
                        back_filtersize = get_par(set_zogy.bkg_filtersize,tel),
@@ -1351,6 +1366,7 @@ def prep_ref (imagelist, field_ID, filt, radec, nfiles):
 
             imcombine (field_ID, imagelist, ref_fits_temp, combine_type,
                        ra_center=ra_center, dec_center=dec_center, nfiles=nfiles,
+                       limmag_proj=limmag_proj,
                        back_type=back_type, back_default=back_default,
                        back_size=back_size, back_filtersize=back_filtersize,
                        masktype_discard=masktype_discard, tempdir=tmp_path,
@@ -1404,8 +1420,8 @@ def prep_ref (imagelist, field_ID, filt, radec, nfiles):
 
 def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
                masktype_discard=None, tempdir='.temp', ra_center=None,
-               dec_center=None, nfiles=0, use_wcs_center=True, back_type='auto',
-               back_default=0, back_size=120, back_filtersize=3,
+               dec_center=None, nfiles=0, limmag_proj=None, use_wcs_center=True,
+               back_type='auto', back_default=0, back_size=120, back_filtersize=3,
                resample_suffix='_resamp.fits', remap_each=False,
                remap_suffix='_remap.fits', swarp_cfg=None, nthreads=0, log=None):
 
@@ -1745,8 +1761,8 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
         # add fscale to image header
         header['FSCALE'] = (fscale, 'flux ratio wrt to first image and at '
                             'airmass=1')
-        log.info ('FSCALE of image {}: {}'.format(image, fscale))
-        
+        log.info ('FSCALE of image {}: {:.3f}'.format(image, fscale))
+
         # update these header arrays with fscale
         imtable['rdnoise'][nimage] *= fscale
         imtable['saturate'][nimage] *= fscale
@@ -1978,10 +1994,18 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
         image = image.split('/')[-1].split('.fits')[0]
         header_out['R-IM{}'.format(nimage+1)] = (image, 'image {} used to combine'
                                                  .format(nimage+1))
+
+    # FSCALE used
+    for nimage, image in enumerate(imtable['image_name']):
         # also record scaling applied
         header_out['R-FSC{}'.format(nimage+1)] = (imtable['fscale'][nimage],
                                                   'image {} FSCALE used in SWarp'
                                                   .format(nimage+1))
+
+    # projected and target limiting magnitudes
+    hdr['R-LMPROJ'] = (limmag_proj, '[mag] projected limiting magnitude')
+    limmag_target = get_par(set_br.limmag_target,tel)[filt]
+    hdr['R-LMTARG'] = (limmag_target, '[mag] target limiting magnitude')
 
     # combination method
     header_out['R-COMB-M'] = (combine_type,
