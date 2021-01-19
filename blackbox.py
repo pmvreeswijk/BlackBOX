@@ -2013,6 +2013,19 @@ def blackbox_reduce (filename):
         hdulist = fits.HDUList(fits.PrimaryHDU(header=header))
         hdulist.writeto(new_fits.replace('.fits', '_hdr.fits'), overwrite=True)
 
+
+        if False:
+            # if reduction steps were just performed or in the special case
+            # that the image reduction and cat_extract and set_zogy.redo_new
+            # are all three off while trans_extract is on, check for the QC
+            # flag related to the 'full' header keywords
+            if (do_reduction or (not get_par(set_bb.img_reduce,tel) and
+                                 not get_par(set_bb.cat_extract,tel) and
+                                 not get_par(set_zogy.redo_new,tel) and
+                                 get_par(set_bb.trans_extract,tel))):
+                pass
+
+
         # check quality control
         qc_flag = run_qc_check (header, tel, log=log, check_key_type='full')
 
@@ -5126,7 +5139,7 @@ def jnow2icrs (ra_in, dec_in, equinox, icrs2jnow=False):
 
 ################################################################################
 
-def define_sections (data_shape, tel=None):
+def define_sections (data_shape, xbin=1, ybin=1, tel=None):
 
     """Function that defines and returns [chan_sec], [data_sec],
     [os_sec_hori], [os_sec_vert] and [data_sec_red], based on the
@@ -5143,8 +5156,8 @@ def define_sections (data_shape, tel=None):
     dy = ysize // ny
     dx = xsize // nx
 
-    ysize_chan = get_par(set_bb.ysize_chan,tel)
-    xsize_chan = get_par(set_bb.xsize_chan,tel)
+    ysize_chan = get_par(set_bb.ysize_chan,tel) // ybin
+    xsize_chan = get_par(set_bb.xsize_chan,tel) // xbin
     ysize_os = (ysize-ny*ysize_chan) // ny
     xsize_os = (xsize-nx*xsize_chan) // nx
 
@@ -5153,6 +5166,12 @@ def define_sections (data_shape, tel=None):
     # are currently defined to be located on the CCD as follows:
     #
     # [ 8, 9, 10, 11, 12, 13, 14, 15]
+    # [ 8, 9, 10, 11, 12, 13, 14, 15]
+    # [ 8, 9, 10, 11, 12, 13, 14, 15]
+    # [ 8, 9, 10, 11, 12, 13, 14, 15]
+    # [ 0, 1,  2,  3,  4,  5,  6,  7]
+    # [ 0, 1,  2,  3,  4,  5,  6,  7]
+    # [ 0, 1,  2,  3,  4,  5,  6,  7]
     # [ 0, 1,  2,  3,  4,  5,  6,  7]
 
     # channel section slices including overscan; shape=(16,2)
@@ -5168,13 +5187,15 @@ def define_sections (data_shape, tel=None):
     # overscan that are contaminated with flux from the image
     # and also discard last column as can have high value
     ncut = 5
-    os_sec_vert = tuple([(slice(y,y+dy), slice(x+xsize_chan+ncut,x+dx-1))
+    ncut_vert = max(ncut // xbin, 1)
+    os_sec_vert = tuple([(slice(y,y+dy), slice(x+xsize_chan+ncut_vert,x+dx-1))
                          for y in range(0,ysize,dy) for x in range(0,xsize,dx)])
 
     # channel horizontal overscan sections; shape=(16,2)
     # cut off [ncut] pixels to avoid including pixels on the edge of the
     # overscan that are contaminated with flux from the image
-    ysize_os_cut = ysize_os - ncut
+    ncut_hori = max(ncut // ybin, 1)
+    ysize_os_cut = ysize_os - ncut_hori
     os_sec_hori = tuple([(slice(y,y+ysize_os_cut), slice(x,x+dx))
                          for y in range(dy-ysize_os_cut,dy+ysize_os_cut,ysize_os_cut)
                          for x in range(0,xsize,dx)])
@@ -5190,7 +5211,7 @@ def define_sections (data_shape, tel=None):
 
 ################################################################################
 
-def os_corr(data, header, imgtype, tel=None, log=None):
+def os_corr (data, header, imgtype, xbin=1, ybin=1, tel=None, log=None):
 
     """Function that corrects [data] for the overscan signal in the
        vertical and horizontal overscan strips. The definitions of the
@@ -5205,22 +5226,24 @@ def os_corr(data, header, imgtype, tel=None, log=None):
         t = time.time()
 
     chan_sec, data_sec, os_sec_hori, os_sec_vert, data_sec_red = (
-        define_sections(np.shape(data), tel=tel))
-        
+        define_sections(np.shape(data), xbin=xbin, ybin=ybin, tel=tel))
+
     # use median box filter with width [dcol] to decrease the noise
     # level in the overscan column's clipped mean for the horizontal
     # overscan when it has a limited amount of pixels
     nrows_hos = np.shape(data[os_sec_hori[0]])[0]
-    if nrows_hos <= 100:
-        dcol = 15 # after testing, 15-21 seem decent widths to use
+    if nrows_hos <= int(100/ybin):
+        # after testing, 15-21 seem decent widths to use
+        dcol = int(np.ceil(15./ybin))
     else:
         # otherwise, determine it per column
         dcol = 1
+
     dcol_half = int(dcol/2.)+1
 
     # number of data columns and rows in the channel (without overscans)
-    ncols = get_par(set_bb.xsize_chan,tel)
-    nrows = get_par(set_bb.ysize_chan,tel)
+    ncols = get_par(set_bb.xsize_chan,tel) // xbin
+    nrows = get_par(set_bb.ysize_chan,tel) // ybin
     
     # initialize output data array (without overscans)
     ny = get_par(set_bb.ny,tel)
