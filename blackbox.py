@@ -1569,9 +1569,9 @@ def blackbox_reduce (filename):
 
         # copy relevant files to tmp folder for object images
         if imgtype == 'object':
-            result = copy_files2keep(new_base, tmp_base,
-                                     get_par(set_bb.img_reduce_exts,tel),
-                                     move=False, do_fpack=False, log=log)
+            copy_files2keep(new_base, tmp_base,
+                            get_par(set_bb.img_reduce_exts,tel),
+                            move=False, do_fpack=False, log=log)
 
         do_reduction = False
 
@@ -2054,10 +2054,8 @@ def blackbox_reduce (filename):
 
             # copy selected output files to new directory and remove tmp folder
             # corresponding to the object image
-            result = copy_files2keep(tmp_base, new_base,
-                                     get_par(set_bb.all_2keep,tel),
-                                     move=(not get_par(set_bb.keep_tmp,tel)),
-                                     log=log)
+            copy_files2keep(tmp_base, new_base, get_par(set_bb.all_2keep,tel),
+                            move=(not get_par(set_bb.keep_tmp,tel)), log=log)
             clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel), log=log)
             close_log(log, logfile)
             return fits_out
@@ -2091,10 +2089,9 @@ def blackbox_reduce (filename):
         if do_reduction:
             # if reduction steps were performed, copy selected output
             # files to new directory and clean up tmp folder if needed
-            result = copy_files2keep(tmp_base, new_base,
-                                     get_par(set_bb.img_reduce_exts,tel),
-                                     move=(not get_par(set_bb.keep_tmp,tel)),
-                                     log=log)
+            copy_files2keep(tmp_base, new_base,
+                            get_par(set_bb.img_reduce_exts,tel),
+                            move=(not get_par(set_bb.keep_tmp,tel)), log=log)
             clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel), log=log)
             close_log(log, logfile)
             return fits_out
@@ -2151,8 +2148,8 @@ def blackbox_reduce (filename):
 
             # otherwise, copy cat_extract products and trans_extract
             # to tmp folder and continue
-            result = copy_files2keep(new_base, tmp_base, ext_list, move=False,
-                                     do_fpack=False, log=log)
+            copy_files2keep(new_base, tmp_base, ext_list, move=False,
+                            do_fpack=False, log=log)
 
 
     elif get_par(set_bb.force_reproc_new,tel) and not do_reduction:
@@ -2216,9 +2213,9 @@ def blackbox_reduce (filename):
 
             # but at the same time, copy the cat_extract products
             # to the tmp folder, as the cat_extract can be skipped
-            result = copy_files2keep(new_base, tmp_base,
-                                     get_par(set_bb.cat_extract_exts,tel),
-                                     move=False, do_fpack=False, log=log)
+            copy_files2keep(new_base, tmp_base,
+                            get_par(set_bb.cat_extract_exts,tel),
+                            move=False, do_fpack=False, log=log)
 
 
         # now files in reduced folder can be removed
@@ -2332,11 +2329,12 @@ def blackbox_reduce (filename):
             if not zogy_processed:
                 # copy selected output files to red directory and
                 # remove tmp folder corresponding to the image
-                log.error ('due to exception, only copy image reduction products')
-                result = copy_files2keep(tmp_base, new_base,
-                                         get_par(set_bb.img_reduce_exts,tel),
-                                         move=(not get_par(set_bb.keep_tmp,tel)),
-                                         log=log)
+                log.error ('due to unexpected exception, saving just the image '
+                           'reduction products and returning from '
+                           '[blackbox_reduce] prematurely')
+                copy_files2keep(tmp_base, new_base,
+                                get_par(set_bb.img_reduce_exts,tel),
+                                move=(not get_par(set_bb.keep_tmp,tel)), log=log)
                 clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel), log=log)
                 close_log(log, logfile)
                 return None
@@ -2351,7 +2349,7 @@ def blackbox_reduce (filename):
                     #log.exception(traceback.format_exc())
                     log.exception('exception was raised during [run_qc_check] '
                                   'for new-only image {}: {}'.format(new_fits, e))
-                    
+
                 if qc_flag=='red':
                     log.error('red QC flag in [header_new] returned by new-only '
                               '[optimal_subtraction]; making dummy catalogs')
@@ -2415,11 +2413,12 @@ def blackbox_reduce (filename):
             if not zogy_processed:
                 # copy selected output files to red directory and
                 # remove tmp folder corresponding to the image
-                log.error ('due to exception, only copy image reduction products')
-                result = copy_files2keep(tmp_base, new_base,
-                                         get_par(set_bb.img_reduce_exts,tel),
-                                         move=(not get_par(set_bb.keep_tmp,tel)),
-                                         log=log)
+                log.error ('due to unexpected exception, saving just the image '
+                           'reduction products and returning from '
+                           '[blackbox_reduce] prematurely')
+                copy_files2keep(tmp_base, new_base,
+                                get_par(set_bb.img_reduce_exts,tel),
+                                move=(not get_par(set_bb.keep_tmp,tel)), log=log)
 
                 # before leaving, remove this reference ID
                 # and filter combination from the [ref_ID_filt] queue
@@ -2465,13 +2464,13 @@ def blackbox_reduce (filename):
                     # move [ref_2keep] to the reference directory
                     make_dir (ref_path, lock=lock)
                     ref_base = ref_fits_out.split('_red.fits')[0]
-                    result = copy_files2keep(tmp_base, ref_base,
-                                             get_par(set_bb.ref_2keep,tel),
-                                             # need to copy instead of move,
-                                             # as copying of some of the same
-                                             # files in list_2keep is done
-                                             # further down below
-                                             move=False, log=log)
+                    copy_files2keep(tmp_base, ref_base,
+                                    get_par(set_bb.ref_2keep,tel),
+                                    # need to copy instead of move, as
+                                    # copying of some of the same
+                                    # files in list_2keep is done
+                                    # further down below
+                                    move=False, log=log)
 
 
                 # now that reference is built, remove this reference ID
@@ -2550,14 +2549,15 @@ def blackbox_reduce (filename):
             if not zogy_processed:
                 # copy selected output files to red directory and
                 # remove tmp folder corresponding to the image
-                log.error ('due to exception, only copy image reduction products')
-                result = copy_files2keep(tmp_base, new_base,
-                                         get_par(set_bb.img_reduce_exts,tel),
-                                         move=(not get_par(set_bb.keep_tmp,tel)),
-                                         log=log)
+                log.error ('due to unexpected exception, saving just the image '
+                           'reduction products and returning from '
+                           '[blackbox_reduce] prematurely')
+                copy_files2keep(tmp_base, new_base,
+                                get_par(set_bb.img_reduce_exts,tel),
+                                move=(not get_par(set_bb.keep_tmp,tel)), log=log)
 
                 # remove cat_extract and trans_extract products?
-
+                
                 clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel), log=log)
                 close_log(log, logfile)
                 return None
@@ -2631,10 +2631,8 @@ def blackbox_reduce (filename):
         list_2keep += ['_trans.fits']
 
     # copy/move files over
-    result = copy_files2keep(tmp_base, new_base, list_2keep,
-                             # if tmp folder is cleaned up afterwards,
-                             # move the files instead of copying
-                             move=(not get_par(set_bb.keep_tmp,tel)), log=log)
+    copy_files2keep(tmp_base, new_base, list_2keep,
+                    move=(not get_par(set_bb.keep_tmp,tel)), log=log)
 
     if get_par(set_zogy.timing,tel):
         log_timing_memory (t0=t_blackbox_reduce, label='blackbox_reduce at end',
@@ -5216,9 +5214,9 @@ def os_corr (data, header, imgtype, xbin=1, ybin=1, tel=None, log=None):
     """Function that corrects [data] for the overscan signal in the
        vertical and horizontal overscan strips. The definitions of the
        different data/overscan/channel sections are taken from
-       [set_blackbox].  The function returns a data array that consists of
-       the data sections only, i.e. without the overscan regions. The
-       [header] is update in plac.
+       [set_blackbox].  The function returns a data array that
+       consists of the data sections only, i.e. without the overscan
+       regions. The [header] is update in place.
 
     """
  
