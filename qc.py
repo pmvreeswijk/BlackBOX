@@ -416,21 +416,27 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
 
         # create empty output catalog of type [cat_type] using
         # function [format_cat] in zogy.py
-        if cat_type == 'trans' and get_par(set_zogy.save_thumbnails,telescope):
-            # for transient catalog, also produce thumbnail definitions
-            keys_thumbnails = ['THUMBNAIL_RED', 'THUMBNAIL_REF',
-                               'THUMBNAIL_D', 'THUMBNAIL_SCORR']
+        if cat_type == 'trans':
+
+            # for transient catalog, produce thumbnail dictionary
+            dict_thumbnails = {'THUMBNAIL_RED':   None,
+                               'THUMBNAIL_REF':   None,
+                               'THUMBNAIL_D':     None,
+                               'THUMBNAIL_SCORR': None}
+            save_thumbnails = get_par(set_zogy.save_thumbnails,telescope)
             size_thumbnails = get_par(set_zogy.size_thumbnails,telescope)
+
             result = format_cat(None, cat_dummy, cat_type=cat_type,
                                 header_toadd=header_dummy, 
                                 apphot_radii=get_par(
                                     set_zogy.apphot_radii,telescope),
-                                data_thumbnails=None,
-                                keys_thumbnails=keys_thumbnails,
+                                dict_thumbnails=dict_thumbnails,
+                                save_thumbnails=save_thumbnails,
                                 size_thumbnails=size_thumbnails,
                                 ML_calc_prob=get_par(
                                     set_zogy.ML_calc_prob,telescope),
                                 tel=telescope, log=log)
+
         else:
             result = format_cat(None, cat_dummy, cat_type=cat_type,
                                 header_toadd=header_dummy, 
