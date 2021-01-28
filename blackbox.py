@@ -2074,7 +2074,7 @@ def blackbox_reduce (filename):
         close_log(log, logfile)
         return fits_out
 
-
+    
     # if both catalog and transient extraction are switched off, then
     # no need to execute [optimal_subtraction]
     if (not get_par(set_bb.cat_extract,tel) and
@@ -2162,9 +2162,30 @@ def blackbox_reduce (filename):
         new_list = glob.glob('{}*'.format(new_base))
         ext_list = []
 
-        # if cat_extract=True then remove all cat and trans products
-        if get_par(set_bb.cat_extract,tel):
 
+        # should full-source catalog be empty, also redo the
+        # catalog extraction as this is a forced rereduction
+        fits_cat = '{}_red_cat.fits'.format(new_base)
+        dumcat = False
+        if os.path.isfile(fits_cat):
+            header_cat = read_hdulist(fits_cat, get_data=False, get_header=True)
+            if 'DUMCAT' in header_cat:
+                dumcat = header_cat['DUMCAT']
+            elif 'NAXIS2' in header_cat and header_cat['NAXIS2']==0:
+                dumcat = True
+        else:
+            # if full-source catalog does not exist, force
+            # the re-extraction
+            dumcat = True
+
+        if dumcat:
+            log.info ('full-source catalog is a dummy (zero entries) or does '
+                      'not exist for {}; re-extracting it'.format(filename))
+
+        # if cat_extract=True or full-source catalog is a dummy
+        # catalog, then remove all cat and trans products
+        if get_par(set_bb.cat_extract,tel) or dumcat:
+            
             log.info ('forced reprocessing: removing all existing cat_extract '
                       'and trans_extract products in reduced folder for {}'
                       .format(filename))
@@ -2179,9 +2200,12 @@ def blackbox_reduce (filename):
                 unzip (file_tmp)
 
 
-            # clear any pre-existing qc-flags from [new_fits] header
+            # clear any pre-existing qc-flags from [new_fits] header,
+            # including keywords that determine whether [run_wcs] and
+            # [format_cat] are rerun
             with fits.open(new_fits, 'update', memmap=True) as hdulist:
-                keys = ['DUMCAT', 'QC-FLAG', 'QCRED', 'QCORA', 'QCYEL'] 
+                keys = ['DUMCAT', 'QC-FLAG', 'QCRED', 'QCORA', 'QCYEL',
+                        'FORMAT-P', 'CTYPE1', 'CTYPE2'] 
                 for key in keys:
                     if 'QCRED' in key or 'QCORA' in key or 'QCYEL' in key:
                         keys2del = ['{}{}'.format(key[0:5], i)
@@ -2205,17 +2229,19 @@ def blackbox_reduce (filename):
 
         elif get_par(set_bb.trans_extract,tel):
 
-            log.info ('forced reprocessing: removing all existing trans_extract '
-                      'products in reduced folder for {}'.format(filename))
+            log.info ('forced reprocessing: removing all existing '
+                      'trans_extract products in reduced folder for {}'
+                      .format(filename))
 
             # only remove trans_extract products
             ext_list += get_par(set_bb.trans_extract_exts,tel)
-
-            # but at the same time, copy the cat_extract products
-            # to the tmp folder, as the cat_extract can be skipped
+            
+            # but before doing that, copy the cat_extract products to
+            # the tmp folder, as the cat_extract can be skipped
             copy_files2keep(new_base, tmp_base,
                             get_par(set_bb.cat_extract_exts,tel),
                             move=False, do_fpack=False, log=log)
+
 
 
         # now files in reduced folder can be removed
@@ -2228,9 +2254,9 @@ def blackbox_reduce (filename):
         lock.release()
 
 
-    # if trans_extract is True while img_reduce is False, delete the
-    # jpg previously created, as it may include the background which
-    # is removed in trans_extract
+    # if cat_extract is True while img_reduce is False, delete the jpg
+    # previously created, as it may include the background which is
+    # removed in cat_extract
     if get_par(set_bb.cat_extract,tel) and not get_par(set_bb.img_reduce,tel):
         jpgfile = '{}_red.jpg'.format(new_base)
         if os.path.isfile(jpgfile):
