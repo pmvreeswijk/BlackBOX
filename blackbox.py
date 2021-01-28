@@ -826,16 +826,16 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     # force_reproc_new in set_bb if corresponding input parameters are
     # not None
     if img_reduce is not None:
-        set_bb.img_reduce = img_reduce
+        set_bb.img_reduce = str2bool(img_reduce)
 
     if cat_extract is not None:
-        set_bb.cat_extract = cat_extract
-
+        set_bb.cat_extract = str2bool(cat_extract)
+        
     if trans_extract is not None:
-        set_bb.trans_extract = trans_extract
-
+        set_bb.trans_extract = str2bool(trans_extract)
+        
     if force_reproc_new is not None:
-        set_bb.force_reproc_new = force_reproc_new
+        set_bb.force_reproc_new = str2bool(force_reproc_new)
 
 
     if get_par(set_zogy.timing,tel):
