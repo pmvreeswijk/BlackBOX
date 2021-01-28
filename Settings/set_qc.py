@@ -201,7 +201,7 @@ qc_range = {
         # SExtractor
         'S-NOBJ'  : {'default':'None', 'val_type': 'skip',    'val_range': [ (4e3,1e4), (3e3,2e5), (1e3,1e7) ], 'key_type': 'full', 'pos': True , 'comment': 'number of objects detected by SExtractor'},
         'NOBJECTS': {'default':'None', 'val_type': 'min_max', 'val_range': [ (4e3,1e5), (1e3,3e5), (1e2,1e7) ], 'key_type': 'full', 'pos': True , 'comment': 'number of >= [NSIGMA]-sigma objects'},
-        'S-SEEING': {'default':'None', 'val_type': 'skip',    'val_range': [ (2,4), (1,5), (0.5,8) ],           'key_type': 'full', 'pos': True , 'comment': '[arcsec] SExtractor seeing estimate'},
+        'S-SEEING': {'default':'None', 'val_type': 'min_max', 'val_range': [ (1.5,4), (1,5), (0.5,7) ],         'key_type': 'full', 'pos': True , 'comment': '[arcsec] SExtractor seeing estimate'},
         'S-SEESTD': {'default':'None', 'val_type': 'skip',    'val_range':  {'u': [ (0.1,0.3) ],
                                                                              'g': [ (0.1,0.1) ],
                                                                              'q': [ (0.1,0.1) ],
@@ -296,6 +296,11 @@ qc_range = {
         #                                                                    'i': [ (19.5, 0.15) ],
         #                                                                    'z': [ (18.3, 0.15) ]},              'key_type': 'full', 'pos': True , 'comment': '[mag] full-frame 5-sigma limiting magnitude'},
 
+
+        # check on offset between RA-CNTR, DEC-CNTR and the RA, DEC corresponding to the ML/BG field definition for a particular OBJECT or field ID
+        'RADECOFF': {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 0.15) ],                       'key_type': 'full',   'pos': True , 'comment': '[deg] offset RA,DEC-CNTR wrt ML/BG field grid'},
+
+        
         
         # Transients
         'Z-DX'    : {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 0.04) ],                       'key_type': 'trans', 'pos': False, 'comment': '[pix] dx median offset full image'},
@@ -330,9 +335,6 @@ qc_range = {
         #                                                                    'r': [ (19.9, 0.15) ],
         #                                                                    'i': [ (19.3, 0.15) ],
         #                                                                    'z': [ (18.2, 0.15) ]},              'key_type': 'trans', 'pos': True , 'comment': '[mag] full-frame transient [T-NSIGMA]-sigma limiting mag'},
-
-        # check on offset between RA-CNTR, DEC-CNTR and the RA, DEC corresponding to the ML/BG field definition for a particular OBJECT or field ID
-        'RADECOFF': {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 0.15) ],                       'key_type': 'full',   'pos': True , 'comment': '[deg] offset RA,DEC-CNTR wrt ML/BG field grid'},
 
         
         # some additional ones to make sure these are listed in the dummy output catalogs
