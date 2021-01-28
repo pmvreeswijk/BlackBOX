@@ -91,7 +91,9 @@ keywords_version = '1.0.0'
 
 def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
                   recursive=None, imgtypes=None, filters=None, image=None, 
-                  image_list=None, master_date=None):
+                  image_list=None, master_date=None,
+                  img_reduce=None, cat_extract=None, trans_extract=None,
+                  force_reproc_new=None):
 
 
     """Function that processes MeerLICHT or BlackGEM images, performs
@@ -819,6 +821,21 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     # 'OMP_NUM_THREADS' set at the top
     if int(os.environ['OMP_NUM_THREADS']) != get_par(set_bb.nthreads,tel):
         set_bb.nthreads = int(os.environ['OMP_NUM_THREADS'])
+
+    # update img_reduce, cat_extract, trans_extract and
+    # force_reproc_new in set_bb if corresponding input parameters are
+    # not None
+    if img_reduce is not None:
+        set_bb.img_reduce = img_reduce
+
+    if cat_extract is not None:
+        set_bb.cat_extract = cat_extract
+
+    if trans_extract is not None:
+        set_bb.trans_extract = trans_extract
+
+    if force_reproc_new is not None:
+        set_bb.force_reproc_new = force_reproc_new
 
 
     if get_par(set_zogy.timing,tel):
@@ -6078,7 +6095,20 @@ if __name__ == "__main__":
     params.add_argument('--image_list', type=str, default=None,
                         help='Process images listed in ASCII file with this '
                         'name; default=None')
-    
+
+    params.add_argument('--img_reduce', type=str, default=None,
+                        help='Perform basic image reduction part; default=None')
+
+    params.add_argument('--cat_extract', type=str, default=None,
+                        help='Perform catalog extraction and calibration part; '
+                        'default=None')
+
+    params.add_argument('--trans_extract', type=str, default=None,
+                        help='Perform transient extraction part; default=None')
+
+    params.add_argument('--force_reproc_new', type=str, default=None,
+                        help='Force reprocessing of new image; default=None')
+
     params.add_argument('--master_date', type=str, default=None,
                         help='Create master file of type(s) [imgtypes] and '
                         'filter(s) [filters] for this(these) date(s) (e.g. 2019 '
@@ -6089,5 +6119,7 @@ if __name__ == "__main__":
     run_blackbox (telescope=args.telescope, mode=args.mode, date=args.date, 
                   read_path=args.read_path, recursive=args.recursive, 
                   imgtypes=args.imgtypes, filters=args.filters, image=args.image,
-                  image_list=args.image_list, master_date=args.master_date)
-
+                  image_list=args.image_list, master_date=args.master_date,
+                  img_reduce=args.img_reduce, cat_extract=args.cat_extract,
+                  trans_extract=args.trans_extract,
+                  force_reproc_new=args.force_reproc_new)
