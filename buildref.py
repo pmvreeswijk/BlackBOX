@@ -546,10 +546,10 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
                               .format(obj, mlbg_fieldIDs))
                 continue
                 
-        elif center_type == 'median':
-            # otherwise let [radec] refer to a tuple pair containing
-            # the median RA-CNTR and DEC-CNTR for all images of a
-            # particular field
+        elif center_type == 'median_field':
+            # let [radec] refer to a tuple pair containing the median
+            # RA-CNTR and DEC-CNTR for all images of a particular
+            # field
             ra_cntr_med = np.median(table[mask_obj]['RA-CNTR'])
             dec_cntr_med = np.median(table[mask_obj]['DEC-CNTR'])
             radec = (ra_cntr_med, dec_cntr_med)
@@ -563,6 +563,15 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
             nmin1, nmin2 = get_par(set_br.subset_nmin,tel)
 
 
+            if center_type == 'median_filter':
+                # let [radec] refer to a tuple pair containing the
+                # median RA-CNTR and DEC-CNTR for the images of a
+                # particular field in this filter
+                ra_cntr_med = np.median(table[mask]['RA-CNTR'])
+                dec_cntr_med = np.median(table[mask]['DEC-CNTR'])
+                radec = (ra_cntr_med, dec_cntr_med)
+
+            
             # depending on [set_br.use_abslimits], use target limiting
             # magnitudes defined by PaulG or fraction of images
             # available
@@ -1262,7 +1271,7 @@ def prep_ref (imagelist, field_ID, filt, radec, nfiles, limmag_proj):
 
         try:
             imcombine (field_ID, imagelist, ref_fits,
-                       get_par(set_br.combine_type,tel),
+                       get_par(set_br.combine_type,tel), filt,
                        masktype_discard = get_par(set_br.masktype_discard,tel),
                        tempdir = tmp_path,
                        ra_center = ra_center,
@@ -1364,7 +1373,7 @@ def prep_ref (imagelist, field_ID, filt, radec, nfiles, limmag_proj):
 
             ref_fits_temp = ref_fits.replace('.fits', ext_tmp)
 
-            imcombine (field_ID, imagelist, ref_fits_temp, combine_type,
+            imcombine (field_ID, imagelist, ref_fits_temp, combine_type, filt,
                        ra_center=ra_center, dec_center=dec_center, nfiles=nfiles,
                        limmag_proj=limmag_proj,
                        back_type=back_type, back_default=back_default,
@@ -1418,7 +1427,7 @@ def prep_ref (imagelist, field_ID, filt, radec, nfiles, limmag_proj):
         
 ################################################################################
 
-def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
+def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True,
                masktype_discard=None, tempdir='.temp', ra_center=None,
                dec_center=None, nfiles=0, limmag_proj=None, use_wcs_center=True,
                back_type='auto', back_default=0, back_size=120, back_filtersize=3,
@@ -1869,17 +1878,6 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
     size_str = '{},{}'.format(refimage_xsize, refimage_ysize)
 
 
-    # if input [ra_center] or [dec_center] is not defined, use the
-    # median RA/DEC of the input images as the center RA/DEC of the
-    # output image
-    if ra_center is None or dec_center is None:
-        ra_center = np.median(imtable['ra_center'])
-        dec_center = np.median(imtable['dec_center'])
-        # centering method for header
-        center_type = 'median'
-    else:
-        center_type = get_par(set_br.center_type,tel)
-
     # convert coordinates to input string for SWarp
     radec_str = '{},{}'.format(ra_center, dec_center)
 
@@ -2003,9 +2001,9 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, overwrite=True,
                                                   .format(nimage+1))
 
     # projected and target limiting magnitudes
-    hdr['R-LMPROJ'] = (limmag_proj, '[mag] projected limiting magnitude')
+    header_out['R-LMPROJ'] = (limmag_proj, '[mag] projected limiting magnitude')
     limmag_target = get_par(set_br.limmag_target,tel)[filt]
-    hdr['R-LMTARG'] = (limmag_target, '[mag] target limiting magnitude')
+    header_out['R-LMTARG'] = (limmag_target, '[mag] target limiting magnitude')
 
     # combination method
     header_out['R-COMB-M'] = (combine_type,

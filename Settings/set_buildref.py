@@ -41,8 +41,8 @@ combine_type = 'clipped'
 # sum of mask type integers (bad=1,..) to discard'
 masktype_discard = 49 # i.e. discard bad (1) + satellite (16) + edge (32)
 
-# centering method; options: 'grid' or 'median'
-center_type = 'median'
+# centering method; options: 'grid', 'median_field' or 'median_filter'
+center_type = 'median_filter'
 
 # background subtraction method; options: 'blackbox', 'auto',
 # 'manual', 'constant', 'none'
