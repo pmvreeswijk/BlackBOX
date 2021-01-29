@@ -36,7 +36,7 @@ from multiprocessing import Pool, Manager, Lock, Queue, Array
 
 import aplpy
 
-from blackbox import date2mjd, str2bool, unzip
+from blackbox import date2mjd, unzip
 from blackbox import get_par, already_exists, copy_files2keep
 from blackbox import create_log, close_log, define_sections, make_dir
 from blackbox import pool_func, fpack, create_jpg, clean_tmp
@@ -545,7 +545,7 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
                               'grid definition file {}; skipping it'
                               .format(obj, mlbg_fieldIDs))
                 continue
-                
+
         elif center_type == 'median_field':
             # let [radec] refer to a tuple pair containing the median
             # RA-CNTR and DEC-CNTR for all images of a particular
@@ -553,147 +553,102 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
             ra_cntr_med = np.median(table[mask_obj]['RA-CNTR'])
             dec_cntr_med = np.median(table[mask_obj]['DEC-CNTR'])
             radec = (ra_cntr_med, dec_cntr_med)
-            
+
+        elif center_type == 'median_filter':
+            # set radec tuple to None values, so that median position
+            # of the images combined is used as the center for the
+            # resulting image - that is done inside imcombine
+            radec = (None, None)
+
 
         for filt in filts_uniq:
             mask = (mask_obj & (table['FILTER'] == filt))
             nfiles = np.sum(mask)
             genlog.info ('number of files left for {} in filter {}: {}'
                          .format(obj, filt, nfiles))
-            nmin1, nmin2 = get_par(set_br.subset_nmin,tel)
 
+            #if get_par(set_br.use_abslimits,tel):
 
-            if center_type == 'median_filter':
-                # let [radec] refer to a tuple pair containing the
-                # median RA-CNTR and DEC-CNTR for the images of a
-                # particular field in this filter
-                ra_cntr_med = np.median(table[mask]['RA-CNTR'])
-                dec_cntr_med = np.median(table[mask]['DEC-CNTR'])
-                radec = (ra_cntr_med, dec_cntr_med)
-
-            
-            # depending on [set_br.use_abslimits], use target limiting
-            # magnitudes defined by PaulG or fraction of images
-            # available
-            if get_par(set_br.use_abslimits,tel):
-
-                # sort files based on their LIMMAG, highest value first
-                indices_sort = np.argsort(table[mask]['LIMMAG'])[::-1]
-                limmags_sort = table[mask]['LIMMAG'][indices_sort]
-                bkgstd_sort = table[mask]['S-BKGSTD'][indices_sort]
-                files_sort = table[mask]['FILE'][indices_sort]
+            # sort files based on their LIMMAG, highest value first
+            indices_sort = np.argsort(table[mask]['LIMMAG'])[::-1]
+            limmags_sort = table[mask]['LIMMAG'][indices_sort]
+            bkgstd_sort = table[mask]['S-BKGSTD'][indices_sort]
+            files_sort = table[mask]['FILE'][indices_sort]
                 
 
-                # calculate projected cumulative LIMMAG if images
-                # would be combined using simple average
-                limmags_sort_cum = -2.5*np.log10(
-                    np.sqrt(np.cumsum((10**(-0.4*limmags_sort))**2))
-                    / (np.arange(len(limmags_sort))+1))
+            # calculate projected cumulative LIMMAG if images
+            # would be combined using simple average
+            limmags_sort_cum = -2.5*np.log10(
+                np.sqrt(np.cumsum((10**(-0.4*limmags_sort))**2))
+                / (np.arange(len(limmags_sort))+1))
+            
 
-
-                # weighted version, calculating the error in the
-                # weighted mean using the values from S-BKGSTD as the
-                # sigmas (the images are weighted using the background
-                # STD images); comparison with the value from the
-                # first image determines how much more deeper the
-                # combined images are
-                if False:
-                    limmags_sort_cum = (limmags_sort[0]-2.5*np.log10(
-                        1./np.sqrt(np.cumsum(1./bkgstd_sort**2))/bkgstd_sort[0]))
-
-                # alternative weighted version using limiting
-                # magnitudes (converted to flux) instead of S-BKGSTD
-                limflux_sort = 10**(-0.4*limmags_sort)
+            # weighted version, calculating the error in the weighted
+            # mean using the values from S-BKGSTD as the sigmas (the
+            # images are weighted using the background STD images);
+            # comparison with the value from the first image
+            # determines how much more deeper the combined images are
+            if False:
                 limmags_sort_cum = (limmags_sort[0]-2.5*np.log10(
-                    1./np.sqrt(np.cumsum(1./limflux_sort**2))/limflux_sort[0]))
+                    1./np.sqrt(np.cumsum(1./bkgstd_sort**2))/bkgstd_sort[0]))
 
-
-                # filter based on target limiting magnitude
-                limmag_target = get_par(set_br.limmag_target,tel)[filt]
-                # add dmag to target magnitude to account for the fact
-                # that the projected limiting magnitude will be
-                # somewhat higher than the actual one
-                dmag = 0.15
-                mask_sort_cum = (limmags_sort_cum <= limmag_target + dmag)
-                # use a minimum number of files, adding 1 to images
-                # selected above
-                nmin = get_par(set_br.nimages_min,tel)
-                nuse = max (np.sum(mask_sort_cum)+1, nmin)
-                # [nuse] should not be larger than number of images available
-                nuse = min (nuse, nfiles)
-                # update mask
-                mask_sort_cum[0:nuse] = True
-
-
-                # files that were excluded
-                nfiles_excl = np.sum(~mask_sort_cum)
-                if nfiles_excl > 0:
-                    files_2exclude = files_sort[~mask_sort_cum]
-                    limmags_2exclude = limmags_sort[~mask_sort_cum]
-                    genlog.warning ('files ({}) and their limmags excluded from '
-                                    '{}-band coadd:'.format(nfiles_excl, filt))
-                    for i in range(len(files_2exclude)):
-                        genlog.info ('{}, {:.3f}'
-                                     .format(files_2exclude[i],
-                                             limmags_2exclude[i]))
-
-
-                # files to combine
-                files_2coadd = files_sort[mask_sort_cum]
-                limmags_2coadd = limmags_sort[mask_sort_cum]
-                bkgstd_2coadd = bkgstd_sort[mask_sort_cum]
-                
-                genlog.info ('files and their limmags and projected cumulative '
-                             'limmags used for {}-band coadd:'.format(filt))
-                for i in range(len(files_2coadd)):
-                    genlog.info ('{} {:.3f} {:.3f}'
-                                 .format(files_2coadd[i], limmags_2coadd[i],
-                                         limmags_sort_cum[i]))
-
-                limmag_proj = limmags_sort_cum[mask_sort_cum][-1]
-                
-                genlog.info ('projected (target) {}-band limiting magnitude of '
-                             'co-add: {:.2f} ({})'
-                             .format(filt, limmag_proj, limmag_target))
-                
-                
-            else:
+            # alternative weighted version using limiting
+            # magnitudes (converted to flux) instead of S-BKGSTD
+            limflux_sort = 10**(-0.4*limmags_sort)
+            limmags_sort_cum = (limmags_sort[0]-2.5*np.log10(
+                1./np.sqrt(np.cumsum(1./limflux_sort**2))/limflux_sort[0]))
             
-                # old method of selecting which images to combine,
-                # determined by settings file parameters subset_nmin,
-                # subset_frac and subset_key
-                if nfiles >= nmin1:
+
+            # filter based on target limiting magnitude
+            limmag_target = get_par(set_br.limmag_target,tel)[filt]
+            # add dmag to target magnitude to account for the fact
+            # that the projected limiting magnitude will be
+            # somewhat higher than the actual one
+            dmag = 0.15
+            mask_sort_cum = (limmags_sort_cum <= limmag_target + dmag)
+            # use a minimum number of files, adding 1 to images
+            # selected above
+            nmin = get_par(set_br.nimages_min,tel)
+            nuse = max (np.sum(mask_sort_cum)+1, nmin)
+            # [nuse] should not be larger than number of images available
+            nuse = min (nuse, nfiles)
+            # update mask
+            mask_sort_cum[0:nuse] = True
+            
+            
+            # files that were excluded
+            nfiles_excl = np.sum(~mask_sort_cum)
+            if nfiles_excl > 0:
+                files_2exclude = files_sort[~mask_sort_cum]
+                limmags_2exclude = limmags_sort[~mask_sort_cum]
+                genlog.warning ('files ({}) and their limmags excluded from '
+                                '{}-band coadd:'.format(nfiles_excl, filt))
+                for i in range(len(files_2exclude)):
+                    genlog.info ('{}, {:.3f}'
+                                 .format(files_2exclude[i],
+                                         limmags_2exclude[i]))
+
                     
-                    # select subset if more than nmin2 images are available
-                    if nfiles > nmin2:
-                        nselect = max(math.ceil(get_par(set_br.subset_frac,tel)
-                                                * nfiles), nmin2)
+            # files to combine
+            files_2coadd = files_sort[mask_sort_cum]
+            limmags_2coadd = limmags_sort[mask_sort_cum]
+            bkgstd_2coadd = bkgstd_sort[mask_sort_cum]
 
-                        # more images available than nmin2;
-                        # select subset of images, sorted by header
-                        # keyword also defined in settings file
-                        key_sort = get_par(set_br.subset_key,tel)
-                        indices_sort = np.argsort(table[key_sort][mask])
-                        # reverse indices if high end values should be
-                        # included
-                        if not get_par(set_br.subset_lowend,tel):
-                            indices_sort = indices_sort[::-1]
-                        # threshold value
-                        threshold = table[key_sort][mask][indices_sort[nselect]]
-                        print ('threshold: {}'.format(threshold))
-                        # update mask
-                        if get_par(set_br.subset_lowend,tel):
-                            mask &= (table[key_sort] < threshold)
-                        else:
-                            mask &= (table[key_sort] > threshold)
+            nfiles_used = nfiles - nfiles_excl
+            genlog.info ('files ({}) and their limmags and projected '
+                         'cumulative limmags used for {}-band coadd:'
+                         .format(nfiles-nfiles_excl, filt))
+            for i in range(len(files_2coadd)):
+                genlog.info ('{} {:.3f} {:.3f}'
+                             .format(files_2coadd[i], limmags_2coadd[i],
+                                     limmags_sort_cum[i]))
 
-                        files_2coadd = table[mask]['FILE']
+            limmag_proj = limmags_sort_cum[mask_sort_cum][-1]
+            
+            genlog.info ('projected (target) {}-band limiting magnitude of '
+                         'co-add: {:.2f} ({})'
+                         .format(filt, limmag_proj, limmag_target))
 
-                        genlog.info ('selected following subset of {} images for '
-                                     'field_ID {}, filter: {}, based on header '
-                                     'keyword: {}:\n{}'.format(nselect, obj, filt,
-                                                               key_sort,
-                                                               table[mask]))
 
             # add this set of images with their field_ID and
             # filter to the lists of images, field_IDs and filters
@@ -856,12 +811,6 @@ def header2table (filenames):
             'LIMMAG', 'S-BKGSTD']
     keys_dtype = [float, 'U5', 'U1', 'U6', float, float, float, float]
 
-    # add keyword that is sorted on if absolute limits are not used
-    # and many images are available
-    key_sort = get_par(set_br.subset_key,tel)
-    if not get_par(set_br.use_abslimits,tel) and key_sort not in keys:
-        keys.append(key_sort)
-        keys_dtype.append(float)
 
     # if the maximum seeing limit is set with input parameter
     # [seeing_max], add the 'S-SEEING' header keyword
@@ -1878,6 +1827,18 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
     size_str = '{},{}'.format(refimage_xsize, refimage_ysize)
 
 
+    # if input [ra_center] or [dec_center] is not defined, use the
+    # median RA/DEC of the input images as the center RA/DEC of the
+    # output image
+    if ra_center is None or dec_center is None:
+        ra_center = np.median(imtable['ra_center'])
+        dec_center = np.median(imtable['dec_center'])
+        # centering method for header
+        center_type = 'median_filter'
+    else:
+        center_type = get_par(set_br.center_type,tel)
+
+    
     # convert coordinates to input string for SWarp
     radec_str = '{},{}'.format(ra_center, dec_center)
 

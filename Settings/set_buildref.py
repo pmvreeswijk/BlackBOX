@@ -57,24 +57,7 @@ back_type = 'blackbox'
 
 # use absolute target limiting magnitudes suggested by PaulG; see his
 # email from 2021-01-06
-use_abslimits = True
+#use_abslimits = True
 limmag_target = {'u': 21.0, 'g': 22.3, 'q': 22.5, 'r': 22.0, 'i': 21.3, 'z': 20.5}
 # do not use less than [nmin] images if available 
 nimages_min = 15
-
-
-# if [use_abslimits] is False, use the settings below
-# nmin1: bare minimum number of images to combine
-# nmin2: number of available images * subset_frac needs to be larger
-#        than nmin2 before images are cut
-subset_nmin = (2, 30)
-# fraction of available images to combine
-subset_frac = 0.5
-# header keyword on which to sort if number of images exceeds
-# [subset_max]; N.B.: keyword value needs to be an integer or float in
-# order to be able to sort
-subset_key = 'LIMMAG'
-# include low end (True) or high end (False) of keyword values?; True for
-# e.g. S-SEEING, but False for e.g. LIMMAG
-subset_lowend = False
-
