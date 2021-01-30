@@ -1521,11 +1521,15 @@ def blackbox_reduce (filename):
         
         ref_present, ref_fits_temp = already_exists (ref_fits_out,
                                                      get_filename=True)
-        if ref_present and get_par(set_bb.create_ref,tel):
+        if ref_present:
             header_ref = read_hdulist(ref_fits_temp, get_data=False,
                                       get_header=True)
-            utdate_ref, uttime_ref = get_date_time(header_ref)
-            if utdate_ref==utdate and uttime_ref==uttime:
+            # old reference image always consisted of single image;
+            # check was done on DATE-OBS being equal
+            #utdate_ref, uttime_ref = get_date_time(header_ref)
+            #if utdate_ref==utdate and uttime_ref==uttime:
+            # new check:
+            if header_ref['R-NUSED']==1 and header_ref['R-IM1'] in fits_out:
                 genlog.info ('this image {} is the current reference image '
                              'of field {}; not processing it'
                              .format(fits_out.split('/')[-1], obj))
