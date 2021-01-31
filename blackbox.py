@@ -2132,6 +2132,9 @@ def blackbox_reduce (filename):
         new_list = glob.glob('{}*'.format(new_base))
         ext_list = []
 
+        fits_cat = '{}_red_cat.fits'.format(new_base)
+        fits_trans = '{}_red_trans.fits'.format(new_base)
+        
         if get_par(set_bb.trans_extract,tel):
             # if [trans_extract] is set to True, both the cat_extract
             # and trans_extract products should be present, even when
@@ -2139,20 +2142,37 @@ def blackbox_reduce (filename):
             ext_list += get_par(set_bb.cat_extract_exts,tel)
             ext_list += get_par(set_bb.trans_extract_exts,tel)
             text = 'cat_extract and trans_extract'
+            
+            # check if transient catalog is a dummy
+            dumcat = is_dumcat(fits_trans, log=log)
+
+            if get_par(set_bb.cat_extract,tel):
+                # check if full-source catalog is also a dummy
+                dumcat &= is_dumcat(fits_cat, log=log)
+
 
         elif get_par(set_bb.cat_extract,tel):
             ext_list += get_par(set_bb.cat_extract_exts,tel)
             text = 'cat_extract'            
 
+            # check if full-source catalog is a dummy
+            dumcat = is_dumcat(fits_cat, log=log)
+
                 
         present = (np.array([ext in fn for ext in ext_list for fn in new_list])
                    .reshape(len(ext_list),-1).sum(axis=1))
 
-        if np.all(present):
+        if np.all(present) or dumcat:
 
-            log.info ('all {} data products already present in reduced folder, '
-                      'nothing left to do for {}'.format(text, filename))
-            
+            if not dumcat:
+                log.info ('force_reproc_new is False and all {} data products '
+                          'already present in reduced folder; nothing left to '
+                          'do for {}'.format(text, filename))
+            else:
+                log.info ('force_reproc_new is False and full-source and/or '
+                          'transient catalog is a dummy; nothing left to do for '
+                          '{}'.format(filename))
+
             clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel), log=log)
             close_log(log, logfile)
 
@@ -2187,14 +2207,8 @@ def blackbox_reduce (filename):
         # should full-source catalog be empty, also redo the
         # catalog extraction as this is a forced rereduction
         fits_cat = '{}_red_cat.fits'.format(new_base)
-        dumcat = False
-        if os.path.isfile(fits_cat):
-            header_cat = read_hdulist(fits_cat, get_data=False, get_header=True)
-            if 'DUMCAT' in header_cat:
-                dumcat = header_cat['DUMCAT']
-            elif 'NAXIS2' in header_cat and header_cat['NAXIS2']==0:
-                dumcat = True
-        else:
+        dumcat = is_dumcat(fits_cat, log=log)
+        if not os.path.isfile(fits_cat):
             # if full-source catalog does not exist, force
             # the re-extraction
             dumcat = True
@@ -2691,6 +2705,25 @@ def blackbox_reduce (filename):
     return fits_out
 
 
+################################################################################
+
+def is_dumcat (fits_cat, log=None):
+    
+    dumcat = False
+    if os.path.isfile(fits_cat):
+        header_cat = read_hdulist(fits_cat, get_data=False, get_header=True)
+        if 'DUMCAT' in header_cat:
+            dumcat = header_cat['DUMCAT']
+        elif 'NAXIS2' in header_cat and header_cat['NAXIS2']==0:
+            dumcat = True
+
+    else:
+        if log is not None:
+            log.warning ('catalog {} does not exist'.format(fits_cat))
+
+    return dumcat
+            
+                
 ################################################################################
 
 def verify_header (filename, htypes=None, log=None):
