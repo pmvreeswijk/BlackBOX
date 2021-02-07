@@ -63,14 +63,19 @@ qc_range = {
 
         # Main processing steps
         'XTALK-P' : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'key_type': 'full', 'pos': False, 'comment': 'corrected for crosstalk?'},
-        'NONLIN-P': {'default': False, 'val_type': 'bool', 'val_range': [ True, False ],             'key_type': 'full', 'pos': False, 'comment': 'corrected for non-linearity?'},
+        'NONLIN-P': {'default': False, 'val_type': 'bool', 'val_range': [ False ],                   'key_type': 'full', 'pos': False, 'comment': 'corrected for non-linearity?'},
         'GAIN-P'  : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'key_type': 'full', 'pos': False, 'comment': 'corrected for gain?'},
         'OS-P'    : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'key_type': 'full', 'pos': False, 'comment': 'corrected for overscan?'},
-        'MBIAS-P' : {'default': False, 'val_type': 'bool', 'val_range': [ True, False ],             'key_type': 'full', 'pos': False, 'comment': 'corrected for master bias?'},
+        'MBIAS-P' : {'default': False, 'val_type': 'bool', 'val_range': [ False ],                   'key_type': 'full', 'pos': False, 'comment': 'corrected for master bias?'},
         'MBIAS-F' : {'default':'None', 'val_type': 'skip', 'val_range': None,                        'key_type': 'full', 'pos': False, 'comment': 'name of master bias applied'},
         'MFLAT-P' : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'key_type': 'full', 'pos': False, 'comment': 'corrected for master flat?'},
         'MFLAT-F' : {'default':'None', 'val_type': 'skip', 'val_range': None,                        'key_type': 'full', 'pos': False, 'comment': 'name of master flat applied'},
-        'MFRING-P': {'default': False, 'val_type': 'bool', 'val_range': [ True, False ],             'key_type': 'full', 'pos': False, 'comment': 'corrected for master fringe map?'},
+        'MFRING-P': {'default': False, 'val_type': 'bool', 'val_range': {'u': [ False ],
+                                                                         'g': [ False ],
+                                                                         'q': [ False ],
+                                                                         'r': [ False ],
+                                                                         'i': [ True, False ],
+                                                                         'z': [ True, False ]},      'key_type': 'full', 'pos': False, 'comment': 'corrected for master fringe map?'},        
         'MFRING-F': {'default':'None', 'val_type': 'skip', 'val_range': None,                        'key_type': 'full', 'pos': False, 'comment': 'name of master fringe map applied'},
         'COSMIC-P': {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'key_type': 'full', 'pos': False, 'comment': 'corrected for cosmics rays?'},
         'SAT-P'   : {'default': False, 'val_type': 'bool', 'val_range': [ True, False ],             'key_type': 'full', 'pos': False, 'comment': 'processed for satellite trails?'},
@@ -82,9 +87,14 @@ qc_range = {
         'Z-P'     : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'key_type': 'trans', 'pos': False, 'comment': 'successfully processed by ZOGY?'},
         'MC-P'    : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'key_type': 'trans', 'pos': False, 'comment': 'successfully processed by MeerCRAB?'},
 
+
         # Channel bias levels [e-]
         # 2019 values
-        'BIASMEAN': {'default':'None', 'val_type': 'sigma','val_range': [ (  7370, 30) ],            'key_type': 'full', 'pos': True , 'comment': 'average all channel means vertical overscan'},
+        #'BIASMEAN': {'default':'None', 'val_type': 'sigma','val_range': [ (  7370, 30) ],            'key_type': 'full', 'pos': True , 'comment': 'average all channel means vertical overscan'},
+        # 2021 values; multiplied above values by gain_new / gain_old, or 0.88:
+        'BIASMEAN': {'default':'None', 'val_type': 'sigma','val_range': [ (  6520, 30) ],            'key_type': 'full', 'pos': True , 'comment': 'average all channel means vertical overscan'},
+        
+
         # for the moment, skip the value range check on the individual channels' bias levels ('sigma' replaced with 'skip')
         'BIASM1'  : {'default':'None', 'val_type': 'skip', 'val_range': [ (  6933.564,   32.281) ],  'key_type': 'full', 'pos': True , 'comment': 'channel 1 mean vertical overscan'},
         'BIASM2'  : {'default':'None', 'val_type': 'skip', 'val_range': [ (  7199.254,   34.481) ],  'key_type': 'full', 'pos': True , 'comment': 'channel 2 mean vertical overscan'},
