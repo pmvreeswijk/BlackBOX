@@ -17,8 +17,8 @@ nthreads = 1
 
 # switch on/off different parts
 img_reduce = False
-cat_extract = True
-trans_extract = False
+cat_extract = False
+trans_extract = True
 
 # force re-processing of new image, only for above parts that are
 # switched on
@@ -138,18 +138,26 @@ sat_bin = 2
 # [ 0, 1,  2,  3,  4,  5,  6,  7]
 #
 # channel gains:
-# defined by Kerry:
-#gain = [2.29,2.31,2.30,2.32,2.37,2.36,2.37,2.35,2.28,2.31,2.31,2.35,2.35,2.35,2.35,2.36]
-#gain[10] = 2.38
-# from domeflats 2019-01-10:
-gain = {'ML1': (np.array([2.31, 2.39, 2.40, 2.44, 2.43, 2.42, 2.47, 2.40,
-                          2.32, 2.43, 2.38, 2.39, 2.43, 2.46, 2.51, 2.51]) *
-                # ML correction factor from q-band master flat 3 June 2019, with flat_window=1
-                np.array([1.044, 1.016, 1.014, 1.000, 1.012, 1.017, 0.998, 1.027,
-                          1.038, 0.998, 1.021, 1.017, 1.002, 0.998, 0.978, 0.980])),
+# from z-band domeflats with x=1, y=10 binning from 2021-01-18:
+gain = {'ML1': (np.array([2.11, 2.11, 2.14, 2.15, 2.16, 2.16, 2.20, 2.13,
+                          2.06, 2.13, 2.12, 2.13, 2.14, 2.15, 2.17, 2.17]) *
+                # fine-tuned using flat_20210115_q.fits.fz
+                np.array([1.001, 1.007, 0.995, 0.994, 0.998, 0.999, 0.983, 1.016,
+                          1.024, 0.997, 1.003, 1.001, 0.998, 1.002, 0.993, 0.994])),
         'BG':  (np.array([2.60, 2.60, 2.60, 2.60, 2.60, 2.60, 2.60, 2.60,
                           2.60, 2.60, 2.60, 2.60, 2.60, 2.60, 2.60, 2.60]))}
 
+# old determinations:
+# inferred by Kerry:
+#gain = [2.29,2.31,2.30,2.32,2.37,2.36,2.37,2.35,2.28,2.31,2.31,2.35,2.35,2.35,2.35,2.36]
+#gain[10] = 2.38
+# from domeflats 2019-01-10:
+#gain = {'ML1': (np.array([2.31, 2.39, 2.40, 2.44, 2.43, 2.42, 2.47, 2.40,
+#                          2.32, 2.43, 2.38, 2.39, 2.43, 2.46, 2.51, 2.51]) *
+#                # ML correction factor from q-band master flat 3 June 2019, with flat_window=1
+#                np.array([1.044, 1.016, 1.014, 1.000, 1.012, 1.017, 0.998, 1.027,
+#                          1.038, 0.998, 1.021, 1.017, 1.002, 0.998, 0.978, 0.980])),
+#
 # from STA test report SN22838
 #gain = {'ML1': (np.array([2.1022, 2.1274, 2.1338, 2.1487, 2.1699, 2.1659, 2.1817, 2.1237,
 #                          2.0904, 2.1186, 2.1202, 2.1407, 2.1476, 2.1483, 2.1683, 2.1518]))}
