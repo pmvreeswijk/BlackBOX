@@ -869,6 +869,14 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
     mem_use (label='run_blackbox at start', log=genlog)
 
+
+    # create master bias and/or flat if [master_date] is specified
+    if master_date is not None:
+        create_masters (mdate=master_date, nproc=nproc, log=genlog)
+        logging.shutdown()
+        return
+
+
     # leave right away if none of the main processing switches are on
     if (not get_par(set_bb.img_reduce,tel) and
         not get_par(set_bb.cat_extract,tel) and
@@ -876,13 +884,6 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     
         genlog.info ('main processing switches img_reduce, cat_extract '
                      'and trans_extract all False, nothing left to do')
-        logging.shutdown()
-        return
-
-
-    # create master bias and/or flat if [master_date] is specified
-    if master_date is not None:
-        create_masters (mdate=master_date, nproc=nproc)
         logging.shutdown()
         return
 
@@ -1066,7 +1067,8 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
 ################################################################################
 
-def create_masters (mdate=None, run_fpack=True, run_create_jpg=True, nproc=1):
+def create_masters (mdate=None, run_fpack=True, run_create_jpg=True, nproc=1,
+                    log=None):
 
     if get_par(set_zogy.timing,tel):
         t = time.time()
@@ -1075,26 +1077,56 @@ def create_masters (mdate=None, run_fpack=True, run_create_jpg=True, nproc=1):
     
     # prepare list of all red/yyyy/mm/dd/bias and flat directories
     red_dir = get_par(set_bb.red_dir,tel)
-    # if mdate is not specified or equal to '*', loop all available
-    # [imtype] folders in the reduced path
-    year, month, day = '*', '*', '*'
-    if mdate is not None and mdate != '*':
-        mdate = ''.join(e for e in mdate if e.isdigit())
-        # if [mdate] is specified, only loop [imtype] folders in
-        # the reduced path of specific year, month and/or day
-        if len(mdate) >= 4:
-            year = mdate[0:4]
-            if len(mdate) >= 6:
-                month = mdate[4:6]
-                if len(mdate) >= 8:
-                    day = mdate[6:8]
 
 
-    # list with all paths to process
-    list_path = glob.glob('{}/{}/{}/{}'
-                          .format(red_dir, year, month, day))
-    # corresponding list of evening dates
-    list_date_eve = [''.join(l.split('/')[-3:]) for l in list_path]
+    # if [mdate] is a file
+    list_filt = None
+    if os.path.isfile(mdate):
+
+        # read ascii table
+        table = Table.read(mdate, format='ascii', data_start=0)
+        # table can contain 1 or 2 columns and can therefore not
+        # pre-define column names, while with data_start=0 the entries
+        # on the first line are taken as the column names
+        cols = table.colnames
+        
+        # lists with evening dates and paths
+        list_date_eve = []
+        list_path = []
+        for i in range(len(table)):
+            # take out potential characters in table date column
+            date_tmp = ''.join(e for e in str(table[cols[0]][i]) if e.isdigit())
+            list_date_eve.append(date_tmp)
+            list_path.append('{}/{}/{}/{}'.format(red_dir, date_tmp[0:4],
+                                                  date_tmp[4:6], date_tmp[6:8]))
+
+        # define list of filters if 2nd column is defined
+        if len(cols)>1:
+            list_filt = list(table[cols[1]])
+
+
+    else:
+
+        # if mdate is not specified or equal to '*', loop all available
+        # [imtype] folders in the reduced path
+        year, month, day = '*', '*', '*'
+        if mdate is not None and mdate != '*':
+            mdate = ''.join(e for e in mdate if e.isdigit())
+            # if [mdate] is specified, only loop [imtype] folders in
+            # the reduced path of specific year, month and/or day
+            if len(mdate) >= 4:
+                year = mdate[0:4]
+                if len(mdate) >= 6:
+                    month = mdate[4:6]
+                    if len(mdate) >= 8:
+                        day = mdate[6:8]
+
+        # list with all paths to process
+        list_path = glob.glob('{}/{}/{}/{}'
+                              .format(red_dir, year, month, day))
+        # corresponding list of evening dates
+        list_date_eve = [''.join(l.split('/')[-3:]) for l in list_path]
+
 
 
     # filts is a global variable determined by the [filters] input
@@ -1103,7 +1135,7 @@ def create_masters (mdate=None, run_fpack=True, run_create_jpg=True, nproc=1):
         # if None set to all filters
         filts_temp = get_par(set_zogy.zp_default,tel).keys()
     else:
-        # extract filters from input
+        # extract filters from [filts]
         filts_temp = re.sub(',|-|\.|\/', '', filts)
 
 
@@ -1117,7 +1149,15 @@ def create_masters (mdate=None, run_fpack=True, run_create_jpg=True, nproc=1):
                                 .format(list_path[i], list_date_eve[i]))
         # flats
         if types is None or 'flat' in types:
-            for filt in filts_temp:
+            # if input mdate is a file and 2nd column is defined, use
+            # it for the filter(s)
+            if list_filt is not None:
+                filts_2loop = [f for f in list_filt[i] if f in filts_temp]
+            else:
+                filts_2loop = filts_temp
+
+            # loop filters and create list of masters to multiprocess
+            for filt in filts_2loop:
                 list_masters.append('{}/flat/flat_{}_{}.fits'
                                     .format(list_path[i], list_date_eve[i], filt))
 
@@ -1614,7 +1654,7 @@ def blackbox_reduce (filename):
             else:
                 # for biases and flats, just the reduced file itself,
                 # its log and jpg
-                jpgfile = '{}.jpg'.format(new_base)
+                jpgfile = '{}.jpg'.format(fits_out_present.split('.fits')[0])
                 files_2remove = [fits_out_present, logfile, jpgfile]
                 # master bias and/or flat are removed inside [master_prep]
 
@@ -3596,9 +3636,15 @@ def make_dir (path, empty=False, put_lock=True, lock=None):
     # if already exists but needs to be empty, remove it first
     if os.path.isdir(path) and empty:
         shutil.rmtree(path)
-    if not os.path.isdir(path):
-        os.makedirs(path)
 
+    #if not os.path.isdir(path):
+    #    os.makedirs(path)
+    # do not check if directory exists, just try to make it; changed this
+    # after racing condition occurred on the ilifu Slurm cluster when
+    # reducing flatfields, where different tasks need to make the same
+    # directory
+    os.makedirs(path, exist_ok=True)
+    
     if put_lock:
         lock.release()
         
@@ -4003,20 +4049,24 @@ def master_prep (fits_master, data_shape, pick_alt=True, log=None):
     # point to fpacked file)
     master_present, fits_master = already_exists (fits_master, get_filename=True)
 
+    if log is not None and master_present:
+        log.info ('master {} {} already exists'.format(imtype, fits_master))
 
     # if this is a forced re-reduction, delete the master if it exists
-    # N.B.: skip this for the moment; better to remove existing master
-    # flats if they need to be redone
-    if False:
-        if master_present and get_par(set_bb.force_reproc_new,tel):
-            os.remove(fits_master)
-            # also remove jpg if it exists
-            file_jpg = '{}.jpg'.format(fits_master.split('.fits')[0])
-            if os.path.isfile(file_jpg):
-                os.remove(file_jpg)
-            master_present = False
-            if '.fz' in fits_master:
-                fits_master = fits_master.replace('.fz','')
+    if master_present and get_par(set_bb.force_reproc_new,tel):
+        os.remove(fits_master)
+        # also remove jpg if it exists
+        file_jpg = '{}.jpg'.format(fits_master.split('.fits')[0])
+        if os.path.isfile(file_jpg):
+            os.remove(file_jpg)
+        master_present = False
+        if '.fz' in fits_master:
+            fits_master = fits_master.replace('.fz','')
+
+        if log is not None:
+            log.info ('forced reprocessing; deleting master {} {} and its jpg'
+                      .format(imtype, fits_master))
+
 
 
     # check if master bias/flat does not contain any red flags:
@@ -4025,6 +4075,9 @@ def master_prep (fits_master, data_shape, pick_alt=True, log=None):
         header_master = read_hdulist (fits_master, get_data=False, get_header=True)
         if ('QC-FLAG' in header_master and header_master['QC-FLAG']=='red'):
             master_ok = False
+            if log is not None:
+                log.warning ('existing master {} {} contains a red flag'
+                             .format(imtype, fits_master))
 
 
     if not (master_present and master_ok):
@@ -4100,14 +4153,26 @@ def master_prep (fits_master, data_shape, pick_alt=True, log=None):
         # master flat instead
         if nfiles < 3 or not master_ok:
 
+            if log is not None:
+                if imtype=='flat':
+                    msg = 'flat in filter {}'.format(filt)
+                else:
+                    msg = 'bias'
+
             # if input [pick_alt] is True, look for a nearby master
             # flat, otherwise just return None
             if pick_alt:
                 fits_master_close = get_closest_biasflat(date_eve, imtype,
                                                          filt=filt)
             else:
+                if log is not None:
+                    if master_ok:
+                        log.warning ('too few good frames available to produce '
+                                     'master {} for evening date {} +/- window '
+                                     'of {} days'.format(msg, date_eve, nwindow))
+                        
                 return None
-                
+
             if fits_master_close is not None:
 
                 # if master bias subtraction switch is off, the master
@@ -4116,11 +4181,11 @@ def master_prep (fits_master, data_shape, pick_alt=True, log=None):
                 if ((imtype=='bias' and get_par(set_bb.subtract_mbias,tel))
                     or imtype=='flat'):
                     if log is not None:
-                        log.info ('Warning: too few images to produce master {} '
-                                  'for evening date {} +/- window of {} days\n'
-                                  'instead using: {}'
-                                  .format(imtype, date_eve, nwindow,
-                                          fits_master_close))
+                        log.warning ('too few good frames available to produce '
+                                     'master {} for evening date {} +/- window '
+                                     'of {} days\ninstead using: {}'
+                                     .format(msg, date_eve, nwindow,
+                                             fits_master_close))
                 # previously we created a symbolic link so future
                 # files would automatically use this as the master
                 # file, but as this symbolic link is confusing, let's
@@ -4134,24 +4199,23 @@ def master_prep (fits_master, data_shape, pick_alt=True, log=None):
                     or imtype=='flat'):
                     if log is not None:
                         log.error('no alternative master {} found'
-                                  .format(imtype))
+                                  .format(msg))
                 return None
                 
         else:
 
             if log is not None:
 
+                if imtype=='flat':
+                    msg = 'flat in filter {}'.format(filt)
+                else:
+                    msg = 'bias'
+
+                log.info ('making master {} for night {}'.format(msg, date_eve))
                 if imtype=='bias':
-                    log.info ('making master {} for night {}'
-                              .format(imtype, date_eve))
                     if not get_par(set_bb.subtract_mbias,tel):
                         log.info ('(but will not be applied to input image '
                                   'as [subtract_mbias] is set to False)')
-
-                elif imtype=='flat':
-                    log.info ('making master {} in filter {} for night {}'
-                              .format(imtype, filt, date_eve))
-
 
             # assuming that individual flats/biases have the same
             # shape as the input data
@@ -4178,7 +4242,7 @@ def master_prep (fits_master, data_shape, pick_alt=True, log=None):
                         median = np.median(master_cube[i_file][index_flat_norm])
 
                     if log is not None:
-                        log.info ('flat name: {}, median: {}'
+                        log.info ('flat name: {}, median: {:.1f}'
                                   .format(filename, median))
 
                     if median != 0:
@@ -4560,8 +4624,8 @@ def check_header1 (header, filename):
             genlog.warning ('filename contains string \'test\'; '
                             'not processing {}'.format(filename))
             header_ok = False
-    
-            
+
+
     return header_ok
 
 
@@ -6149,7 +6213,9 @@ if __name__ == "__main__":
     params.add_argument('--master_date', type=str, default=None,
                         help='Create master file of type(s) [imgtypes] and '
                         'filter(s) [filters] for this(these) date(s) (e.g. 2019 '
-                        'or 2019/10 or 2019-10-14); default=None')
+                        'or 2019/10 or 2019-10-14; can also be an ascii file '
+                        'with the date(s) in the 1st column and optionally the '
+                        'filter(s) in the 2nd column); default=None')
 
     args = params.parse_args()
 
