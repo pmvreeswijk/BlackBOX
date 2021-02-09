@@ -2276,11 +2276,11 @@ def blackbox_reduce (filename):
 
 
             # clear any pre-existing qc-flags from [new_fits] header,
-            # including keywords that determine whether [run_wcs] and
-            # [format_cat] are rerun
+            # including keywords that determine whether [get_back],
+            # [run_wcs] and [format_cat] are rerun
             with fits.open(new_fits, 'update', memmap=True) as hdulist:
                 keys = ['DUMCAT', 'QC-FLAG', 'QCRED', 'QCORA', 'QCYEL',
-                        'FORMAT-P', 'CTYPE1', 'CTYPE2'] 
+                        'FORMAT-P', 'CTYPE1', 'CTYPE2', 'BKG-SUB'] 
                 for key in keys:
                     if 'QCRED' in key or 'QCORA' in key or 'QCYEL' in key:
                         keys2del = ['{}{}'.format(key[0:5], i)
