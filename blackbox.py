@@ -93,7 +93,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
                   recursive=None, imgtypes=None, filters=None, image=None, 
                   image_list=None, master_date=None,
                   img_reduce=None, cat_extract=None, trans_extract=None,
-                  force_reproc_new=None):
+                  force_reproc_new=None, name_genlog=None):
 
 
     """Function that processes MeerLICHT or BlackGEM images, performs
@@ -849,8 +849,20 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
         os.makedirs(get_par(set_bb.log_dir,tel))
     
     global genlogfile, genlog
-    genlogfile = '{}/{}_{}.log'.format(get_par(set_bb.log_dir,tel), tel,
-                                       Time.now().strftime('%Y%m%d_%H%M%S'))
+    if name_genlog is not None:
+        # check if path is provided
+        fdir, fname = os.path.split(name_genlog)
+        if len(fdir)>0 and os.path.isdir(fdir):
+            log_dir = fdir
+        else:
+            log_dir = get_par(set_bb.log_dir,tel)
+
+        genlogfile = '{}/{}'.format(log_dir, fname)
+            
+    else:
+        genlogfile = '{}/{}_{}.log'.format(get_par(set_bb.log_dir,tel), tel,
+                                           Time.now().strftime('%Y%m%d_%H%M%S'))
+
     genlog = create_log (genlogfile)
     
     genlog.info ('processing mode:        {}'.format(mode))
@@ -6217,6 +6229,14 @@ if __name__ == "__main__":
                         'with the date(s) in the 1st column and optionally the '
                         'filter(s) in the 2nd column); default=None')
 
+    params.add_argument('--name_genlog', type=str, default=None,
+                        help='Name of general log file to save; if path is not '
+                        'provided, it will be saved in the telescope\'s log '
+                        'directory; default of None will create logfile with name '
+                        '[tel]_[date]_[time].log with date/time at start of '
+                        'running blackbox')
+
+
     args = params.parse_args()
 
     run_blackbox (telescope=args.telescope, mode=args.mode, date=args.date, 
@@ -6225,4 +6245,5 @@ if __name__ == "__main__":
                   image_list=args.image_list, master_date=args.master_date,
                   img_reduce=args.img_reduce, cat_extract=args.cat_extract,
                   trans_extract=args.trans_extract,
-                  force_reproc_new=args.force_reproc_new)
+                  force_reproc_new=args.force_reproc_new,
+                  name_genlog=args.name_genlog)
