@@ -2049,47 +2049,58 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
     # update header with [set_zogy.bkg_boxsize]
     header_weights['BKG-SIZE'] = (bkg_boxsize, '[pix] background boxsize used')
 
-    
-    # compare mini_std with mini bkg_std image directly inferred
-    # from data_out
 
-    # construct masked array, rejecting pixels with values higher than
-    # n-sigma times the above data_bkg_std image; assumption is that
-    # background is around zero
-    mask_reject = ((data_out / data_bkg_std) > 3)
-    data_out_masked = np.ma.masked_array(data_out, mask=mask_reject)
-    # reshape
-    data_out_reshaped = data_out_masked.reshape(
-        nysubs,bkg_boxsize,-1,bkg_boxsize).swapaxes(1,2).reshape(nysubs,nxsubs,-1)
-    # get clipped statistics
-    __, mini_median, mini_std_alt = sigma_clipped_stats (
-        data_out_reshaped, sigma=get_par(set_zogy.bkg_nsigma,tel), axis=2,
-        mask_value=0)
+    # turn this block off as it appears too risky to scale the STD in
+    # very crowded frames; also the background STD (mini_std) is now
+    # estimated from the background + readnoise**2 instead of
+    # determined directly from the scatter in the image itself, and
+    # this new estimate will not overestimate the STD as it was the
+    # case before (although it may underestimate it)
+    if False:
 
-    # compare ratio of [mini_std_alt] over [mini_std]
-    mini_std_ratio = np.nanmedian (mini_std_alt / mini_std)
+        # compare mini_std with mini bkg_std image directly inferred
+        # from data_out
+
+        # construct masked array, rejecting pixels with values higher than
+        # n-sigma times the above data_bkg_std image; assumption is that
+        # background is around zero
+        mask_reject = ((data_out / data_bkg_std) > 3)
+        data_out_masked = np.ma.masked_array(data_out, mask=mask_reject)
+        # reshape
+        data_out_reshaped = data_out_masked.reshape(
+            nysubs,bkg_boxsize,-1,bkg_boxsize).swapaxes(1,2).reshape(nysubs,
+                                                                     nxsubs,-1)
+        # get clipped statistics
+        __, mini_median, mini_std_alt = sigma_clipped_stats (
+            data_out_reshaped, sigma=get_par(set_zogy.bkg_nsigma,tel), axis=2,
+            mask_value=0)
+
+        # compare ratio of [mini_std_alt] over [mini_std]
+        mini_std_ratio = np.nanmedian (mini_std_alt / mini_std)
     
-    dev_max = 0.3
-    if np.abs(mini_std_ratio - 1) <= dev_max:
-        # adjust mini_std with this ratio
-        mini_std *= mini_std_ratio
-        log.info ('correction factor applied to ref STD image: {:.3f}'
-                  .format(mini_std_ratio))
-    else:
-        log.warning ('correction factor to ref STD of {:.3f} larger than '
-                     'maximum allowed deviation of {}; not applying it'
-                     .format(mini_std_ratio, dev_max))
+        dev_max = 0.3
+        if np.abs(mini_std_ratio - 1) <= dev_max:
+            # adjust mini_std with this ratio
+            mini_std *= mini_std_ratio
+            log.info ('correction factor applied to ref STD image: {:.3f}'
+                      .format(mini_std_ratio))
+        else:
+            log.warning ('correction factor to ref STD of {:.3f} larger than '
+                         'maximum allowed deviation of {}; not applying it'
+                         .format(mini_std_ratio, dev_max))
+
+        header_weights['BKGSTDCF'] = (mini_std_ratio, 'corr. factor applied '
+                                      'to background STD image')
+
 
     # write mini bkg_std file
-    header_weights['BKGSTDCF'] = (mini_std_ratio, 'corr. factor applied '
-                                  'to background STD image')
-    header_weights['COMMENT'] = ('qcombined weights image was converted to STD '
+    header_weights['COMMENT'] = ('combined weights image was converted to STD '
                                  'image: std=1/sqrt(w)')
     header_weights['DATEFILE'] = (ut_now, 'UTC date of writing file')
     fits.writeto(fits_bkg_std_mini, mini_std.astype('float32'),
                  header_weights, overwrite=True)
 
-    
+
 
     if not remap_each:
 
