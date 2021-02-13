@@ -93,7 +93,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
                   recursive=None, imgtypes=None, filters=None, image=None, 
                   image_list=None, master_date=None,
                   img_reduce=None, cat_extract=None, trans_extract=None,
-                  force_reproc_new=None, name_genlog=None):
+                  force_reproc_new=None, name_genlog=None, keep_tmp=None):
 
 
     """Function that processes MeerLICHT or BlackGEM images, performs
@@ -822,9 +822,8 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     if int(os.environ['OMP_NUM_THREADS']) != get_par(set_bb.nthreads,tel):
         set_bb.nthreads = int(os.environ['OMP_NUM_THREADS'])
 
-    # update img_reduce, cat_extract, trans_extract and
-    # force_reproc_new in set_bb if corresponding input parameters are
-    # not None
+    # update various parameters in set_bb if corresponding input
+    # parameters are not None
     if img_reduce is not None:
         set_bb.img_reduce = str2bool(img_reduce)
 
@@ -836,6 +835,10 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
         
     if force_reproc_new is not None:
         set_bb.force_reproc_new = str2bool(force_reproc_new)
+
+    if keep_tmp is not None:
+        set_bb.keep_tmp = str2bool(keep_tmp)
+
 
 
     if get_par(set_zogy.timing,tel):
@@ -2426,8 +2429,9 @@ def blackbox_reduce (filename):
             header_new = optimal_subtraction(
                 new_fits=new_fits, new_fits_mask=new_fits_mask, 
                 set_file='set_zogy', log=log, verbose=None, redo_new=None,
-                nthreads=get_par(set_bb.nthreads,tel), telescope=tel)
-            
+                nthreads=get_par(set_bb.nthreads,tel), telescope=tel,
+                keep_tmp=get_par(set_bb.keep_tmp,tel))
+
             # add offset between RA/DEC-CNTR coords and ML/BG field
             # definition to the header
             radec_offset (header_new, filename, log=log)
@@ -2510,7 +2514,8 @@ def blackbox_reduce (filename):
             header_ref = optimal_subtraction(
                 ref_fits=new_fits, ref_fits_mask=new_fits_mask, 
                 set_file='set_zogy', log=log, verbose=None, redo_ref=None,
-                nthreads=get_par(set_bb.nthreads,tel), telescope=tel)
+                nthreads=get_par(set_bb.nthreads,tel), telescope=tel,
+                keep_tmp=get_par(set_bb.keep_tmp,tel))
 
             # add offset between RA/DEC-CNTR coords and ML/BG field
             # definition to the header
@@ -2645,7 +2650,8 @@ def blackbox_reduce (filename):
                 new_fits=new_fits, ref_fits=ref_fits, new_fits_mask=new_fits_mask,
                 ref_fits_mask=ref_fits_mask, set_file='set_zogy', log=log, 
                 verbose=None, redo_new=None, redo_ref=None,
-                nthreads=get_par(set_bb.nthreads,tel), telescope=tel)
+                nthreads=get_par(set_bb.nthreads,tel), telescope=tel,
+                keep_tmp=get_par(set_bb.keep_tmp,tel))
 
             # add offset between RA/DEC-CNTR coords and ML/BG field
             # definition to the new header
@@ -3867,7 +3873,15 @@ def sat_detect (data, header, data_mask, header_mask, tmp_path, log=None):
 
     if log is not None:
         log.info('number of satellite trails identified: {}'.format(nsats))
-    
+
+
+    # remove file(s) if not keeping intermediate/temporary files
+    if not get_par(set_bb.keep_tmp,tel):
+        remove_files ([fits_binned_mask], log=log)
+        if 'fits_old_mask' in locals():
+            remove_files ([fits_old_mask], log=log)
+
+        
     if get_par(set_zogy.timing,tel):
         log_timing_memory (t0=t, label='sat_detect', log=log)
 
@@ -4121,17 +4135,33 @@ def master_prep (fits_master, data_shape, pick_alt=True, log=None):
 
         # do not consider image with header QC-FLAG set to red
         mask_keep = np.ones(len(file_list), dtype=bool)
-        mjd_obs_temp = np.zeros(len(file_list))
+        mjd_obs = np.zeros(len(file_list))
         for i_file, filename in enumerate(file_list):
+
             header_temp = read_hdulist (filename, get_data=False, get_header=True)
             if 'QC-FLAG' in header_temp and header_temp['QC-FLAG'] == 'red':
                 mask_keep[i_file] = False
+
             # record MJD-OBS in array
             if 'MJD-OBS' in header_temp:
-                mjd_obs_temp[i_file] = header_temp['MJD-OBS'] 
-            
+                mjd_obs[i_file] = header_temp['MJD-OBS'] 
+                
+                
+            if False:
+                # for period from July 2019 until February 2020, avoid
+                # using MeerLICHT evening flats due to dome vignetting
+                mjd_avoid = Time(['2019-07-01T12:00:00', '2020-03-01T12:00:00'],
+                                 format='isot').mjd
+                if (tel=='ML1' and mjd_obs[i_file] % 1 > 0.5 and
+                    mjd_obs[i_file] > mjd_avoid[0] and
+                    mjd_obs[i_file] < mjd_avoid[1]):
+                    
+                    mask_keep[i_file] = False
+
+
+
         file_list = np.array(file_list)[mask_keep]
-        mjd_obs_temp = mjd_obs_temp[mask_keep]
+        mjd_obs = mjd_obs[mask_keep]
         nfiles = len(file_list)
 
 
@@ -4147,7 +4177,7 @@ def master_prep (fits_master, data_shape, pick_alt=True, log=None):
             # difference between observed MJD and mignight of the
             # evening date
             mjd_midnight = date2mjd('{}'.format(date_eve), time_str='23:59')
-            mjd_obs_delta = np.abs(mjd_obs_temp - mjd_midnight)
+            mjd_obs_delta = np.abs(mjd_obs - mjd_midnight)
             # sort the observed delta MJDs of the files
             index_sort = np.argsort (mjd_obs_delta)
             # select nmax
@@ -5574,17 +5604,32 @@ def xtalk_corr (data, crosstalk_file, log=None):
     if get_par(set_zogy.timing,tel):
         t = time.time()
 
+
+    if log is not None:
+        if os.path.isfile(crosstalk_file):
+            log.info ('crosstalk file: {}'.format(crosstalk_file))
+
+        
     # read file with corrections
-    victim, source, correction = np.loadtxt(crosstalk_file,unpack=True)
+    if False:
+        victim, source, correction = np.loadtxt(crosstalk_file, unpack=True)
+    else:
+        table = Table.read(crosstalk_file, format='ascii',
+                           names=['victim', 'source', 'correction'])
+        victim = np.array(table['victim'])
+        source = np.array(table['source'])
+        correction = np.array(table['correction'])
+
+
     # convert to indices
     victim -= 1
     source -= 1
-        
+
     # channel image sections
     chan_sec, __, __, __, __ = define_sections(np.shape(data), tel=tel)
     # number of channels
     nchans = np.shape(chan_sec)[0]
-        
+
     # the following 2 lines are to shift the channels to those
     # corresponding to the new channel definition with layout:
     #
@@ -5604,7 +5649,8 @@ def xtalk_corr (data, crosstalk_file, log=None):
     
     # loop arrays in file and correct the channels accordingly
     for k in range(len(victim)):
-        data[chan_sec[int(victim[k])]] -= data[chan_sec[int(source[k])]]*correction[k]
+        data[chan_sec[int(victim[k])]] -= (
+            data[chan_sec[int(source[k])]]*correction[k])
 
 
     # keep this info for the moment:
@@ -6236,6 +6282,9 @@ if __name__ == "__main__":
                         '[tel]_[date]_[time].log with date/time at start of '
                         'running blackbox')
 
+    parser.add_argument('--keep_tmp', default=None,
+                        help='keep temporary directories')
+
 
     args = params.parse_args()
 
@@ -6246,4 +6295,4 @@ if __name__ == "__main__":
                   img_reduce=args.img_reduce, cat_extract=args.cat_extract,
                   trans_extract=args.trans_extract,
                   force_reproc_new=args.force_reproc_new,
-                  name_genlog=args.name_genlog)
+                  name_genlog=args.name_genlog, keep_tmp=args.keep_tmp)
