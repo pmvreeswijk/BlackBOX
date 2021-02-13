@@ -1638,8 +1638,8 @@ def blackbox_reduce (filename):
         # create a logger that will append the log commands to [logfile]
         log = create_log (logfile, name='log')
 
-        text_tmp = ('corresponding reduced {} image {} already exists; '
-                    'skipping its reduction and copying existing products '
+        text_tmp = ('corresponding reduced {} image {} already exists; skipping '
+                    'its reduction; for object images copying existing products '
                     'to tmp folder')
         log.warning (text_tmp.format(imgtype, fits_out_present.split('/')[-1]))
 
@@ -6282,7 +6282,7 @@ if __name__ == "__main__":
                         '[tel]_[date]_[time].log with date/time at start of '
                         'running blackbox')
 
-    parser.add_argument('--keep_tmp', default=None,
+    params.add_argument('--keep_tmp', default=None,
                         help='keep temporary directories')
 
 
