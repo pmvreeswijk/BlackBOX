@@ -866,8 +866,8 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
         genlogfile = '{}/{}_{}.log'.format(get_par(set_bb.log_dir,tel), tel,
                                            Time.now().strftime('%Y%m%d_%H%M%S'))
 
-    genlog = create_log (genlogfile)
-    
+    genlog = create_log (genlogfile, loglevel='ERROR')
+
     genlog.info ('processing mode:        {}'.format(mode))
     genlog.info ('general log file:       {}'.format(genlogfile))
     genlog.info ('number of processes:    {}'.format(nproc))
@@ -1174,7 +1174,8 @@ def create_masters (mdate=None, run_fpack=True, run_create_jpg=True, nproc=1,
             # loop filters and create list of masters to multiprocess
             for filt in filts_2loop:
                 list_masters.append('{}/flat/flat_{}_{}.fits'
-                                    .format(list_path[i], list_date_eve[i], filt))
+                                    .format(list_path[i], list_date_eve[i],
+                                            filt))
 
 
     # data shape is needed as input for [master_prep]
@@ -1183,8 +1184,8 @@ def create_masters (mdate=None, run_fpack=True, run_create_jpg=True, nproc=1,
 
     # use [pool_func] to process list of masters; pick_alt is set to
     # False as there is no need to look for an alternative master flat
-    list_fits_master = pool_func (master_prep, list_masters, data_shape, False,
-                                  genlog, log=genlog, nproc=nproc)
+    list_fits_master = pool_func (master_prep, list_masters, data_shape, True,
+                                  False, genlog, log=genlog, nproc=nproc)
 
 
     if get_par(set_zogy.timing,tel):
@@ -1285,9 +1286,9 @@ def fpack (filename, log=None):
                                   ext_name_indices=0)
 
             # check if it is an image
-            if header['NAXIS']==2:
+            if int(header['NAXIS'])==2:
                 # determine if integer or float image
-                if header['BITPIX'] > 0:
+                if int(header['BITPIX']) > 0:
                     cmd = ['fpack', '-D', '-Y', '-v', filename]
                 else:
                     if 'Scorr' in filename or 'limmag' in filename:
@@ -1529,7 +1530,7 @@ def blackbox_reduce (filename):
     # if exptime is not in the header or if it's 0 for a science
     # image, skip image
     if 'EXPTIME' in header:
-        exptime = header['EXPTIME']
+        exptime = float(header['EXPTIME'])
         if 'IMAGETYP' in header and (header['IMAGETYP'].lower()=='object'
             and int(exptime)==0):
             genlog.error ('science image {} with EXPTIME of zero; skipping image'
@@ -1635,22 +1636,29 @@ def blackbox_reduce (filename):
         not (get_par(set_bb.img_reduce,tel) and
              get_par(set_bb.force_reproc_new,tel))):
 
-        # create a logger that will append the log commands to [logfile]
-        log = create_log (logfile, name='log')
-
         text_tmp = ('corresponding reduced {} image {} already exists; skipping '
                     'its reduction; for object images copying existing products '
                     'to tmp folder')
-        log.warning (text_tmp.format(imgtype, fits_out_present.split('/')[-1]))
+        genlog.warning (text_tmp.format(imgtype, fits_out_present.split('/')[-1]))
 
         # copy relevant files to tmp folder for object images
         if imgtype == 'object':
+
+            # create a logger that will append the log commands to [logfile]
+            log = create_log (logfile, name='log')
+            
             copy_files2keep(new_base, tmp_base,
                             get_par(set_bb.img_reduce_exts,tel),
                             move=False, do_fpack=False, log=log)
 
-        do_reduction = False
+            do_reduction = False
 
+        else:
+            # for non-object images, leave function; if reduction steps would
+            # not have been skipped, this would have happened before
+            #close_log(log, logfile)
+            return fits_out
+            
     else:
         
         # go through various reduction steps
@@ -1851,7 +1859,8 @@ def blackbox_reduce (filename):
 
             # prepare or point to the master bias
             fits_master = '{}/bias_{}.fits'.format(bias_path, date_eve)
-            fits_mbias = master_prep (fits_master, data.shape, log=log)
+            fits_mbias = master_prep (fits_master, data.shape,
+                                      get_par(set_bb.create_master,tel), log=log)
 
         except Exception as e:
             #log.exception(traceback.format_exc())
@@ -1956,7 +1965,8 @@ def blackbox_reduce (filename):
 
             # prepare or point to the master flat
             fits_master = '{}/flat_{}_{}.fits'.format(flat_path, date_eve, filt)
-            fits_mflat = master_prep (fits_master, data.shape, log=log)
+            fits_mflat = master_prep (fits_master, data.shape,
+                                      get_par(set_bb.create_master,tel), log=log)
 
         except Exception as e:
             #log.exception(traceback.format_exc())
@@ -2142,14 +2152,6 @@ def blackbox_reduce (filename):
 
     # block dealing with main processing switches
     #############################################
-
-    # for non-object images, leave function; if reduction steps would
-    # not have been skipped, this would have happened before
-    if imgtype != 'object':
-        # close down logging and leave
-        close_log(log, logfile)
-        return fits_out
-
     
     # if both catalog and transient extraction are switched off, then
     # no need to execute [optimal_subtraction]
@@ -2406,10 +2408,10 @@ def blackbox_reduce (filename):
     # if ref image needs to be created but it has not been processed
     # yet:
     ref_present = already_exists (ref_fits_out)
-    log.info ('reference image {} for current image {} already present?: {}'
+    log.info ('ref image {} for {} already present?: {}'
               .format(ref_fits_out, filename, ref_present))
-    log.info ('reference image needs to be created from the current image {}?: {}'
-              .format(filename, get_par(set_bb.create_ref,tel)))
+    log.info ('input [create_ref] switch set to: {}'
+              .format(get_par(set_bb.create_ref,tel)))
 
 
     # in case transient extraction step is switched off, or in case
@@ -3592,7 +3594,7 @@ def try_func (func, args_in, args_out, log=None):
     
 ################################################################################
 
-def create_log (logfile, name=None):
+def create_log (logfile, name=None, loglevel='INFO'):
 
     #log = logging.getLogger() #create logger
     #log.setLevel(logging.INFO) #set level of logger
@@ -3603,7 +3605,9 @@ def create_log (logfile, name=None):
     #log.addHandler(filehandler) #link log file to logger
 
     log = logging.getLogger(name)
-    log.setLevel(logging.INFO)
+    #log.setLevel(logging.INFO)
+    #log.setLevel(exec('logging.{}'.format(loglevel.upper())))
+    log.setLevel(loglevel)
     logFormatter = logging.Formatter('%(asctime)s.%(msecs)03d [%(levelname)s, '
                                      '%(process)s] %(message)s [%(funcName)s, '
                                      'line %(lineno)d]', '%Y-%m-%dT%H:%M:%S')
@@ -3933,7 +3937,7 @@ def cosmics_corr (data, header, data_mask, header_mask, log=None):
     # same cosmic also if they are only connected diagonally
     struct = np.ones((3,3), dtype=bool)
     __, ncosmics = ndimage.label(mask_cr, structure=struct)
-    ncosmics_persec = ncosmics / header['EXPTIME']
+    ncosmics_persec = ncosmics / float(header['EXPTIME'])
     header['NCOSMICS'] = (ncosmics_persec, '[/s] number of cosmic rays identified')
     # also add this to header of mask image
     header_mask['NCOSMICS'] = (ncosmics_persec, '[/s] number of cosmic rays identified')
@@ -3994,7 +3998,8 @@ def mask_init (data, header, filt, imgtype, log=None):
         # blackbox settings file, which needs to be mulitplied by the gain
         # and have the mean biaslevel subtracted
         satlevel_electrons = (get_par(set_bb.satlevel,tel) *
-                              np.mean(get_par(set_bb.gain,tel)) - header['BIASMEAN'])
+                              np.mean(get_par(set_bb.gain,tel))
+                              - header['BIASMEAN'])
         mask_sat = (data >= satlevel_electrons)
         # add them to the mask of edge and bad pixels
         data_mask[mask_sat] += get_par(set_zogy.mask_value['saturated'],tel)
@@ -4057,7 +4062,7 @@ def mask_header(data_mask, header_mask):
 
 ################################################################################
 
-def master_prep (fits_master, data_shape, pick_alt=True, log=None):
+def master_prep (fits_master, data_shape, create_master, pick_alt=True, log=None):
 
     if get_par(set_zogy.timing,tel):
         t = time.time()
@@ -4071,27 +4076,37 @@ def master_prep (fits_master, data_shape, pick_alt=True, log=None):
     else:
         filt = None
 
+
     # check if already present (if fpacked, fits_master below will
     # point to fpacked file)
     master_present, fits_master = already_exists (fits_master, get_filename=True)
 
+
     if log is not None and master_present:
         log.info ('master {} {} already exists'.format(imtype, fits_master))
 
-    # if this is a forced re-reduction, delete the master if it exists
-    if master_present and get_par(set_bb.force_reproc_new,tel):
-        os.remove(fits_master)
-        # also remove jpg if it exists
-        file_jpg = '{}.jpg'.format(fits_master.split('.fits')[0])
-        if os.path.isfile(file_jpg):
-            os.remove(file_jpg)
-        master_present = False
-        if '.fz' in fits_master:
-            fits_master = fits_master.replace('.fz','')
 
-        if log is not None:
-            log.info ('forced reprocessing; deleting master {} {} and its jpg'
-                      .format(imtype, fits_master))
+    # switch off this block; it's likely that a forced reduction is
+    # only meant to rereduce the object frames with the already
+    # existing master frames. Also in the case where [master_prep] is
+    # called from [create_masters], better to remove masters manually
+    # if they need to be redone.
+    if False:
+        # if this is a forced re-reduction, delete the master if it exists
+        if master_present and get_par(set_bb.force_reproc_new,tel):
+            os.remove(fits_master)
+            # also remove jpg if it exists
+            file_jpg = '{}.jpg'.format(fits_master.split('.fits')[0])
+            if os.path.isfile(file_jpg):
+                os.remove(file_jpg)
+
+            master_present = False
+            if '.fz' in fits_master:
+                fits_master = fits_master.replace('.fz','')
+
+            if log is not None:
+                log.info ('forced reprocessing; deleting master {} {} and its jpg'
+                          .format(imtype, fits_master))
 
 
 
@@ -4145,18 +4160,17 @@ def master_prep (fits_master, data_shape, pick_alt=True, log=None):
             # record MJD-OBS in array
             if 'MJD-OBS' in header_temp:
                 mjd_obs[i_file] = header_temp['MJD-OBS'] 
-                
-                
-            if False:
-                # for period from July 2019 until February 2020, avoid
-                # using MeerLICHT evening flats due to dome vignetting
-                mjd_avoid = Time(['2019-07-01T12:00:00', '2020-03-01T12:00:00'],
-                                 format='isot').mjd
-                if (tel=='ML1' and mjd_obs[i_file] % 1 > 0.5 and
-                    mjd_obs[i_file] > mjd_avoid[0] and
-                    mjd_obs[i_file] < mjd_avoid[1]):
-                    
-                    mask_keep[i_file] = False
+
+
+            # for period from July 2019 until February 2020, avoid
+            # using MeerLICHT evening flats due to dome vignetting
+            mjd_avoid = Time(['2019-07-01T12:00:00', '2020-03-01T12:00:00'],
+                             format='isot').mjd
+            if (tel=='ML1' and mjd_obs[i_file] % 1 > 0.5 and
+                mjd_obs[i_file] > mjd_avoid[0] and
+                mjd_obs[i_file] < mjd_avoid[1]):
+
+                mask_keep[i_file] = False
 
 
 
@@ -4191,9 +4205,11 @@ def master_prep (fits_master, data_shape, pick_alt=True, log=None):
                                   file_list))
  
 
-        # if master bias/flat contains a red flag, look for a nearby
-        # master flat instead
-        if nfiles < 3 or not master_ok:
+        # look for a nearby master instead if the master bias/flat
+        # present contains a red flag, or there are too few individual
+        # frames to make a master, or the input [create_master] is
+        # switched off
+        if nfiles < 3 or not master_ok or not create_master:
 
             if log is not None:
                 if imtype=='flat':
@@ -4203,7 +4219,7 @@ def master_prep (fits_master, data_shape, pick_alt=True, log=None):
 
             # if input [pick_alt] is True, look for a nearby master
             # flat, otherwise just return None
-            if pick_alt:
+            if pick_alt or not create_master:
                 fits_master_close = get_closest_biasflat(date_eve, imtype,
                                                          filt=filt)
             else:
@@ -4784,7 +4800,7 @@ def check_header2 (header, filename):
 
     # if binning is not 1x1, also skip processing
     if 'XBINNING' in header and 'YBINNING' in header: 
-        if header['XBINNING'] != 1 or header['YBINNING'] != 1:
+        if int(header['XBINNING']) != 1 or int(header['YBINNING']) != 1:
             genlog.error ('BINNING not 1x1; not processing {}'.format(filename))
 
             header_ok = False
@@ -4839,7 +4855,7 @@ def set_header(header, filename):
     if 'XBINNING' in header:
         edit_head(header, 'XBINNING', comments='[pix] Binning factor X axis')
     else:
-        xsize = header['NAXIS1']
+        xsize = int(header['NAXIS1'])
         nx = get_par(set_bb.nx,tel)
         dx = get_par(set_bb.xsize_chan,tel)
         xbinning = int(np.ceil(float(nx*dx)/xsize))
@@ -4849,7 +4865,7 @@ def set_header(header, filename):
     if 'YBINNING' in header:
         edit_head(header, 'YBINNING', comments='[pix] Binning factor Y axis')
     else:
-        ysize = header['NAXIS2']
+        ysize = int(header['NAXIS2'])
         ny = get_par(set_bb.ny,tel)
         dy = get_par(set_bb.ysize_chan,tel)
         ybinning = int(np.ceil(float(ny*dy)/ysize))
@@ -4872,7 +4888,8 @@ def set_header(header, filename):
 
     if 'ISTRACKI' in header:
         # convert the string value to boolean
-        value = (header['ISTRACKI']=='True')
+        #value = (header['ISTRACKI']=='True')
+        value = str2bool(header['ISTRACKI'])
         edit_head(header, 'ISTRACKI', value=value,
                   comments='Telescope is tracking')
 
@@ -4917,7 +4934,7 @@ def set_header(header, filename):
         date_obs = Time(date_obs_str, format='isot') 
 
         # also add keyword to check (GPSEND-GPSSTART) - EXPTIME
-        gps_shut = (gps_mjd[1]-gps_mjd[0])*24*3600. - header['EXPTIME']
+        gps_shut = (gps_mjd[1]-gps_mjd[0])*24*3600. - float(header['EXPTIME'])
         edit_head(header, 'GPS-SHUT', value=gps_shut,
                   comments='[s] Shutter time:(GPSEND-GPSSTART)-EXPTIME')
         
@@ -4970,15 +4987,16 @@ def set_header(header, filename):
             ra_deg = Angle(header['RA'], unit=u.hour).degree
         else:
             # convert RA decimal hours to degrees
-            ra_deg = header['RA'] * 15.
+            ra_deg = float(header['RA']) * 15.
 
         # DEC
         if ':' in str(header['DEC']):
             # convert sexagesimal to decimal degrees
             dec_deg = Angle(header['DEC'], unit=u.deg).degree
         else:
-            # for airmass determination below
-            dec_deg = header['DEC']
+            # for ra_icrs, dec_icrs and airmass determination below
+            # float is needed as sometimes it is a string
+            dec_deg = float(header['DEC'])
 
         # assuming RA,DEC are JNOW, convert them to J2000/ICRS
         equinox = Time(mjd_obs, format='mjd').jyear_str
@@ -5226,6 +5244,7 @@ def set_header(header, filename):
             obj = header['FIELD_ID']
         else:
             obj = header['OBJECT']
+
         edit_head(header, 'OBJECT', value='{:0>5}'.format(obj),
                   comments='Name of object observed (field ID)')
 

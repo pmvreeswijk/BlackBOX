@@ -9,7 +9,7 @@ import numpy as np
 nproc = 1
 # maximum number of threads for each process (this parameter
 # cannot be made telescope dependent through a dictionary!)
-nthreads = 1
+nthreads = 2
 
 #===============================================================================
 # Reduction steps
@@ -18,7 +18,7 @@ nthreads = 1
 # switch on/off different parts
 img_reduce = False
 cat_extract = False
-trans_extract = True
+trans_extract = False
 
 # force re-processing of new image, only for above parts that are
 # switched on
@@ -28,6 +28,9 @@ force_reproc_new = True
 # processed in case it does not exist yet for that combination of
 # OBJECT/FieldID and filter
 create_ref = False
+# create master file if it does not exist yet; if False the master
+# frame closest in time will be used
+create_master = False
 
 # subtract master bias
 subtract_mbias = False
@@ -60,7 +63,7 @@ run_dir_base = os.environ['DATAHOME']
 # [run_dir_base], but could be anywhere
 tmp_dir_base = run_dir_base
 # switch to keep tmp directories (True) or not (False)
-keep_tmp = True
+keep_tmp = False
 
 # the loop below creates dictionaries with keys ['ML1', 'BG2', 'BG3',
 # 'BG4'] for the different paths to the raw, red, log, ref and tmp
