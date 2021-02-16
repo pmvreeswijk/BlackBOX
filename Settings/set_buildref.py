@@ -36,7 +36,7 @@ keep_tmp = False
 # not in latest manual v2.21 (code is at v2.38):
 # CLIPPED, CHI-OLD, CHI-MODE, CHI-MEAN, WEIGHTED_WEIGHT, MEDIAN_WEIGHT,
 # AND, NAND, OR or NOR
-combine_type = 'clipped'
+combine_type = 'median'
 
 # sum of mask type integers (bad=1,..) to discard'
 masktype_discard = 49 # i.e. discard bad (1) + satellite (16) + edge (32)
@@ -50,6 +50,14 @@ back_type = 'blackbox'
 
 # N.B.: the background boxsize and filtersize are taken from the ZOGY
 # settings file!
+
+# pixelscale type; options same as SWarp's PIXELSCALE_TYPE options:
+# median, min, max, manual, fit
+pixscale_type = 'manual'
+# fixed pixel scale of output image; only used in case [pixscale_type]
+# is set to 'manual'
+pixscale_out = 0.5642
+
 
 #===============================================================================
 # Select subset to combine in case of many images of the same field/filter

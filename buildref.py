@@ -430,12 +430,33 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
     
     # if object (field ID) is specified, which can include the unix
     # wildcards * and ?, select only images with a matching object
-    # string
+    # string; field_IDs can also be an ascii file with the field ID(s)
+    # listed in the 1st column
     if field_IDs is not None:
 
-        # comma-split input string field_IDs into list; if no comma
-        # is present, the list will contain a single entry
-        field_ID_list = field_IDs.split(',')
+        # check if it's a file
+        if os.path.isfile(field_IDs):
+
+            # read ascii table
+            table_ID = Table.read(field_IDs, format='ascii', data_start=0)
+            # table can contain 1 or 2 columns and can therefore not
+            # pre-define column names, while with data_start=0 the entries
+            # on the first line are taken as the column names
+            cols = table.colnames
+
+            # list with field IDs
+            field_ID_list = list(table_ID[cols[0]])
+
+            # define list of filters if 2nd column is defined
+            #if len(cols)>1:
+            #    list_filt = list(table_ID[cols[1]])
+
+        else:
+
+            # comma-split input string field_IDs into list; if no comma
+            # is present, the list will contain a single entry
+            field_ID_list = field_IDs.split(',')
+
 
         # check that the leading zeros are present for field IDs with
         # digits only
@@ -443,9 +464,10 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
             if field_ID.isdigit() and len(field_ID)!=5:
                 field_ID_list[i_field] = '{:0>5}'.format(field_ID)
 
-        # prepare big mask where presence of table object entry is
-        # checked against any of the field IDs in field_ID_list; this
-        # mask will contain len(table) * len(field_ID_list) entries
+        # prepare mask where presence of (header) table object entry
+        # is checked against any of the field IDs in field_ID_list;
+        # this mask will contain len(table) * len(field_ID_list)
+        # entries
         mask = [fnmatch.fnmatch('{:0>5}'.format(obj), field_ID)
                 for field_ID in field_ID_list
                 for obj in table['OBJECT']]
@@ -538,8 +560,8 @@ def buildref (telescope=None, date_start=None, date_end=None, field_IDs=None,
             # containing the RA and DEC coordinates
             mask_grid = (table_grid['field_id'].astype(int) == int(obj))
             if np.sum(mask_grid) > 0:
-                radec = (table_grid[mask_grid]['ra_c'],
-                         table_grid[mask_grid]['dec_c'])
+                radec = (table_grid['ra_c'][mask_grid][0],
+                         table_grid['dec_c'][mask_grid][0])
             else:
                 genlog.error ('field ID/OBJECT {} not present in ML/BG '
                               'grid definition file {}; skipping it'
@@ -1853,6 +1875,21 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
         back_type_SWarp = 'manual'
 
 
+    pixscale_type = get_par(set_br.pixscale_type,tel).upper()
+    pixscale_out = get_par(set_br.pixscale_out,tel)
+
+    # turn off for now; leads to issue with bkg_boxsize not fitting
+    # integer times into new image size determined by SWarp; need to
+    # either include possible padding in conversion from mini-to-big
+    # and vice versa, or set output image size to an integer value *
+    # bkg_boxsize by measuring distance from output center RA,DEC of
+    # all individual images that are used - last option is probably
+    # the easiest
+    
+    #if pixscale_type == 'MANUAL':
+    #    size_str = '0'
+
+
     # define a list of keywords, mostly those created in [set_header]
     # function in blackbox.py and a few additional ones defined in
     # blackbox.py, that do not change between images; the keywords
@@ -1881,6 +1918,8 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
            '-CENTER_TYPE', 'MANUAL',
            '-CENTER', radec_str,
            '-IMAGE_SIZE', size_str,
+           '-PIXEL_SCALE', str(pixscale_out),
+           '-PIXELSCALE_TYPE', pixscale_type,
            '-IMAGEOUT_NAME', fits_out,
            '-RESAMPLE_DIR', tempdir,
            '-RESAMPLE_SUFFIX', resample_suffix,
@@ -2050,49 +2089,6 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
     header_weights['BKG-SIZE'] = (bkg_boxsize, '[pix] background boxsize used')
 
 
-    # turn this block off as it appears too risky to scale the STD in
-    # very crowded frames; also the background STD (mini_std) is now
-    # estimated from the background + readnoise**2 instead of
-    # determined directly from the scatter in the image itself, and
-    # this new estimate will not overestimate the STD as it was the
-    # case before (although it may underestimate it)
-    if False:
-
-        # compare mini_std with mini bkg_std image directly inferred
-        # from data_out
-
-        # construct masked array, rejecting pixels with values higher than
-        # n-sigma times the above data_bkg_std image; assumption is that
-        # background is around zero
-        mask_reject = ((data_out / data_bkg_std) > 3)
-        data_out_masked = np.ma.masked_array(data_out, mask=mask_reject)
-        # reshape
-        data_out_reshaped = data_out_masked.reshape(
-            nysubs,bkg_boxsize,-1,bkg_boxsize).swapaxes(1,2).reshape(nysubs,
-                                                                     nxsubs,-1)
-        # get clipped statistics
-        __, mini_median, mini_std_alt = sigma_clipped_stats (
-            data_out_reshaped, sigma=get_par(set_zogy.bkg_nsigma,tel), axis=2,
-            mask_value=0)
-
-        # compare ratio of [mini_std_alt] over [mini_std]
-        mini_std_ratio = np.nanmedian (mini_std_alt / mini_std)
-    
-        dev_max = 0.3
-        if np.abs(mini_std_ratio - 1) <= dev_max:
-            # adjust mini_std with this ratio
-            mini_std *= mini_std_ratio
-            log.info ('correction factor applied to ref STD image: {:.3f}'
-                      .format(mini_std_ratio))
-        else:
-            log.warning ('correction factor to ref STD of {:.3f} larger than '
-                         'maximum allowed deviation of {}; not applying it'
-                         .format(mini_std_ratio, dev_max))
-
-        header_weights['BKGSTDCF'] = (mini_std_ratio, 'corr. factor applied '
-                                      'to background STD image')
-
-
     # write mini bkg_std file
     header_weights['COMMENT'] = ('combined weights image was converted to STD '
                                  'image: std=1/sqrt(w)')
@@ -2121,6 +2117,8 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
                '-CENTER_TYPE', 'MANUAL',
                '-CENTER', radec_str,
                '-IMAGE_SIZE', size_str,
+               '-PIXEL_SCALE', str(pixscale_out),
+               '-PIXELSCALE_TYPE', pixscale_type,
                '-IMAGEOUT_NAME', fits_mask_OR,
                '-RESAMPLE_DIR', tempdir,
                '-RESAMPLE_SUFFIX', resample_suffix,
@@ -2158,6 +2156,8 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
                '-CENTER_TYPE', 'MANUAL',
                '-CENTER', radec_str,
                '-IMAGE_SIZE', size_str,
+               '-PIXEL_SCALE', str(pixscale_out),
+               '-PIXELSCALE_TYPE', pixscale_type,
                '-IMAGEOUT_NAME', fits_mask_MIN,
                '-RESAMPLE_DIR', tempdir,
                '-RESAMPLE_SUFFIX', resample_suffix,
@@ -2578,10 +2578,13 @@ def buildref_optimal(imagelist):
                              (x_fratio > subcut[2]) & (x_fratio < subcut[3]))
                 if fratio_local and any(index_sub):
                     # get median fratio from PSFex stars across subimage
-                    fratio_mean, fratio_std, fratio_median = clipped_stats(fratio[index_sub])
+                    fratio_mean, fratio_std, fratio_median = clipped_stats(
+                        fratio[index_sub])
                 else:
                     # else for the entire image
-                    fratio_mean, fratio_std, fratio_median = clipped_stats(fratio, nsigma=2)
+                    fratio_mean, fratio_std, fratio_median = clipped_stats(
+                        fratio, nsigma=2)
+
                 # fill fratio_array
                 fratio_array[nima, nsub] = fratio_median
                 if verbose:
@@ -2993,7 +2996,8 @@ if __name__ == "__main__":
                         help='only consider images with this(these) field ID(s) '
                         '(can be multiple field IDs separated by a comma, '
                         'and with the optional use of unix wildcards, '
-                        'e.g. 1600[0-5],16037,161??); default=None')
+                        'e.g. 1600[0-5],16037,161??); can also be an ascii file '
+                        'with the field ID(s) in the 1st column; default=None')
     parser.add_argument('--filters', type=str, default=None,
                         help='only consider this(these) filter(s), e.g. uqi')
     parser.add_argument('--qc_flag_max', type=str, default='orange',
