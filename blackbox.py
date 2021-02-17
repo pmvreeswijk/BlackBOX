@@ -2100,6 +2100,7 @@ def blackbox_reduce (filename):
         hdulist.writeto(new_fits.replace('.fits', '_hdr.fits'), overwrite=True)
 
 
+
         if False:
             # if reduction steps were just performed or in the special case
             # that the image reduction and cat_extract and set_zogy.redo_new
@@ -2314,9 +2315,7 @@ def blackbox_reduce (filename):
                             break
 
             # update separate header fits file as well
-            hdulist = fits.HDUList(fits.PrimaryHDU(header=header))
-            hdulist.writeto(new_fits.replace('.fits', '_hdr.fits'),
-                            overwrite=True)
+            update_hdrfile (new_fits, header)
 
 
         elif get_par(set_bb.trans_extract,tel):
@@ -4121,7 +4120,7 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True, log=None
                              .format(imtype, fits_master))
 
 
-    if not (master_present and master_ok):
+    if not (master_present and master_ok) and create_master:
         # prepare master image from files in [path] +/- the specified
         # time window
         if imtype=='flat':
@@ -4239,11 +4238,8 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True, log=None
                 if ((imtype=='bias' and get_par(set_bb.subtract_mbias,tel))
                     or imtype=='flat'):
                     if log is not None:
-                        log.warning ('too few good frames available to produce '
-                                     'master {} for evening date {} +/- window '
-                                     'of {} days\ninstead using: {}'
-                                     .format(msg, date_eve, nwindow,
-                                             fits_master_close))
+                        log.warning ('using {} as master for evening date {}'
+                                     .format(fits_master_close, date_eve))
                 # previously we created a symbolic link so future
                 # files would automatically use this as the master
                 # file, but as this symbolic link is confusing, let's
