@@ -2298,7 +2298,11 @@ def blackbox_reduce (filename):
             # [run_wcs] and [format_cat] are rerun
             with fits.open(new_fits, 'update', memmap=True) as hdulist:
                 keys = ['DUMCAT', 'QC-FLAG', 'QCRED', 'QCORA', 'QCYEL',
-                        'FORMAT-P', 'CTYPE1', 'CTYPE2', 'BKG-SUB'] 
+                        'FORMAT-P', 'CTYPE1', 'CTYPE2']
+                # don't add BKG-SUB as otherwise background could be
+                # determined from image that was already background
+                # subtracted and then the original background will be
+                # lost , 'BKG-SUB']
                 for key in keys:
                     if 'QCRED' in key or 'QCORA' in key or 'QCYEL' in key:
                         keys2del = ['{}{}'.format(key[0:5], i)
@@ -4120,7 +4124,8 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True, log=None
                              .format(imtype, fits_master))
 
 
-    if not (master_present and master_ok) and create_master:
+    if not (master_present and master_ok):
+
         # prepare master image from files in [path] +/- the specified
         # time window
         if imtype=='flat':
