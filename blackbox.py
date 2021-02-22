@@ -2116,13 +2116,18 @@ def blackbox_reduce (filename):
         # check quality control
         qc_flag = run_qc_check (header, tel, log=log, check_key_type='full')
 
+
         # update [new_fits] header with qc-flags
-        with fits.open(new_fits, 'update', memmap=True) as hdulist:
-            for key in header:
-                if 'QC' in key or 'DUMCAT' in key:
-                    log.info ('updating header keyword {} with: {} for image {}'
-                              .format(key, header[key], new_fits))
-                    hdulist[-1].header[key] = (header[key], header.comments[key])
+        header_update = read_hdulist(new_fits, get_data=False, get_header=True)
+        for key in header:
+            if 'QC' in key or 'DUMCAT' in key:
+                log.info ('updating header keyword {} with: {} for image {}'
+                          .format(key, header[key], new_fits))
+                header_update[key] = (header[key], header.comments[key])
+
+        # update fits header and separate header file
+        update_imhead (new_fits, header_update)
+
 
         # if header of object image contains a red flag, create dummy
         # binary fits catalogs (both 'new' and 'trans') and return,
@@ -2296,30 +2301,31 @@ def blackbox_reduce (filename):
             # clear any pre-existing qc-flags from [new_fits] header,
             # including keywords that determine whether [get_back],
             # [run_wcs] and [format_cat] are rerun
-            with fits.open(new_fits, 'update', memmap=True) as hdulist:
-                keys = ['DUMCAT', 'QC-FLAG', 'QCRED', 'QCORA', 'QCYEL',
-                        'FORMAT-P', 'CTYPE1', 'CTYPE2']
-                # don't add BKG-SUB as otherwise background could be
-                # determined from image that was already background
-                # subtracted and then the original background will be
-                # lost , 'BKG-SUB']
-                for key in keys:
-                    if 'QCRED' in key or 'QCORA' in key or 'QCYEL' in key:
-                        keys2del = ['{}{}'.format(key[0:5], i)
-                                    for i in range(1,100)]
+            header_update = read_hdulist(new_fits, get_data=False,
+                                         get_header=True)
+            keys = ['DUMCAT', 'QC-FLAG', 'QCRED', 'QCORA', 'QCYEL',
+                    'FORMAT-P', 'CTYPE1', 'CTYPE2']
+            # don't add BKG-SUB as otherwise background could be
+            # determined from image that was already background
+            # subtracted and then the original background will be
+            # lost , 'BKG-SUB']
+            for key in keys:
+                if 'QCRED' in key or 'QCORA' in key or 'QCYEL' in key:
+                    keys2del = ['{}{}'.format(key[0:5], i)
+                                for i in range(1,100)]
+                else:
+                    keys2del = [key]
+                    
+                for key2del in keys2del:
+                    if key2del in header_update:
+                        log.info ('deleting keyword {} from header of {}'
+                                  .format(key2del, new_fits))
+                        del header_update[key2del]
                     else:
-                        keys2del = [key]
-                                                         
-                    for key2del in keys2del:
-                        if key2del in hdulist[-1].header:
-                            log.info ('deleting keyword {} from header of {}'
-                                      .format(key2del, new_fits))
-                            del hdulist[-1].header[key2del]
-                        else:
-                            break
+                        break
 
-            # update separate header fits file as well
-            update_hdrfile (new_fits, header)
+            # update fits header and separate header file
+            update_imhead (new_fits, header_update)
 
 
         elif get_par(set_bb.trans_extract,tel):
@@ -2499,7 +2505,6 @@ def blackbox_reduce (filename):
                 # catalog header as the dummy catalogs _cat.fits and
                 # _trans.fits will be created in function [qc]
                 update_imhead (new_fits, header_new)
-                update_hdrfile (new_fits, header_new)
 
 
 
@@ -2580,7 +2585,6 @@ def blackbox_reduce (filename):
                 # update reduced image header with extended header
                 # from ZOGY's optimal_subtraction
                 update_imhead (new_fits, header_ref)
-                update_hdrfile (new_fits, header_ref)
 
 
                 if qc_flag != 'red':
@@ -2726,8 +2730,6 @@ def blackbox_reduce (filename):
                 # from ZOGY's optimal_subtraction; no need to update
                 # the ref image header
                 update_imhead (new_fits, header_new)
-                # let _hdr file also include header_trans info
-                update_hdrfile (new_fits, header_newtrans)
 
 
 
@@ -3157,6 +3159,13 @@ def update_cathead (filename, header, log=None):
         for key in header:
             if 'QC' in key or 'DUMCAT' in key or 'RADECOFF' in key:
                 hdulist[-1].header[key] = (header[key], header.comments[key])
+                
+        header_update = hdulist[-1].header
+                
+    # create separate header file with updated header
+    hdulist = fits.HDUList(fits.PrimaryHDU(header=header_update))
+    hdulist.writeto(filename.replace('.fits', '_hdr.fits'), overwrite=True,
+                    output_verify='ignore')
 
 
 ################################################################################
@@ -3168,23 +3177,14 @@ def update_imhead (filename, header):
     header['DATEFILE'] = (Time.now().isot, 'UTC date of writing file')
     with fits.open(filename, 'update', memmap=True) as hdulist:
         hdulist[-1].header = header
-
-
-################################################################################
-
-def update_hdrfile (filename, header, log=None):
-
-    # create separate header fits file with content header;
-    # output_exception='ignore' was added following the exception
-    # 'NAXISj keyword out of range ('NAXIS1' when NAXIS == 0)'
-    # probably due to the header_newtrans being a combination of image
-    # and fits table headers containing both NAXIS=0 and the NAXIS1
-    # and NAXIS2 keywords
+        
+    # create separate header file
     hdulist = fits.HDUList(fits.PrimaryHDU(header=header))
     hdulist.writeto(filename.replace('.fits', '_hdr.fits'), overwrite=True,
                     output_verify='ignore')
 
-    
+        
+
 ################################################################################
 
 def order_QCkeys (header):

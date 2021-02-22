@@ -45,7 +45,7 @@ bias_window = 3
 nbias_max = 20
 # time window [days] within which to include flats in master flat 
 # (0=only same night, 1=including previous and next night, etc.)
-flat_window = 5
+flat_window = 7
 nflat_max = 15
 
 # degree polynomial fit to vertical overscan clipped means
@@ -62,8 +62,11 @@ run_dir_base = os.environ['DATAHOME']
 # with fast read/write speed - for the moment it is the same as
 # [run_dir_base], but could be anywhere
 tmp_dir_base = run_dir_base
+#tmp_dir_base = '/scratch3/users/pmv'
+#tmp_dir_base = '/dev/shm'
+
 # switch to keep tmp directories (True) or not (False)
-keep_tmp = False
+keep_tmp = True
 
 # the loop below creates dictionaries with keys ['ML1', 'BG2', 'BG3',
 # 'BG4'] for the different paths to the raw, red, log, ref and tmp
@@ -79,11 +82,11 @@ for tel in ['ML1', 'BG2', 'BG3', 'BG4']:
     tmp_dir[tel] = '{}/{}/tmp'.format(tmp_dir_base, tel)
 
 # name endings of files to keep for the reference and new images
-img_reduce_exts = ['_red.fits', '_mask.fits', '_hdr.fits', '_mini.fits',
+img_reduce_exts = ['_red.fits', '_mask.fits', '_red_hdr.fits', '_mini.fits',
                    '_red_limmag.fits', '_red.log']
-cat_extract_exts = ['_cat.fits', '_psf.fits', '_psfex.cat']
+cat_extract_exts = ['_cat.fits', '_psf.fits', '_psfex.cat', '_cat_hdr.fits']
 trans_extract_exts = ['_D.fits', '_Scorr.fits', '_trans_limmag.fits',
-                      '_trans.fits']
+                      '_trans.fits', '_trans_hdr.fits']
 all_2keep = img_reduce_exts + cat_extract_exts
 ref_2keep = all_2keep
 new_2keep = trans_extract_exts + all_2keep
@@ -122,7 +125,7 @@ nonlin_corr_file = {'ML1': '{}/CalFiles/nonlin_splines_20200501.pkl'
 sigclip = {'ML1': 8.0, 'BG': 20}
 sigfrac = 0.01
 objlim = 1.0
-niter = 2
+niter = 3
 # use separable median filter instead of the full median filter;
 # [sepmed]=True is significantly faster (factor ~3), but can lead to
 # bright stars being masked and corrected as if they are cosmics
