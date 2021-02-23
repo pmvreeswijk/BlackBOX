@@ -86,7 +86,7 @@ img_reduce_exts = ['_red.fits', '_mask.fits', '_red_hdr.fits', '_mini.fits',
                    '_red_limmag.fits', '_red.log']
 cat_extract_exts = ['_cat.fits', '_psf.fits', '_psfex.cat', '_cat_hdr.fits']
 trans_extract_exts = ['_D.fits', '_Scorr.fits', '_trans_limmag.fits',
-                      '_trans.fits', '_trans_hdr.fits']
+                      '_trans.fits', '_trans_hdr.fits', '_trans_light.fits']
 all_2keep = img_reduce_exts + cat_extract_exts
 ref_2keep = all_2keep
 new_2keep = trans_extract_exts + all_2keep
