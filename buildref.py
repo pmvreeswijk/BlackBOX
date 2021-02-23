@@ -1184,6 +1184,12 @@ def prep_ref (imagelist, field_ID, filt, radec, nfiles, limmag_proj):
             # time when module was started
             hdr['R-TSTART'] = (time_refstart, 'UT time that module was started')
 
+            val_str = '[{},{}]'.format(start_date, end_date)
+            hdr['R-TRANGE'] = (val_str,
+                               '[date/days wrt R-TSTART] image time range')
+            hdr['R-QCMAX'] = (max_qc_flag, 'maximum image QC flag')
+            hdr['R-SEEMAX'] = (max_seeing, '[arcsec] maximum image seeing')
+            
             # number of images used
             hdr['R-NFILES'] = (nfiles, 'number of images within constraints '
                                'available')
@@ -1198,7 +1204,13 @@ def prep_ref (imagelist, field_ID, filt, radec, nfiles, limmag_proj):
                                                    'image {} FSCALE used in SWarp'
                                                    .format(nimage+1))
 
+            # A-swarp and clipping
+            header_out['R-ASWARP'] = ('None', 'fraction of flux variation used '
+                                      'in SWarp')
+            header_out['R-NSIGMA'] = ('None', '[sigma] clipping threshold used '
+                                      'in SWarp')
 
+                
             # projected and target limiting magnitudes
             hdr['R-LMPROJ'] = (limmag_proj, '[mag] projected limiting magnitude')
             limmag_target = get_par(set_br.limmag_target,tel)[filt]
@@ -1220,13 +1232,6 @@ def prep_ref (imagelist, field_ID, filt, radec, nfiles, limmag_proj):
             # discarded mask values
             hdr['R-MSKREJ'] = (get_par(set_br.masktype_discard,tel),
                                'reject pixels with mask values part of this sum')
-
-            val_str = '[{},{}]'.format(start_date, end_date)
-            hdr['R-TRANGE'] = (val_str,
-                               '[date/days wrt R-TSTART] image time range')
-
-            hdr['R-QCMAX'] = (max_qc_flag, 'maximum image QC flag')
-            hdr['R-SEEMAX'] = (max_seeing, '[arcsec] maximum image seeing')
 
             # time stamp of writing file
             ut_now = Time.now().isot
@@ -1403,7 +1408,8 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
                dec_center=None, nfiles=0, limmag_proj=None, use_wcs_center=True,
                back_type='auto', back_default=0, back_size=120, back_filtersize=3,
                resample_suffix='_resamp.fits', remap_each=False,
-               remap_suffix='_remap.fits', swarp_cfg=None, nthreads=0, log=None):
+               remap_suffix='_remap.fits', swarp_cfg=None, nthreads=0,
+               clipped_nsigma=2.5, log=None):
 
 
     """Module to combine MeerLICHT/BlackGEM images.  The headers of the
@@ -1810,7 +1816,8 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
 
 
 
-        image_temp = tempdir+'/'+image.split('/')[-1].replace('.fz','')
+        image_temp = '{}/{}'.format(tempdir, image.split('/')[-1]
+                                    .replace('.fz',''))
         fits.writeto(image_temp, data, header=header, overwrite=True)
         # add to table
         imtable['image_name'][nimage] = image_temp
@@ -1839,7 +1846,7 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
 
     # clean imtable from images that were not used
     imtable = imtable[mask_keep]
-    
+
 
     # for the new reference image, adopt the size of the first image
     # for the moment; could expand that to a bigger image while using
@@ -1903,55 +1910,103 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
                  'OBSERVER', 'ABOTVER', 'PROGNAME', 'PROGID',
                  'PYTHON-V', 'BB-V', 'KW-V']
 
+    # create order dictionary with SWarp command to execute
+    cmd_dict = collections.OrderedDict()
 
-    # run SWarp
-    cmd = ['swarp', ','.join(imtable['image_name']),
-           '-c', swarp_cfg,
-           '-COMBINE', 'Y',
-           '-COMBINE_TYPE', combine_type.upper(),
-           # WEIGHT_IMAGE input is not needed as suffix is defined
-           #'-WEIGHT_IMAGE', ','.join(weights_names),
-           '-WEIGHT_SUFFIX', '_weights.fits',
-           '-WEIGHTOUT_NAME', fits_weights_out,
-           '-WEIGHT_TYPE', 'MAP_WEIGHT',
-           '-RESCALE_WEIGHTS', 'N',
-           '-CENTER_TYPE', 'MANUAL',
-           '-CENTER', radec_str,
-           '-IMAGE_SIZE', size_str,
-           '-PIXEL_SCALE', str(pixscale_out),
-           '-PIXELSCALE_TYPE', pixscale_type,
-           '-IMAGEOUT_NAME', fits_out,
-           '-RESAMPLE_DIR', tempdir,
-           '-RESAMPLE_SUFFIX', resample_suffix,
-           '-RESAMPLING_TYPE', 'LANCZOS3',
-           # GAIN_KEYWORD cannot be GAIN, as the value of GAIN1 is then adopted
-           '-GAIN_KEYWORD', 'whatever',
-           '-GAIN_DEFAULT', '1.0',
-           '-SATLEV_KEYWORD', get_par(set_zogy.key_satlevel,tel),
-           '-SUBTRACT_BACK', subtract_back_SWarp,
-           '-BACK_TYPE', back_type_SWarp.upper(),
-           '-BACK_DEFAULT', str(back_default),
-           '-BACK_SIZE', str(back_size),
-           '-BACK_FILTERSIZE', str(back_filtersize),
-           '-FSCALE_KEYWORD', 'FSCALE',
-           '-FSCALE_DEFAULT', '1.0',
-           '-FSCALASTRO_TYPE', 'FIXED',
-           '-VERBOSE_TYPE', 'FULL',
-           '-NTHREADS', str(nthreads),
-           '-COPY_KEYWORDS', ','.join(keys2copy),
-           '-WRITE_FILEINFO', 'Y',
-           '-WRITE_XML', 'N',
-           '-VMEM_DIR', '.',
-           '-VMEM_MAX', str(4096),
-           '-MEM_MAX', str(4096),
-           '-DELETE_TMPFILES', 'N',
-           '-NOPENFILES_MAX', '256']
+    cmd_dict['swarp'] = ','.join(imtable['image_name'])
+    cmd_dict['-c'] = swarp_cfg
+    cmd_dict['-COMBINE'] = 'Y'
+    cmd_dict['-COMBINE_TYPE'] = combine_type.upper()
+    # WEIGHT_IMAGE input is not needed as suffix is defined
+    #cmd_dict['-WEIGHT_IMAGE'] = ','.join(weights_names)
+    cmd_dict['-WEIGHT_SUFFIX'] = '_weights.fits'
+    cmd_dict['-WEIGHTOUT_NAME'] = fits_weights_out
+    cmd_dict['-WEIGHT_TYPE'] = 'MAP_WEIGHT'
+    cmd_dict['-RESCALE_WEIGHTS'] = 'N'
+    cmd_dict['-CENTER_TYPE'] = 'MANUAL'
+    cmd_dict['-CENTER'] = radec_str
+    cmd_dict['-IMAGE_SIZE'] = size_str
+    cmd_dict['-PIXEL_SCALE'] = str(pixscale_out)
+    cmd_dict['-PIXELSCALE_TYPE'] = pixscale_type
+    cmd_dict['-IMAGEOUT_NAME'] = fits_out
+    cmd_dict['-RESAMPLE_DIR'] = tempdir
+    cmd_dict['-RESAMPLE_SUFFIX'] = resample_suffix
+    cmd_dict['-RESAMPLING_TYPE'] = 'LANCZOS3'
+    # GAIN_KEYWORD cannot be GAIN, as the value of GAIN1 would then be adopted          
+    cmd_dict['-GAIN_KEYWORD'] = 'anything_but_gain'
+    cmd_dict['-GAIN_DEFAULT'] = '1.0'
+    cmd_dict['-SATLEV_KEYWORD'] = get_par(set_zogy.key_satlevel,tel)
+    cmd_dict['-SUBTRACT_BACK'] = subtract_back_SWarp
+    cmd_dict['-BACK_TYPE'] = back_type_SWarp.upper()
+    cmd_dict['-BACK_DEFAULT'] = str(back_default)
+    cmd_dict['-BACK_SIZE'] = str(back_size)
+    cmd_dict['-BACK_FILTERSIZE'] = str(back_filtersize)
+    cmd_dict['-FSCALE_KEYWORD'] = 'FSCALE'
+    cmd_dict['-FSCALE_DEFAULT'] = '1.0'
+    cmd_dict['-FSCALASTRO_TYPE'] = 'FIXED'
+    cmd_dict['-VERBOSE_TYPE'] = 'FULL'
+    cmd_dict['-NTHREADS'] = str(nthreads)
+    cmd_dict['-COPY_KEYWORDS'] = ','.join(keys2copy)
+    cmd_dict['-WRITE_FILEINFO'] = 'Y'
+    cmd_dict['-WRITE_XML'] = 'N'
+    cmd_dict['-VMEM_DIR'] = '.'
+    cmd_dict['-VMEM_MAX'] = str(4096)
+    cmd_dict['-MEM_MAX'] = str(4096)
+    cmd_dict['-DELETE_TMPFILES'] = 'N'
+    cmd_dict['-NOPENFILES_MAX'] = '256'
+    
 
-
-    cmd_str = ' '.join(cmd)
-    log.info ('executing SWarp command:\n{}'.format(cmd_str))
-    result = subprocess.call(cmd)
+    # execute SWarp, in CLIPPED mode, 2 passes are executed
+    for npass in range(2):
         
+        if combine_type == 'clipped':
+
+            if npass==0:
+                
+                # save clipped pixels in ASCII file
+                clip_logname = '{}/clipped.dat'.format(tempdir)
+                cmd_dict['-CLIP_LOGNAME'] = clip_logname
+                cmd_dict['-CLIP_WRITELOG'] = 'Y'
+
+                # clipping threshold
+                cmd_dict['-CLIP_SIGMA'] = str(clipped_nsigma)
+
+                # estimate A for the 1st pass using function [get_A_swarp]
+                A_swarp = get_A_swarp (imagelist, nsigma=clipped_nsigma, log=log)
+                cmd_dict['-CLIP_AMPFRAC'] = str(A_swarp)
+
+            else:
+
+                # use function [clipped2mask] to convert clipped
+                # pixels identified by SWarp, saved in [clip_logname],
+                # to masks in the individual image frames, filter them
+                # with a few sliding windows and update the weights
+                # images in the tmp folder
+                imagelist_tmp = list(imtable['image_name'])
+                clipped2mask (clip_logname, imagelist_tmp, fits_out, log=log)
+
+                # for the 2nd pass, use the WEIGHTED combination, where
+                # the weights images have been updated by [clipped2mask]
+                cmd_dict['-COMBINE_TYPE'] = 'WEIGHTED'
+
+                # turn off logging of clipped pixels
+                cmd_dict['-CLIP_WRITELOG'] = 'N'
+
+
+
+        # convert cmd_dict to list and execute it
+        cmd = list(itertools.chain.from_iterable(list(cmd_dict.items())))
+        cmd_str = ' '.join(cmd)
+        log.info ('creating combined image with SWarp:\n{}'.format(cmd_str))
+        result = subprocess.call(cmd)
+
+
+        # no need to do 2nd pass in case combine_type is not 'clipped'
+        if combine_type != 'clipped':
+            break
+
+
+
     # update header of fits_out
     data_out, header_out = read_hdulist(fits_out, get_header=True)
 
@@ -1982,6 +2037,14 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
     # time when module was started
     header_out['R-TSTART'] = (time_refstart, 'UT time that module was started')
     
+    val_str = '[{},{}]'.format(start_date, end_date)
+    header_out['R-TRANGE'] = (val_str,
+                              '[date/days wrt R-TSTART] image time range')
+    
+    header_out['R-QCMAX'] = (max_qc_flag, 'maximum image QC flag')
+    
+    header_out['R-SEEMAX'] = (max_seeing, '[arcsec] maximum image seeing')
+
     # number of images available and used
     header_out['R-NFILES'] = (nfiles, 'number of images within constraints '
                               'available')
@@ -1999,6 +2062,12 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
         header_out['R-FSC{}'.format(nimage+1)] = (imtable['fscale'][nimage],
                                                   'image {} FSCALE used in SWarp'
                                                   .format(nimage+1))
+
+    # A-swarp and clipping
+    header_out['R-ASWARP'] = (A_swarp, 'fraction of flux variation used in SWarp')
+    header_out['R-NSIGMA'] = (clipped_nsigma, '[sigma] clipping threshold used '
+                              'in SWarp')
+
 
     # projected and target limiting magnitudes
     header_out['R-LMPROJ'] = (limmag_proj, '[mag] projected limiting magnitude')
@@ -2028,15 +2097,7 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
     header_out['R-MSKREJ'] = (masktype_discard,
                               'reject pixels with mask values part of this sum')
     
-    val_str = '[{},{}]'.format(start_date, end_date)
-    header_out['R-TRANGE'] = (val_str,
-                              '[date/days wrt R-TSTART] image time range')
-    
-    header_out['R-QCMAX'] = (max_qc_flag, 'maximum image QC flag')
-    
-    header_out['R-SEEMAX'] = (max_seeing, '[arcsec] maximum image seeing')
 
-    
     # any nan value in the image?
     mask_infnan = ~np.isfinite(data_out)
     if np.any(mask_infnan):
@@ -2100,89 +2161,45 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
 
     if not remap_each:
 
-        # name for output weights image in tmp folder; this image is
-        # not relevant for these mask combinations, but SWarp creates
-        # a "coadd.weight.fits" image in the folder where SWarp is run
-        # even if WEIGHT_TYPE set to NONE
-        weights_out = '{}/weights_out_tmp.fits'.format(tempdir)
-
         # run SWarp twice on mask image with combine_type OR and MIN
-        fits_mask_OR = fits_mask_out.replace('mask', 'mask_OR')
-        cmd = ['swarp', ','.join(imtable['mask_name']),
-               '-c', swarp_cfg,
-               '-COMBINE', 'Y',
-               '-COMBINE_TYPE', 'OR',
-               '-WEIGHT_TYPE', 'NONE',
-               '-WEIGHTOUT_NAME', weights_out,
-               '-CENTER_TYPE', 'MANUAL',
-               '-CENTER', radec_str,
-               '-IMAGE_SIZE', size_str,
-               '-PIXEL_SCALE', str(pixscale_out),
-               '-PIXELSCALE_TYPE', pixscale_type,
-               '-IMAGEOUT_NAME', fits_mask_OR,
-               '-RESAMPLE_DIR', tempdir,
-               '-RESAMPLE_SUFFIX', resample_suffix,
-               '-RESAMPLING_TYPE', 'NEAREST',
-               # GAIN_KEYWORD cannot be GAIN, as the value of GAIN1 is then adopted
-               '-GAIN_KEYWORD', 'whatever',
-               '-GAIN_DEFAULT', '1.0',
-               '-SATLEV_KEYWORD', get_par(set_zogy.key_satlevel,tel),
-               '-SUBTRACT_BACK', 'N',
-               '-FSCALE_KEYWORD', 'FSCALE',
-               '-FSCALE_DEFAULT', '1.0',
-               '-FSCALASTRO_TYPE', 'FIXED',
-               '-VERBOSE_TYPE', 'FULL',
-               '-NTHREADS', str(nthreads),
-               '-WRITE_FILEINFO', 'Y',
-               '-WRITE_XML', 'N',
-               '-VMEM_DIR', '.',
-               '-VMEM_MAX', str(4096),
-               '-MEM_MAX', str(4096),
-               '-DELETE_TMPFILES', 'N',
-               '-NOPENFILES_MAX', '256']
-        
-        cmd_str = ' '.join(cmd)
-        log.info ('executing SWarp command:\n{}'.format(cmd_str))
-        result = subprocess.call(cmd)
-        
 
-        fits_mask_MIN = fits_mask_out.replace('mask', 'mask_MIN')
-        cmd = ['swarp', ','.join(imtable['mask_name']),
-               '-c', swarp_cfg,
-               '-COMBINE', 'Y',
-               '-COMBINE_TYPE', 'MIN',
-               '-WEIGHT_TYPE', 'NONE',
-               '-WEIGHTOUT_NAME', weights_out,
-               '-CENTER_TYPE', 'MANUAL',
-               '-CENTER', radec_str,
-               '-IMAGE_SIZE', size_str,
-               '-PIXEL_SCALE', str(pixscale_out),
-               '-PIXELSCALE_TYPE', pixscale_type,
-               '-IMAGEOUT_NAME', fits_mask_MIN,
-               '-RESAMPLE_DIR', tempdir,
-               '-RESAMPLE_SUFFIX', resample_suffix,
-               '-RESAMPLING_TYPE', 'NEAREST',
-               # GAIN_KEYWORD cannot be GAIN, as the value of GAIN1 is then adopted
-               '-GAIN_KEYWORD', 'whatever',
-               '-GAIN_DEFAULT', '1.0',
-               '-SATLEV_KEYWORD', get_par(set_zogy.key_satlevel,tel),
-               '-SUBTRACT_BACK', 'N',
-               '-FSCALE_KEYWORD', 'FSCALE',
-               '-FSCALE_DEFAULT', '1.0',
-               '-FSCALASTRO_TYPE', 'FIXED',
-               '-VERBOSE_TYPE', 'FULL',
-               '-NTHREADS', str(nthreads),
-               '-WRITE_FILEINFO', 'Y',
-               '-WRITE_XML', 'N',
-               '-VMEM_DIR', '.',
-               '-VMEM_MAX', str(4096),
-               '-MEM_MAX', str(4096),
-               '-DELETE_TMPFILES', 'N',
-               '-NOPENFILES_MAX', '256']
-        
+        # OR mask
+        # -------
+        fits_mask_OR = fits_mask_out.replace('mask', 'mask_OR')
+
+        # edit existing [cmd_dict]
+        cmd_dict['swarp'] = ','.join(imtable['mask_name'])
+        cmd_dict['-COMBINE_TYPE'] = 'OR'
+        # name for output weights image in tmp folder; not relevant
+        # for these mask combinations, but SWarp creates a
+        # "coadd.weight.fits" image in the folder where SWarp is run
+        # even if WEIGHT_TYPE set to NONE
+        cmd_dict['-WEIGHTOUT_NAME'] = '{}/weights_out_tmp.fits'.format(tempdir)
+        cmd_dict['-WEIGHT_TYPE'] = 'NONE'
+        cmd_dict['-IMAGEOUT_NAME'] = fits_mask_OR
+        cmd_dict['-RESAMPLING_TYPE'] = 'NEAREST'
+        cmd_dict['-SUBTRACT_BACK'] = 'N'
+    
+        # convert cmd_dict to list and execute it
+        cmd = list(itertools.chain.from_iterable(list(cmd_dict.items()))) 
         cmd_str = ' '.join(cmd)
-        log.info ('executing SWarp command:\n{}'.format(cmd_str))
+        log.info ('creating OR mask with SWarp:\n{}'.format(cmd_str))
         result = subprocess.call(cmd)
+
+
+        # MIN mask
+        # --------
+        fits_mask_MIN = fits_mask_out.replace('mask', 'mask_MIN')
+        cmd_dict['-COMBINE_TYPE'] = 'MIN'
+        cmd_dict['-IMAGEOUT_NAME'] = fits_mask_MIN
+
+        # convert cmd_dict to list and execute it
+        cmd = list(itertools.chain.from_iterable(list(cmd_dict.items())))
+        cmd_str = ' '.join(cmd)
+        log.info ('creating MIN mask with SWarp:\n{}'.format(cmd_str))
+        result = subprocess.call(cmd)
+
+
 
         # read OR and MIN output masks
         data_mask_OR = (read_hdulist(fits_mask_OR, get_header=False)
@@ -2373,121 +2390,359 @@ def calc_headers (combine_type, imtable):
 
 ################################################################################
 
-def run_remap_local (image_new, image_ref, image_out, image_out_size,
-                     gain, log, config=None, resample='Y', resampling_type='LANCZOS3',
-                     projection_err=0.001, mask=None, header_only='N',
-                     resample_suffix='_resamp.fits', resample_dir='.', dtype='float32',
-                     value_edge=0, timing=True, nthreads=0, oversampling=0):
-        
-    """Function that remaps [image_ref] onto the coordinate grid of
-       [image_new] and saves the resulting image in [image_out] with
-       size [image_size].
+def get_A_swarp (imagelist, nsigma=2.5, Amin=0.3, Amax=100, Nlimit=0, tel=None,
+                 log=None):
+
+    """Given a list of images to combine, estimate the minimum
+    CLIP_AMPFRAC (fraction of flux variation allowed with clipping) to
+    use in the CLIPPED combination in SWarp. Based on Gruen et
+    al. 2014
+    (https://ui.adsabs.harvard.edu/abs/2014PASP..126..158G/abstract)
+    and their PSFHomTest program.
+    
     """
+
+    # pixel coordinates in the 1st image at which to extract the PSFs;
+    # use 4 corners and the center
+    header = read_hdulist(imagelist[0], get_data=False, get_header=True)
+    xsize, ysize = header['NAXIS1'], header['NAXIS2']
+    low, high, cntr = int(xsize/8), int(xsize*7/8), int(xsize/2)
+    pixcoords = [(low, low), (high, low), (high, high), (low, high), (cntr, cntr)]
+    #pixcoords = [(cntr, cntr)]
+    ncoords = len(pixcoords)
+    nimages = len(imagelist)
+
+    # set size of PSF image to extract to the maximum allowed by
+    # [size_vignet] in the zogy settings file
+    psf_size = get_par(set_zogy.size_vignet,tel)
+
+    # array to record background STD read from header and the peak
+    # value of the PSF images
+    bkg_std = np.zeros(nimages)
     
-    if '/' in image_new:
-        # set resample directory to that of the new image
-        resample_dir = '/'.join(image_new.split('/')[:-1])
+    # initialize [data_psf] with shape (nimages, ncoords, psf_size**2)
+    data_psf = np.zeros ((nimages, ncoords, psf_size**2), dtype='float32')
+
+    # coordinate mask to be able to avoid including a PSF that is off
+    # a particular image after the coordinate transformation
+    mask_coord_off = np.zeros((nimages, ncoords, psf_size**2), dtype=bool)
+
+
+    # make 2D x,y grid of pixel coordinates for Gauss PSF, which is to
+    # test if the same results as shown in Fig. 6 from Gruen et
+    # al. can be reached
+    gauss_test = False
+    if gauss_test:
+        xy = range(1, psf_size+1)
+        xx, yy = np.meshgrid(xy, xy, indexing='ij')
+        # lognormal distribution of Gaussion with FWHM of 4 pixels and
+        # spread in log10(FWHM) of 0.05, as in Gruen et al. paper
+        rng = np.random.default_rng()
+        fwhm_gauss = 4 * rng.lognormal(0, 0.05, nimages)
+        #print ('fwhm_gauss: {}'.format(fwhm_gauss))
+        sigma_gauss = fwhm_gauss / (2.355)
+
+    
+    # loop images
+    for nimage, image in enumerate(imagelist):
         
-    # for testing of alternative way; for the moment switch on but
-    # needs some further testing
-    run_alt = True
+        # read header
+        header = read_hdulist(image, get_data=False, get_header=True)
+
+        # background STD
+        bkg_std[nimage] = header['S-BKGSTD']
+
+        # infer name of psfex binary table from [image]
+        psfex_bintable = '{}_psf.fits'.format(image.split('.fits')[0])
+
+        # need to remember WCS solution of first image
+        if nimage == 0:
+            wcs_first = WCS(header)
+        else:
+            wcs = WCS(header)
+            
+        # loop different coordinates on the image
+        for ncoord, coord in enumerate(pixcoords):
+
+            if nimage == 0:
+                xcoord, ycoord = coord
+            else:
+                # transform pixel coordinates of 1st image to current
+                # image using the header WCS
+                ra, dec = wcs_first.all_pix2world(coord[0], coord[1], 1)
+                xcoord, ycoord = wcs.all_world2pix(ra, dec, 1)
+
+
+            # check if coordinates are off the image
+            if xcoord < 1 or xcoord > xsize or ycoord < 1 or ycoord > ysize:
+                mask_coord_off[nimage, ncoord, :] = True
+                continue
+
+
+            # read in PSF output binary table from psfex, containing the
+            # polynomial coefficient images, and various PSF parameters using
+            # the function [extract_psf_datapars] in zogy.py
+            results = extract_psf_datapars (psfex_bintable)
+            (data, header_psf, psf_fwhm, psf_samp, psf_size_config, psf_chi2,
+             psf_nstars, polzero1, polscal1, polzero2, polscal2, poldeg) = results
+
+
+            if not gauss_test:
+                # extract PSF
+                psf_ima, __ = get_psf_ima (data, xcoord, ycoord, psf_size, psf_samp,
+                                           polzero1, polscal1, polzero2, polscal2,
+                                           poldeg)
+                #psf_ima[psf_ima<0] = 0
+                #psf_ima /= np.sum(psf_ima)
+                
+            else:
+                sigma = sigma_gauss[nimage]
+                x0 = y0 = int(psf_size/2)
+                psf_ima = EllipticalGauss2D (xx, yy, x0=x0, y0=y0,
+                                             sigma1=sigma, sigma2=sigma, 
+                                             theta=0, amplitude=1, background=0)
+                # normalize
+                psf_ima /= np.sum(psf_ima)
+
+
+            # record as 1D array in [data_psf]
+            data_psf[nimage, ncoord] = psf_ima.ravel()
+
+
+
+
+    # create masked array from data_psf and mask_coord_off
+    data_psf_masked = np.ma.masked_array(data_psf, mask=mask_coord_off)
+
+    # calculate median images at the different coordinates
+    data_psf_median = np.median(data_psf_masked, axis=0)
+
+    # set A range to explore
+    A_range = np.arange(Amin, Amax, 0.1)
     
-    if timing: t = time.time()
+    # total STD; background STD plus Poisson noise from profile
+    #print ('bkg_std: {}'.format(bkg_std))
+    # scale flux_tot such that peak of object is around 1e5 e-
+    #print ('psf_peak: {}'.format(psf_peak))
+    psf_peak = np.median(np.amax(data_psf_masked, axis=2))
+    flux_tot = np.sum(1e5 / psf_peak)
+    #print ('flux_tot: {}'.format(flux_tot))
+    std = np.sqrt( flux_tot * data_psf_median + (bkg_std**2).reshape(nimages,1,1))
+    # it would be the same to boost bkg_std with a factor
+    # std = bkg_std * np.sqrt(1 + data_psf_median * flux_tot / bkg_std)
+    # as done in PSFHomTest.cpp
 
-    log.info('executing run_remap')
 
-    header_new = read_hdulist (image_new, get_data=False, get_header=True)
-    header_ref = read_hdulist (image_ref, get_data=False, get_header=True)
+    # loop A
+    for i, A in enumerate(A_range):
+        
+        # calculate number of outlier pixels in images; [outlier] has
+        # same shape as [data_psf]: (nimages, ncoords, psf_size**2)
+        # see Eq. 14 from Gruen et al. paper
+        data_diff = data_psf - data_psf_median
+        outlier = (np.maximum(np.abs(data_diff) - A*np.abs(data_psf_median), 0)
+                   * (flux_tot / std))
+
+        # set outliers related to coordinates that are off the image
+        # to zero
+        outlier[mask_coord_off] = 0
+        
+        # negative whenever data_diff is negative
+        mask_neg = (data_diff < 0)
+        outlier[mask_neg] *= -1
+
+
+        # initialize Nmax
+        Nmax = np.zeros((2, nimages, ncoords), dtype=int)
+
+        # above threshold
+        Nmax[0] = np.sum(outlier > nsigma, axis=2)
+        # below threshold
+        Nmax[1] = np.sum(outlier < -nsigma, axis=2)
+
+        # maxima per image
+        Nmax_im = np.amax(np.amax(Nmax, axis=0), axis=1)
+        
+        # do not consider about 1/3 of the images with the highest
+        # Nmax to avoid A being set by a minority of very poor images
+        #nkeep = int(0.67 * nimages) + 1
+        nkeep = nimages
+        Nmax_eff = np.amax(np.sort(Nmax_im)[0:nkeep])
+
+        if log is not None:
+            log.info ('A: {:.1f}, Nmax_eff: {}, using {}/{} images with lowest '
+                      'Nmax'.format(A, Nmax_eff, nkeep, nimages))
+
+        if Nmax_eff <= Nlimit:
+            break
+
+
+        # show outlier images
+        if False:
+            for nimage in range(nimages):
+                for ncoord in range(ncoords):
+                    img_tmp = outlier[nimage, ncoord].reshape(psf_size, psf_size)
+                    ds9_arrays(img_tmp=img_tmp)
+
+
+    if log is not None and A==Amax:
+        log.warning ('A value is set to the input maximum of {} in [get_A_swarp]'
+                     .format(Amax))
+
+
+    return A
+
+
+################################################################################
+
+def clipped2mask (clip_logname, imagelist, fits_ref, log=None):
+
+    """Given the file with the clipped pixels (in the frame of the
+    combined image) created by SWarp [clip_logname] and a list of
+    reduced images [imagelist], this function will create a mask from
+    the clipped pixels in the frame of the input images, where the
+    clipped pixels are filtered using boxes of shapes (3,3), (10,10)
+    and (50,50). Based on Gruen et al. 2014
+    (https://ui.adsabs.harvard.edu/abs/2014PASP..126..158G/abstract)
+    and their MaskMap program.
+
+    """
+
+    header = read_hdulist(imagelist[0], get_data=False, get_header=True)
+    xsize, ysize = header['NAXIS1'], header['NAXIS2']
     
-    # create .head file with header info from [image_new]
-    header_out = header_new[:]
-    # copy some keywords from header_ref
-    #for key in ['exptime', 'saturate', 'gain', 'rdnoise']:
-    #    header_out[key_name] = header_ref[key]
-
-    # delete some others
-    for key in ['WCSAXES', 'NAXIS1', 'NAXIS2']:
-        if key in header_out: 
-            del header_out[key]
-    # write to .head file
-    with open(image_out.replace('.fits','.head'),'w') as newrefhdr:
-        for card in header_out.cards:
-            newrefhdr.write(str(card)+'\n')
-
-    size_str = str(image_out_size[1]) + ',' + str(image_out_size[0]) 
-    cmd = ['swarp', image_ref, '-c', config, '-IMAGEOUT_NAME', image_out, 
-           '-IMAGE_SIZE', size_str, '-GAIN_DEFAULT', str(gain),
-           '-RESAMPLE', resample,
-           '-RESAMPLING_TYPE', resampling_type,
-           '-OVERSAMPLING', str(oversampling),
-           '-PROJECTION_ERR', str(projection_err),
-           '-NTHREADS', str(nthreads)]
-
-    if run_alt:
-        cmd += ['-COMBINE', 'N',
-                '-RESAMPLE_DIR', resample_dir,
-                '-RESAMPLE_SUFFIX', resample_suffix,
-                '-DELETE_TMPFILES', 'N']
-
-    # log cmd executed
-    cmd_str = ' '.join(cmd)
-    log.info('SWarp command executed:\n{}'.format(cmd_str))
-
-    process=subprocess.Popen(cmd,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-    (stdoutstr,stderrstr) = process.communicate()
-    status = process.returncode
-    log.info(stdoutstr)
-    log.info(stderrstr)
-    if status != 0:
-        log.error('SWarp failed with exit code {}'.format(status))
-        raise Exception('SWarp failed with exit code {}'.format(status))
-
-    if run_alt:
-        image_resample = image_out.replace('_remap.fits', resample_suffix)
-        data_resample, header_resample = read_hdulist(image_resample,
-                                                      get_header=True)
-        # SWarp turns integers (mask images) into floats, so making
-        # sure that [data_resample] is in the correct format.  All the
-        # inputs are fits image names, so have to include an
-        # additional [dtype] input.
-        if 'int' in dtype:
-            data_resample = (data_resample+0.5).astype(dtype)
-
-        # There should be just a shift between the resampled image and
-        # the output image in case of COMBINE='Y', which is just
-        # determined by which input pixels will end up in the output
-        # image. Determine the "0,0" pixel in the output image that
-        # corresponds to "0,0" in the input image:
-        ra0, dec0 = WCS(header_resample).all_pix2world(0, 0, 0)
-        x0, y0 = WCS(header_out).all_world2pix(ra0, dec0, 0)
-        x0, y0 = int(x0+0.5), int(y0+0.5)
-
-        # resampled image is a bit smaller than the original image
-        # size
-        ysize_resample, xsize_resample = np.shape(data_resample)
-        # create zero output image with correct dtype
-        data_remap = np.zeros(image_out_size, dtype=dtype)
-        # or with value [value_edge] if it is nonzero
-        if value_edge != 0:
-            data_remap += value_edge        
-        # and place resampled image in output image
-        data_remap[y0:y0+ysize_resample,
-                   x0:x0+xsize_resample] = data_resample
-
-        # write to fits [image_out] with correct header; since name of
-        # remapped reference bkg/std/mask image will currently be the
-        # same for different new images, this if condition needs to
-        # go: 
-        #if not os.path.isfile(image_out) or get_par(C.redo,tel):
-        header_out['DATEFILE'] = (Time.now().isot, 'UTC date of writing file')
-        fits.writeto(image_out, data_remap, header_out, overwrite=True)
+    # filter definitions
+    fsize = [3, 10, 50]
+    fsigma = [4.5, 2.5, 2.5]
+    fmax = [1, 7, 35]
     
-    if timing:
-        log_timing_memory (t0=t, label='run_remap', log=log)
+    # read clip_logname file created by SWarp
+    table = ascii.read(clip_logname, format='fast_no_header', data_start=0,
+                       names=['nfile', 'x', 'y', 'nsigma'])
+    
+    # keep only the entries above minimum sigma
+    mask_keep = np.abs(table['nsigma']) > min(fsigma)
+    table = table[mask_keep]
+
+    # read ref image header
+    hdr_ref = read_hdulist(fits_ref, get_data=False, get_header=True)
+    wcs_ref = WCS(hdr_ref)
+    
+    # convert pixel coordinates to RA,DEC
+    ra_ref, dec_ref = wcs_ref.all_pix2world(table['x'], table['y'], 1)
+
+    
+    # loop imagelist; that list is assumed to correspond to the
+    # integers in the first column of [clip_logname]
+    nimages = len(set(table['nfile']))
+    if nimages != len(imagelist):
+        # log error if these numbers are not consistent
+        if log is not None:
+            log.error ('#images in imagelist in [clipped2mask]: {} is not '
+                       'consistent with #images in first column of {}: {}'
+                       .format(len(imagelist), clip_logname, nimages))
+
+
+    for nimage, image in enumerate(imagelist):
+        
+        # part of table relevant for this image
+        mask_im = (table['nfile']==nimage)
+        table_im = table[mask_im]
+
+        # if empty, continue with next image
+        if len(table_im)==0:
+            continue
+
+        # convert ra, dec coordinates from the reference frame (the
+        # subset relevant for the current image) to pixel coordinates
+        # in the frame of the current image
+        hdr_im = read_hdulist(image, get_data=False, get_header=True)
+        wcs_im = WCS(hdr_im)
+        x_im, y_im = wcs_im.all_world2pix(ra_ref[mask_im], dec_ref[mask_im], 1)
+        # update table_im coordinates with integers of x_im and y_im
+        table_im['x'] = (x_im+0.5).astype(int)
+        table_im['y'] = (y_im+0.5).astype(int)
+
+        # discard objects beyond edges, if any
+        mask_keep = ((table_im['x'] >= 1) & (table_im['x'] <= xsize) &
+                     (table_im['y'] >= 1) & (table_im['y'] <= ysize))
+        table_im = table_im[mask_keep]
+
+
+        # create image with nsigmas
+        im_sigmas = np.zeros((ysize,xsize), dtype='float32')
+        im_sigmas[table_im['y']-1,table_im['x']-1] = table_im['nsigma']
+
+        
+        # initialize resulting mask image
+        mask_im = np.zeros((ysize, xsize), dtype=bool)
+
+        # loop filters to apply
+        t0 = time.time()
+        for nf in range(len(fsize)): 
+            
+            # select table entries with nsigma above fsigma[nf]
+            mask_nsigma = (np.abs(table_im['nsigma']) > fsigma[nf])
+            table_im_filt = table_im[mask_nsigma]
+            
+            # discard entries that were already masked previously
+            mask_masked = mask_im[table_im_filt['y']-1, table_im_filt['x']-1]
+            table_im_filt = table_im_filt[~mask_masked]
+
+            # number of entries left
+            nfilt = len(table_im_filt)
+            
+            # coordinate indices
+            x_index = table_im_filt['x'] - 1
+            y_index = table_im_filt['y'] - 1
+            hsize = fsize[nf]-1
+
+            # initialize counting image, one for negative and one for
+            # positive sigmas
+            count_im = np.zeros((2, ysize, xsize), dtype='uint16')
+            count_index = np.zeros(nfilt, dtype='uint16')
+            mask_pos = (table_im_filt['nsigma'] > 0)
+            count_index[mask_pos] = 1
+
+            
+            # loop table_im_filt entries
+            for it in range(nfilt):
+                
+                # define window with size 2*(fsize[nf]-1)+1 centered
+                # on the current pixel, taking care of image edges;
+                # this window is the region of influence of the
+                # current pixel
+                i = x_index[it]
+                j = y_index[it]
+                i0 = max(i-hsize, 0)
+                j0 = max(j-hsize, 0)
+                i1 = min(i+hsize+1, xsize)
+                j1 = min(j+hsize+1, ysize)
+
+                # increase pixel values in this region with 1
+                count_im[count_index[it], j0:j1,i0:i1] += 1
+
+
+            # add pixels above fmax[nf] to mask image; do this
+            # separately for positive and negative cases as fmax was
+            # determined for one-sided probability
+            mask_im |= ((count_im[0] >= fmax[nf]) | (count_im[1] >= fmax[nf]))
+
+
+        if log is not None:
+            print ('created mask for {} in {:.2f}s'.format(image, time.time()-t0))
+
+
+        # update corresponding weights image, i.e. set weights value
+        # at [mask_im] to zero
+        weights_tmp = image.replace('.fits','_weights.fits')
+        with fits.open(weights_tmp, 'update') as hdulist:
+            hdulist[-1].data[mask_im] = 0
+
 
     return
+            
 
-    
 ################################################################################
             
 def buildref_optimal(imagelist):
