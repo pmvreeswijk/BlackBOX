@@ -36,20 +36,33 @@ keep_tmp = False
 # not in latest manual v2.21 (code is at v2.38):
 # CLIPPED, CHI-OLD, CHI-MODE, CHI-MEAN, WEIGHTED_WEIGHT, MEDIAN_WEIGHT,
 # AND, NAND, OR or NOR
-combine_type = 'median'
+combine_type = 'clipped'
+
+# maximum spread in seeing values (using PSF-SEE) allowed when
+# selecting images to combine in 'clipped' mode to avoid clipping of
+# bright stars; abs(highest seeing / lowest seeing - 1) <=
+# max_spread_seeing
+max_spread_seeing = 0.4
+# range in SWarp noise amplification fraction to explore for images to
+# combine in 'clipped' mode to avoid clipping of bright stars
+A_range = [0.3, 5.1, 0.1]
+# clipping threshold used in SWarp 
+nsigma_clip = 2.5
+# use background pixels of the images discarded based on
+# [max_spread_seeing] in the final combination
+use_bkg_discarded = True
+
 
 # sum of mask type integers (bad=1,..) to discard'
 masktype_discard = 49 # i.e. discard bad (1) + satellite (16) + edge (32)
 
 # centering method; options: 'grid', 'median_field' or 'median_filter'
-center_type = 'median_filter'
+center_type = 'grid'
 
-# background subtraction method; options: 'blackbox', 'auto',
-# 'manual', 'constant', 'none'
-back_type = 'blackbox'
-
-# N.B.: the background boxsize and filtersize are taken from the ZOGY
-# settings file!
+# output image size method; options: 'input', 'all_field' or
+# 'all_filter'; if [center_type] = 'median_filter' then imagesize_type
+# cannot be 'all_field'
+imagesize_type = 'all_field'
 
 # pixelscale type; options same as SWarp's PIXELSCALE_TYPE options:
 # median, min, max, manual, fit
@@ -57,6 +70,12 @@ pixscale_type = 'manual'
 # fixed pixel scale of output image; only used in case [pixscale_type]
 # is set to 'manual'
 pixscale_out = 0.5642
+
+
+# background subtraction method; options: 'blackbox', 'auto',
+# 'manual', 'constant', 'none'; N.B.: the background boxsize and
+# filtersize are taken from the ZOGY settings file!
+back_type = 'blackbox'
 
 
 #===============================================================================
