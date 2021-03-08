@@ -403,7 +403,7 @@ def create_masters (mdate=None, run_fpack=True, run_create_jpg=True, nproc=1,
 
     # if [mdate] is a file
     list_filt = None
-    if os.path.isfile(mdate):
+    if mdate is not None and os.path.isfile(mdate):
 
         # read ascii table
         table = Table.read(mdate, format='ascii', data_start=0)
