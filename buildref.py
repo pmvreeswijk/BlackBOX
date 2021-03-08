@@ -199,7 +199,9 @@ def buildref (telescope=None, fits_table=None, table_only=None, date_start=None,
         if mjd_end >= mjd_start:
             if mjd_start == mjd_end:
                 mjd_end += 1
-                mask = ((mjd_files >= mjd_start) & (mjd_files <= mjd_end))
+                
+            mask = ((mjd_files >= mjd_start) & (mjd_files <= mjd_end))
+
         else:
             # if mjd_start is greater than mjd_end, then select images
             # beyond mjd_start and before mjd_end
@@ -334,7 +336,7 @@ def buildref (telescope=None, fits_table=None, table_only=None, date_start=None,
     # unique objects in table
     objs_uniq = np.unique(table['OBJECT'])
     # if field_IDs were provided in input file, use those instead
-    if os.path.isfile(field_IDs):
+    if field_IDs is not None and os.path.isfile(field_IDs):
         objs_uniq = field_ID_list
 
     # unique filters in table
@@ -2601,9 +2603,9 @@ def clipped2mask (clip_logname, imagelist, fits_ref, log=None):
     
     # filter definitions
     nsigma_clip = get_par(set_br.nsigma_clip,tel)
-    fsize = [            7, 1 ]
+    fsize = [            5, 1 ]
     fsigma = [ nsigma_clip, 4 ]
-    fmax = [             5, 1 ]
+    fmax = [             4, 1 ]
 
     
     # read clip_logname file created by SWarp
