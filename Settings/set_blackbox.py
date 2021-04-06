@@ -122,9 +122,9 @@ nonlin_corr_file = {'ML1': '{}/CalFiles/nonlin_splines_20200501.pkl'
 # values adopted for these LA Cosmic's parameters used in
 # astroscrappy; play with these values and see what works best; Kerry
 # had sigclip=6 and objlim=10
-sigclip = {'ML1': 8.0, 'BG': 20}
+sigclip = {'ML1': 15, 'BG': 20}
 sigfrac = 0.01
-objlim = 1.0
+objlim = 3
 niter = 3
 # use separable median filter instead of the full median filter;
 # [sepmed]=True is significantly faster (factor ~3), but can lead to
