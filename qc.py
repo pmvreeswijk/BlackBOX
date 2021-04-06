@@ -222,6 +222,15 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
             val_range[:,1] *= n_std
 
 
+        # for fields around the pole, manually increase val_range for
+        # astrometric keywords due to unexplained increase in
+        # astrometric scatter
+        if (header['DEC'] <= -87 and
+            key in ['A-DRA', 'A-DRASTD', 'A-DDEC', 'A-DDESTD']):
+            val_range = np.array(3*val_range)
+
+
+
         nranges = np.shape(val_range)[0]
         for i in range(nranges):
 
