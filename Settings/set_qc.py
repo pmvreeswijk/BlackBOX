@@ -225,25 +225,25 @@ qc_range = {
 
         # Astrometry.net        
         'A-PSCALE': {'default':'None', 'val_type': 'sigma',   'val_range': [ (0.5642, 0.0001) ],                'key_type': 'full', 'pos': True , 'comment': '[arcsec/pix] pixel scale WCS solution'},
-        'A-ROT'   : {'default':'None', 'val_type': 'sigma',   'val_range': [ (-90, 0.3) ],                      'key_type': 'full', 'pos': False, 'comment': '[deg] rotation WCS solution (E of N for "up")'},
+        'A-ROT'   : {'default':'None', 'val_type': 'min_max', 'val_range': [ (-91,-89), (-93,-87), (-180,180) ], 'key_type': 'full', 'pos': False, 'comment': '[deg] rotation WCS solution (E of N for "up")'},
 
         'A-CAT-F' : {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full', 'pos': False, 'comment': 'astrometric catalog'},
         'A-NAST'  : {'default':'None', 'val_type': 'min_max', 'val_range': [ (5e2,1e4), (100, 3e4), (20, 1e5) ],'key_type': 'full', 'pos': True , 'comment': 'number of brightest stars used for WCS'},
-        'A-DRA'   : {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 0.02)],                        'key_type': 'full', 'pos': False, 'comment': '[arcsec] dRA median offset to astrom. catalog'},
-        'A-DDEC'  : {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 0.02)],                        'key_type': 'full', 'pos': False, 'comment': '[arcsec] dDEC median offset to astrom. catalog'},
+        'A-DRA'   : {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 0.02)],                       'key_type': 'full', 'pos': False, 'comment': '[arcsec] dRA median offset to astrom. catalog'},
+        'A-DDEC'  : {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 0.02)],                       'key_type': 'full', 'pos': False, 'comment': '[arcsec] dDEC median offset to astrom. catalog'},
         'A-DRASTD': {'default':'None', 'val_type': 'sigma',   'val_range': {'u': [ (0.06, 0.04) ], 
                                                                             'g': [ (0.03, 0.02) ], 
-                                                                            'q': [ (0.03, 0.01) ], 
-                                                                            'r': [ (0.03, 0.01) ], 
-                                                                            'i': [ (0.03, 0.01) ], 
-                                                                            'z': [ (0.04, 0.01) ]},             'key_type': 'full', 'pos': True , 'comment': '[arcsec] dRA sigma (STD) offset'},
+                                                                            'q': [ (0.03, 0.02) ], 
+                                                                            'r': [ (0.03, 0.02) ], 
+                                                                            'i': [ (0.03, 0.02) ], 
+                                                                            'z': [ (0.03, 0.02) ]},             'key_type': 'full', 'pos': True , 'comment': '[arcsec] dRA sigma (STD) offset'},
 
         'A-DDESTD': {'default':'None', 'val_type': 'sigma',   'val_range': {'u': [ (0.06, 0.04) ],
                                                                             'g': [ (0.03, 0.02) ], 
-                                                                            'q': [ (0.03, 0.01) ], 
-                                                                            'r': [ (0.03, 0.01) ], 
-                                                                            'i': [ (0.03, 0.01) ], 
-                                                                            'z': [ (0.04, 0.01) ]},             'key_type': 'full', 'pos': True , 'comment': '[arcsec] dDEC sigma (STD) offset'},
+                                                                            'q': [ (0.03, 0.02) ], 
+                                                                            'r': [ (0.03, 0.02) ], 
+                                                                            'i': [ (0.03, 0.02) ], 
+                                                                            'z': [ (0.03, 0.02) ]},             'key_type': 'full', 'pos': True , 'comment': '[arcsec] dDEC sigma (STD) offset'},
 
         # PSFEx
         'PSF-NOBJ': {'default':'None', 'val_type': 'min_max', 'val_range': [ (500,2e4), (100,5e4), (10,2e5) ],  'key_type': 'full', 'pos': True , 'comment': 'number of accepted PSF stars'},
