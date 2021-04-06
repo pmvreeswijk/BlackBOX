@@ -113,7 +113,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     if imgtypes is not None:
         types = imgtypes.lower()
 
-        
+
     # define number of processes or tasks [nproc]; when running on the
     # ilifu cluster the environment variable SLURM_NTASKS should be
     # set through --ntasks-per-node in the sbatch script; otherwise
@@ -1386,7 +1386,22 @@ def blackbox_reduce (filename):
         # set edge pixel values to zero
         value_edge = get_par(set_zogy.mask_value['edge'],tel)
         mask_edge = (data_mask & value_edge == value_edge)
-        data[mask_edge] = 0
+        if False:
+            data[mask_edge] = 0
+
+
+        # set edge pixels to median of corresponding channel to avoid
+        # initial source-extractor run leading to a wrong background
+        # estimation near the edge due to the sudden jump in level
+        __, __, __, __, data_sec_red = (define_sections(np.shape(data), tel=tel))
+        nchans = np.shape(data_sec_red)[0]
+        for i_chan in range(nchans):
+            # channel section
+            sec_chan = data_sec_red[i_chan]
+            mask_edge_chan = mask_edge[sec_chan]
+            data[sec_chan][mask_edge_chan] = np.median(data[sec_chan])
+
+
 
         # write data and mask to output images in [tmp_path] and
         # add name of reduced image and corresponding mask in header just
@@ -3212,8 +3227,8 @@ def cosmics_corr (data, header, data_mask, header_mask, log=None):
     mem_use (label='cosmics_corr at start', log=log) 
 
 
-    # create variance image to use
-    data_var = np.zeros_like (data)
+    # create readnoise image to use
+    data_rdnoise2 = np.zeros_like (data)
 
     # determine reduced data sections
     __, __, __, __, data_sec_red = define_sections(np.shape(data), tel=tel)
@@ -3231,10 +3246,11 @@ def cosmics_corr (data, header, data_mask, header_mask, log=None):
                 log.error ('keyword {} expected but not present in header'
                            .format(rdn_str))
         else:
-            data_var[sec_tmp] = header[rdn_str]**2
+            data_rdnoise2[sec_tmp] = header[rdn_str]**2
+            
 
-    # add Poisson noise with boost
-    data_var += data
+    # add Poisson noise
+    data_var = data_rdnoise2 + data
 
     # set satlevel to infinite, as input [data_mask] already contains
     # saturated and saturated-connected pixels that will not be considered
@@ -3242,15 +3258,16 @@ def cosmics_corr (data, header, data_mask, header_mask, log=None):
     #satlevel_electrons = (get_par(set_bb.satlevel,tel) *
     #                      np.mean(get_par(set_bb.gain,tel)) - header['BIASMEAN'])
     satlevel_electrons = np.inf
-
-    readnoise = header['RDNOISE']
+    
     mask_cr, data = astroscrappy.detect_cosmics(
-        data, inmask=(data_mask!=0), invar=data_var, 
+        data, inmask=(data_mask!=0), invar=data_var,
         sigclip=get_par(set_bb.sigclip,tel), sigfrac=get_par(set_bb.sigfrac,tel),
         objlim=get_par(set_bb.objlim,tel), niter=get_par(set_bb.niter,tel),
-        readnoise=readnoise, satlevel=satlevel_electrons, cleantype='medmask', 
-        #fsmode='convolve', psfmodel='moffat', psffwhm=4, psfsize=13,
+        satlevel=satlevel_electrons, cleantype='medmask',
+        #fsmode='convolve', psfmodel='gauss', psffwhm=4.5, psfsize=7,
         sepmed=get_par(set_bb.sepmed,tel))
+
+
 
     mem_use (label='cosmics_corr just after astroscrappy', log=log) 
     
@@ -3347,7 +3364,7 @@ def mask_init (data, header, filt, imgtype, log=None):
         # and pixels connected to saturated pixels
         struct = np.ones((3,3), dtype=bool)
         mask_satconnect = ndimage.binary_dilation(mask_sat, structure=struct,
-                                                  iterations=2)
+                                                  iterations=1)
         # add them to the mask
         data_mask[(mask_satconnect) & (~mask_sat)] += get_par(
             set_zogy.mask_value['saturated-connected'],tel)
