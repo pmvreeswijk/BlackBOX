@@ -3227,45 +3227,72 @@ def cosmics_corr (data, header, data_mask, header_mask, log=None):
     mem_use (label='cosmics_corr at start', log=log) 
 
 
-    # create readnoise image to use
-    data_rdnoise2 = np.zeros_like (data)
-
-    # determine reduced data sections
-    __, __, __, __, data_sec_red = define_sections(np.shape(data), tel=tel)
-
-    # loop channels        
-    nchans = np.shape(data_sec_red)[0]
-    for i_chan in range(nchans):
-
-        # channel section
-        sec_tmp = data_sec_red[i_chan]
-        
-        rdn_str = 'RDN{}'.format(i_chan+1)
-        if rdn_str not in header:
-            if log is not None:
-                log.error ('keyword {} expected but not present in header'
-                           .format(rdn_str))
-        else:
-            data_rdnoise2[sec_tmp] = header[rdn_str]**2
-            
-
-    # add Poisson noise
-    data_var = data_rdnoise2 + data
-
     # set satlevel to infinite, as input [data_mask] already contains
     # saturated and saturated-connected pixels that will not be considered
     # in the cosmic-ray detection; in fact all masked pixels are excluded
     #satlevel_electrons = (get_par(set_bb.satlevel,tel) *
     #                      np.mean(get_par(set_bb.gain,tel)) - header['BIASMEAN'])
     satlevel_electrons = np.inf
+
+
+    # create readnoise image to use
+    data_rdnoise2 = np.zeros_like (data)
+
+    # determine reduced data sections
+    __, __, __, __, data_sec_red = define_sections(np.shape(data), tel=tel)
+
+
+    if False:
+
+        # when using 1.0.9+ version of astroscrappy:
+        
+        # loop channels        
+        nchans = np.shape(data_sec_red)[0]
+        for i_chan in range(nchans):
+            
+            # channel section
+            sec_tmp = data_sec_red[i_chan]
+            
+            rdn_str = 'RDN{}'.format(i_chan+1)
+            if rdn_str not in header:
+                if log is not None:
+                    log.error ('keyword {} expected but not present in header'
+                               .format(rdn_str))
+            else:
+                data_rdnoise2[sec_tmp] = header[rdn_str]**2
+            
+
+        # add Poisson noise
+        data_var = data_rdnoise2 + data
+
+        mask_cr, data = astroscrappy.detect_cosmics(
+            data, inmask=(data_mask!=0), invar=data_var,
+            sigclip=get_par(set_bb.sigclip,tel),
+            sigfrac=get_par(set_bb.sigfrac,tel),
+            objlim=get_par(set_bb.objlim,tel),
+            niter=get_par(set_bb.niter,tel),
+            satlevel=satlevel_electrons,
+            cleantype='medmask',
+            #fsmode='convolve', psfmodel='gauss', psffwhm=4.5, psfsize=7,
+            sepmed=get_par(set_bb.sepmed,tel))
+
+
+    else:
+        
+        # when using 1.0.8 version of astroscrappy:
+
+        readnoise = header['RDNOISE']
     
-    mask_cr, data = astroscrappy.detect_cosmics(
-        data, inmask=(data_mask!=0), invar=data_var,
-        sigclip=get_par(set_bb.sigclip,tel), sigfrac=get_par(set_bb.sigfrac,tel),
-        objlim=get_par(set_bb.objlim,tel), niter=get_par(set_bb.niter,tel),
-        satlevel=satlevel_electrons, cleantype='medmask',
-        #fsmode='convolve', psfmodel='gauss', psffwhm=4.5, psfsize=7,
-        sepmed=get_par(set_bb.sepmed,tel))
+        mask_cr, data = astroscrappy.detect_cosmics(
+            data, inmask=(data_mask!=0),
+            sigclip=get_par(set_bb.sigclip,tel),
+            sigfrac=get_par(set_bb.sigfrac,tel),
+            objlim=get_par(set_bb.objlim,tel),
+            niter=get_par(set_bb.niter,tel),
+            readnoise=readnoise, gain=1.0,
+            satlevel=satlevel_electrons,
+            cleantype='medmask', 
+            sepmed=get_par(set_bb.sepmed,tel))
 
 
 
