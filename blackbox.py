@@ -2077,6 +2077,8 @@ def blackbox_reduce (filename):
     elif qc_flag == 'red':
         # make sure to copy dummy source catalog in case of a red flag
         list_2keep += ['_trans.fits']
+        list_2keep += ['_trans_hdr.fits']
+        list_2keep += ['_trans_light.fits']
 
     # copy/move files over
     copy_files2keep(tmp_base, new_base, list_2keep,
