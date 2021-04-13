@@ -736,7 +736,7 @@ def blackbox_reduce (filename):
     except Exception as e:
         #genlog.exception (traceback.format_exc())
         genlog.exception ('exception was raised in read_hdulist at top of '
-                          '[blackbox_reduce]: {}\nnot processing {}'
+                          '[blackbox_reduce]: {}; not processing {}'
                           .format(e, filename))
         return None
 
@@ -1026,7 +1026,8 @@ def blackbox_reduce (filename):
             data = read_hdulist(filename, dtype='float32')
         except:
             log.exception('problem reading image {}; leaving function '
-                          'blackbox_reduce'.format(fits_out))
+                          'blackbox_reduce'.format(filename))
+            clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel), log=log)
             close_log(log, logfile)
             return None
 
