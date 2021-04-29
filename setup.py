@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 setup(
     name='blackbox',
-    version='0.9.2',
+    version='1.0.0',
     description='image processing sofware specifically written for the reduction of BlackGEM and MeerLICHT images',
     url='https://github.com/pmvreeswijk/BlackBOX',
     author='Paul Vreeswijk, Kerry Paterson, Danielle Pieterse',
