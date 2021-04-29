@@ -42,19 +42,20 @@ combine_type = 'clipped'
 # selecting images to combine in 'clipped' mode to avoid clipping of
 # bright stars; abs(highest seeing / lowest seeing - 1) <=
 # max_spread_seeing
-max_spread_seeing = 0.4
+max_spread_seeing = 0.3
 # range in SWarp noise amplification fraction to explore for images to
 # combine in 'clipped' mode to avoid clipping of bright stars
 A_range = [0.3, 5.1, 0.1]
-# clipping threshold used in SWarp 
-nsigma_clip = 2.5
-# use background pixels of the images discarded based on
-# [max_spread_seeing] in the final combination
-use_bkg_discarded = True
+# clipping threshold range used in SWarp 
+nsigma_range = [2.5, 3.6, 0.5]
+# minimum number of selected images required in clipped mode;
+# resorting to weighted average of all images if not reached
+nmin_4clipping = 3
 
 
-# sum of mask type integers (bad=1,..) to discard'
-masktype_discard = 49 # i.e. discard bad (1) + satellite (16) + edge (32)
+# sum of mask type integers (bad=1,..) to discard
+masktype_discard = 51 # i.e. discard bad (1) + cosmic (2) + satellite (16)
+                      # + edge (32)
 
 # centering method; options: 'grid', 'median_field' or 'median_filter'
 center_type = 'grid'
@@ -84,7 +85,10 @@ back_type = 'blackbox'
 
 # use absolute target limiting magnitudes suggested by PaulG; see his
 # email from 2021-01-06
-#use_abslimits = True
 limmag_target = {'u': 21.0, 'g': 22.3, 'q': 22.5, 'r': 22.0, 'i': 21.3, 'z': 20.5}
+# 0.5 mag deeper:
+#limmag_target = {'u': 21.5, 'g': 22.8, 'q': 23.0, 'r': 22.5, 'i': 21.8, 'z': 21.0}
+# use all images
+#limmag_target = {'u': 30.0, 'g': 30.0, 'q': 30.0, 'r': 30.0, 'i': 30.0, 'z': 30.0}
 # do not use less than [nmin] images if available 
 nimages_min = 15
