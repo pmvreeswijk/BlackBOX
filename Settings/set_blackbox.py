@@ -22,7 +22,7 @@ trans_extract = False
 
 # force re-processing of new image, only for above parts that are
 # switched on
-force_reproc_new = True
+force_reproc_new = False
 
 # switch to create the reference image/folder from the image being
 # processed in case it does not exist yet for that combination of
@@ -66,7 +66,7 @@ tmp_dir_base = run_dir_base
 #tmp_dir_base = '/dev/shm'
 
 # switch to keep tmp directories (True) or not (False)
-keep_tmp = True
+keep_tmp = False
 
 # the loop below creates dictionaries with keys ['ML1', 'BG2', 'BG3',
 # 'BG4'] for the different paths to the raw, red, log, ref and tmp
