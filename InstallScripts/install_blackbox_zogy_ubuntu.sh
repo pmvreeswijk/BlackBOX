@@ -15,21 +15,23 @@
 # ================================================================================
 
 # python version
-v_python="3.7"
-# zogy and blackbox; for latest version, leave these empty ("") or comment out
-v_blackbox="0.9.1"
-v_zogy="0.9.1"
+v_python="3"
+# zogy, blackbox and meercrab; for latest version, leave these empty ("") or comment out
+v_blackbox=""
+v_zogy=""
+v_meercrab=""
 
-# define home of zogy and blackbox
+# define home of zogy, blackbox and meercrab
 zogyhome=${PWD}/ZOGY
 blackboxhome=${PWD}/BlackBOX
+meercrabhome=${PWD}/meercrab
 # define data home (here defined for MeerLICHT):
 datahome=/ceph/meerlicht
 
-# exit script if zogyhome and/or blackboxhome already exist
-if [ -d "${zogyhome}" ] || [ -d "${blackboxhome}" ]
+# exit script if zogyhome and/or blackboxhome and/or meercrabhome already exist
+if [ -d "${zogyhome}" ] || [ -d "${blackboxhome}" ] || [ -d "${meercrabhome}" ]
 then
-    echo "${zogyhome} and/or ${blackboxhome} already exist(s); exiting script"
+    echo "${zogyhome} and/or ${blackboxhome} and/or ${meercrabhome} already exist(s); exiting script"
     exit
 fi
 
@@ -51,7 +53,10 @@ sudo ${packman} -y upgrade
 # python, pip and git
 # ================================================================================
 
-sudo ${packman} -y install python${v_python} python${v_python}-dev
+echo "installing python, pip and git"
+sudo ${packman} -y install python${v_python}
+sudo ${packman} -y install python${v_python}-dev
+
 if [ ${v_python} \< "3" ]
 then
     sudo ${packman} -y install python-pip
@@ -61,12 +66,13 @@ fi
 pip="python${v_python} -m pip"
 
 # git
-sudo ${packman} -y install git
+sudo ${packman} -y install git git-lfs
 
 
-# clone ZOGY and BlackBOX repositories in current directory
+# clone ZOGY and BlackBOX and MeerCRAB repositories in current directory
 # ================================================================================
 
+echo "cloning ZOGY and BlackBOX repository"
 if [ ! -z ${v_zogy} ]
 then
     zogy_branch="--branch v${v_zogy}"
@@ -81,44 +87,61 @@ then
 fi
 git clone ${blackbox_branch} https://github.com/pmvreeswijk/BlackBOX
 
+if [ ! -z ${v_meercrab} ]
+then
+    meercrab_branch="--branch v${v_meercrab}"
+    v_meercrab_git="@v${v_meercrab}"
+fi
+echo "cloning meercrab repository"
+git clone ${meercrab_branch} https://github.com/Zafiirah13/meercrab
+cd ${meercrabhome}
+git lfs install
+git lfs pull
+cd ${meercrabhome}/..
 
-# install ZOGY and BlackBOX repositories
+
+# install ZOGY, BlackBOX and MeerCRAB repositories
 # ================================================================================
 
+echo "installing ZOGY and BlackBOX packages"
 sudo -H ${pip} install git+git://github.com/pmvreeswijk/ZOGY${v_zogy_git}
 sudo -H ${pip} install git+git://github.com/pmvreeswijk/BlackBOX${v_blackbox_git}
 
+echo "installing MeerCRAB packages"
+# for MeerCRAB, not possible to use setup.py on git with latest python:
+#sudo -H ${pip} install git+git://github.com/Zafiirah13/meercrab${v_meercrab_git}
+# so install required packages manually:
+sudo -H ${pip} install pandas tensorflow imbalanced-learn matplotlib scipy keras Pillow scikit_learn numpy astropy h5py==2.10.0 testresources
 
 # packages used by ZOGY
 # ================================================================================
 
 # Astrometry.net
-sudo ${packman} -y install astrometry.net
+echo "installing astrometry.net"
+DEBIAN_FRONTEND=noninteractive sudo ${packman} -q -y install astrometry.net
 
 # SExtractor (although it seems already installed automatically)
-sudo ${packman} -y install sextractor
+echo "installing sextractor"
+DEBIAN_FRONTEND=noninteractive sudo ${packman} -q -y install sextractor
 # the executable for this installation is 'sextractor' while ZOGY
 # versions starting from 0.9.2 expect 'source-extractor'; make a
-# symbolic link
-sudo ln -s /usr/bin/sextractor /usr/bin/source-extractor
-# the command 'sex' is used in ZOGY versions before 0.9.2
-sudo ln -s /usr/bin/sextractor /usr/bin/sex
-
-# the executable for this installation is 'sextractor' while ZOGY
-# expects 'source-extractor'; make a symbolic link
-sudo ln -s /usr/bin/sextractor /usr/bin/source-extractor
+# symbolic link; N.B.: since 2020-04-25 not needed anymore
+#sudo ln -s /usr/bin/sextractor /usr/bin/source-extractor
 
 # SWarp
-sudo ${packman} -y install swarp
+echo "installing SWarp"
+DEBIAN_FRONTEND=noninteractive sudo ${packman} -q -y install swarp
 # the executable for this installation is 'SWarp' while ZOGY expects
 # 'swarp'; make a symbolic link
 sudo ln -s /usr/bin/SWarp /usr/bin/swarp
 
 # PSFEx - this basic install does not allow multi-threading
-sudo ${packman} -y install psfex
+echo "installing PSFEx"
+DEBIAN_FRONTEND=noninteractive sudo ${packman} -q -y install psfex
 
 # ds9; add environment DEBIAN_FRONTEND to avoid interaction with TZONE
-#DEBIAN_FRONTEND=noninteractive sudo ${packman} -y install saods9
+echo "installing saods9"
+DEBIAN_FRONTEND=noninteractive sudo ${packman} -q -y install saods9
 
 
 # download calibration catalog
@@ -180,13 +203,14 @@ if [[ ${SHELL} == *"bash"* ]] || [[ ${SHELL} == *"zsh"* ]]
 then
     echo "export ZOGYHOME=${zogyhome}"
     echo "export BLACKBOXHOME=${blackboxhome}"
+    echo "export MEERCRABHOME=${meercrabhome}"
     echo "# update DATAHOME to folder where the data are sitting"
     echo "export DATAHOME=${datahome}"
     echo "if [ -z \"\${PYTHONPATH}\" ]"
     echo "then"
-    echo "    export PYTHONPATH=${zogyhome}:${zogyhome}/Settings:${blackboxhome}:${blackboxhome}/Settings"
+    echo "    export PYTHONPATH=${zogyhome}:${zogyhome}/Settings:${blackboxhome}:${blackboxhome}/Settings:${meercrabhome}"
     echo "else"
-    echo "    export PYTHONPATH=\${PYTHONPATH}:${zogyhome}:${zogyhome}/Settings:${blackboxhome}:${blackboxhome}/Settings"
+    echo "    export PYTHONPATH=\${PYTHONPATH}:${zogyhome}:${zogyhome}/Settings:${blackboxhome}:${blackboxhome}/Settings:${meercrabhome}"
     echo "fi"
 fi
 
@@ -194,12 +218,13 @@ if [[ ${SHELL} == *"csh"* ]]
 then
     echo "setenv ZOGYHOME ${zogyhome}"
     echo "setenv BLACKBOXHOME ${blackboxhome}"
+    echo "setenv MEERCRABHOME ${meercrabhome}"
     echo "# update DATAHOME to folder where the data are sitting"
     echo "setenv DATAHOME ${datahome}"
     echo "if ( \$?PYTHONPATH ) then"
-    echo "    setenv PYTHONPATH \${PYTHONPATH}:${zogyhome}:${zogyhome}/Settings:${blackboxhome}:${blackboxhome}/Settings"
+    echo "    setenv PYTHONPATH \${PYTHONPATH}:${zogyhome}:${zogyhome}/Settings:${blackboxhome}:${blackboxhome}/Settings:${meercrabhome}"
     echo "else"
-    echo "    setenv PYTHONPATH ${zogyhome}:${zogyhome}/Settings:${blackboxhome}:${blackboxhome}/Settings"
+    echo "    setenv PYTHONPATH ${zogyhome}:${zogyhome}/Settings:${blackboxhome}:${blackboxhome}/Settings:${meercrabhome}"
     echo "endif"
 fi
 
