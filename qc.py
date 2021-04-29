@@ -1,4 +1,8 @@
 
+# set up log
+import logging
+log = logging.getLogger()
+
 import argparse
 import numpy as np
 import astropy.io.fits as fits
@@ -11,7 +15,7 @@ __version__ = '0.2'
 
 def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
               cat_dummy=None, cat_type=None, return_range_comment=False,
-              hide_greens=True, hide_warnings=True, log=None):
+              hide_greens=True, hide_warnings=True):
     
     """Function to determine whether the value of a given keyword is
        within an acceptable range or not.  The header keywords' values
@@ -153,7 +157,7 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
 
         # check if keyword is present in qc_range
         if key.upper() not in qc_range.keys():
-            if not hide_warnings and log is not None:
+            if not hide_warnings:
                 log.warning ('keyword {} not present in qc_range'
                              .format(key))
             # change color to empty string
@@ -162,7 +166,7 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
         
         # check if keyword is present in the header
         if key.upper() not in header.keys():
-            if not hide_warnings and log is not None:
+            if not hide_warnings:
                 log.warning ('keyword {} not present in the input header'
                              .format(key))
             # change color to empty string
@@ -198,7 +202,7 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
         # if keyword value equals 'None' or None, then also skip it
         header_val = header[key]
         if header_val == 'None' or header_val is None:
-            if not hide_warnings and log is not None:
+            if not hide_warnings:
                 log.warning ('{}=\'None\' or None; skipping quality check.'
                              .format(key))
             colors_out[nkey] = ''
@@ -266,9 +270,8 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
                     
             else:
 
-                if log is not None:
-                    log.error ('[val_type] not one of "exp_abs", "exp_frac", '
-                               '"min_max", "bool" or "sigma"')
+                log.error ('[val_type] not one of "exp_abs", "exp_frac", '
+                           '"min_max", "bool" or "sigma"')
                 return
 
 
@@ -358,7 +361,7 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
         comment = 'dummy catalog without sources?'
         
     #if make_dumcat:
-    header.set ('{}DUMCAT'.format(prefix), make_dumcat, 'dummy {}catalog '
+    header.set ('{}DUMCAT'.format(prefix), make_dumcat, 'dummy {} catalog '
                 'without sources?'.format(label), after=prev_key)
 
 
@@ -444,14 +447,14 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
                                 size_thumbnails=size_thumbnails,
                                 ML_calc_prob=get_par(
                                     set_zogy.ML_calc_prob,telescope),
-                                tel=telescope, log=log)
+                                tel=telescope)
 
         else:
             result = format_cat(None, cat_dummy, cat_type=cat_type,
                                 header_toadd=header_dummy, 
                                 apphot_radii=get_par(
                                     set_zogy.apphot_radii,telescope),
-                                tel=telescope, log=log)
+                                tel=telescope)
 
 
 
@@ -469,7 +472,7 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
 ################################################################################
 
 def run_qc_check (header, telescope, cat_type=None, cat_dummy=None,
-                  check_key_type=None, log=None):
+                  check_key_type=None):
     
     """Helper function to execute [qc_check] in BlackBOX and to return a
        single flag color - the most severe color - from the output
@@ -483,15 +486,14 @@ def run_qc_check (header, telescope, cat_type=None, cat_dummy=None,
                                               cat_type=cat_type,
                                               cat_dummy=cat_dummy,
                                               check_key_type=check_key_type,
-                                              return_range_comment=True,
-                                              log=log)
+                                              return_range_comment=True)
 
     qc_flag = 'green'
     for col in ['yellow', 'orange', 'red']:
         if col in colors:
             qc_flag = col
 
-    if qc_flag == 'red' and log is not None:
+    if qc_flag == 'red':
         for nkey, key in enumerate(keys):
             logstr = ('{} flag for keyword: {}, value: {}, allowed range: {}, '
                       ' comment: {}'.format(colors[nkey], key, header[key], 
