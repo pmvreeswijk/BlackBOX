@@ -4,6 +4,18 @@ import gc
 import pickle
 import copy
 
+# set up log
+import logging
+import time
+logfmt = ('%(asctime)s.%(msecs)03d [%(levelname)s, %(process)s] %(message)s '
+          '[%(funcName)s, line %(lineno)d]')
+datefmt = '%Y-%m-%dT%H:%M:%S'
+logging.basicConfig(level='INFO', format=logfmt, datefmt=datefmt)
+logFormatter = logging.Formatter(logfmt, datefmt)
+logging.Formatter.converter = time.gmtime #convert time in logger to UTC
+log = logging.getLogger()
+#log.propagate = False
+
 import set_zogy
 import set_blackbox as set_bb
 
@@ -19,7 +31,7 @@ else:
     # not really necessary - already done in cluster batch script
     os.environ['OMP_NUM_THREADS'] = str(cpus_per_task)
 
-    
+
 from zogy import *
 
 import re   # Regular expression operations
@@ -90,7 +102,7 @@ keywords_version = '1.0.0'
 ################################################################################
 
 def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
-                  recursive=None, imgtypes=None, filters=None, image=None, 
+                  recursive=False, imgtypes=None, filters=None, image=None, 
                   image_list=None, master_date=None,
                   img_reduce=None, cat_extract=None, trans_extract=None,
                   force_reproc_new=None, name_genlog=None, keep_tmp=None):
@@ -148,17 +160,20 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
 
 
+
     if get_par(set_zogy.timing,tel):
         t_run_blackbox = time.time()
         
         
-    # initialize logging
-    ####################
+    # attach general logfile to logging
+    ###################################
 
     if not os.path.isdir(get_par(set_bb.log_dir,tel)):
         os.makedirs(get_par(set_bb.log_dir,tel))
     
-    global genlogfile, genlog
+    global genlogfile
+    genlogfile = None
+    
     if name_genlog is not None:
         # check if path is provided
         fdir, fname = os.path.split(name_genlog)
@@ -166,35 +181,40 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
             log_dir = fdir
         else:
             log_dir = get_par(set_bb.log_dir,tel)
-
-        genlogfile = '{}/{}'.format(log_dir, fname)
             
-    else:
+        genlogfile = '{}/{}'.format(log_dir, fname)
+
+    elif mode == 'night':
+
+        # in night mode, create general logfile based on date/time
         genlogfile = '{}/{}_{}.log'.format(get_par(set_bb.log_dir,tel), tel,
                                            Time.now().strftime('%Y%m%d_%H%M%S'))
 
-    genlog = create_log (genlogfile, loglevel='ERROR')
+    if genlogfile is not None:
 
-    genlog.info ('processing mode:        {}'.format(mode))
-    genlog.info ('general log file:       {}'.format(genlogfile))
-    genlog.info ('number of processes:    {}'.format(nproc))
-    genlog.info ('number of threads:      {}'.format(get_par(set_bb.nthreads,tel)))
-    genlog.info ('switch img_reduce:      {}'
-                 .format(get_par(set_bb.img_reduce,tel)))
-    genlog.info ('switch cat_extract:     {}'
-                 .format(get_par(set_bb.cat_extract,tel)))
-    genlog.info ('switch trans_extract:   {}'
-                 .format(get_par(set_bb.trans_extract,tel)))
-    genlog.info ('force reprocessing new: {}'
-                 .format(get_par(set_bb.force_reproc_new,tel)))
+        fileHandler = logging.FileHandler(genlogfile, 'a')
+        fileHandler.setFormatter(logFormatter)
+        fileHandler.setLevel('INFO')
+        log.addHandler(fileHandler)
+        log.info ('genlogfile created:     {}'.format(genlogfile))        
 
 
-    mem_use (label='run_blackbox at start', log=genlog)
+
+    log.info ('processing mode:        {}'.format(mode))
+    log.info ('number of processes:    {}'.format(nproc))
+    log.info ('number of threads:      {}'.format(get_par(set_bb.nthreads,tel)))
+    log.info ('switch img_reduce:      {}'.format(get_par(set_bb.img_reduce,tel)))
+    log.info ('switch cat_extract:     {}'.format(get_par(set_bb.cat_extract,tel)))
+    log.info ('switch trans_extract:   {}'.format(get_par(set_bb.trans_extract,tel)))
+    log.info ('force reprocessing new: {}'.format(get_par(set_bb.force_reproc_new,tel)))
+
+
+    mem_use (label='run_blackbox at start')
 
 
     # create master bias and/or flat if [master_date] is specified
     if master_date is not None:
-        create_masters (mdate=master_date, nproc=nproc, log=genlog)
+        create_masters (mdate=master_date, nproc=nproc)
         logging.shutdown()
         return
 
@@ -204,8 +224,8 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
         not get_par(set_bb.cat_extract,tel) and
         not get_par(set_bb.trans_extract,tel)):
     
-        genlog.info ('main processing switches img_reduce, cat_extract '
-                     'and trans_extract all False, nothing left to do')
+        log.info ('main processing switches img_reduce, cat_extract '
+                  'and trans_extract all False, nothing left to do')
         logging.shutdown()
         return
 
@@ -217,14 +237,14 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     if read_path is None:
         if date is not None:
             read_path, __ = get_path(date, 'read')
-            genlog.info ('processing files from directory: {}'.format(read_path))
+            log.info ('processing files from directory: {}'.format(read_path))
         elif image is not None:
             pass
         elif image_list is not None:
             pass
         else:
             # if [read_path], [date], [image] and [image_list] are all None, exit
-            genlog.critical ('[read_path], [date], [image], [image_list] all None')
+            log.critical ('[read_path], [date], [image], [image_list] all None')
             logging.shutdown()
             return
 
@@ -232,8 +252,8 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
         # if it is provided but does not exist, exit unless in night
         # mode in which case it will be created below
         if not os.path.isdir(read_path) and mode != 'night':
-            genlog.critical ('[read_path] directory provided does not exist:\n{}'
-                             .format(read_path))
+            log.critical ('[read_path] directory provided does not exist:\n{}'
+                          .format(read_path))
             logging.shutdown()
             return
 
@@ -271,8 +291,8 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
         filenames = [name for sublist in lists for name in sublist]
     else:
         if mode == 'night':
-            genlog.critical ('[image] or [image_list] should not be defined '
-                             'in night mode')
+            log.critical ('[image] or [image_list] should not be defined '
+                          'in night mode')
             logging.shutdown()
             return
         
@@ -292,7 +312,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     if mode == 'day':
 
         if len(filenames)==0:
-            genlog.warning ('no files to reduce')
+            log.warning ('no files to reduce')
 
 
         # see https://docs.python.org/3/library/tracemalloc.html
@@ -306,7 +326,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
             # [set_zogy.display] is set to True; something that is not
             # allowed (at least not on a macbook) when
             # multiprocessing.
-            genlog.warning ('running with single processor')
+            log.warning ('running with single processor')
             filenames_reduced = []
             for filename in filenames:
                 filenames_reduced.append(blackbox_reduce(filename))
@@ -314,10 +334,10 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
         else:
             # use [pool_func] to process list of files
             filenames_reduced = pool_func (blackbox_reduce, filenames,
-                                           log=genlog, nproc=nproc)
+                                           nproc=nproc)
             
 
-        genlog.info ('filenames_reduced: {}'.format(filenames_reduced))
+        log.info ('filenames_reduced: {}'.format(filenames_reduced))
 
         #snapshot2 = tracemalloc.take_snapshot()
         #top_stats = snapshot2.compare_to(snapshot1, 'lineno')
@@ -334,7 +354,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
         # [read_path] folder may not exist yet (e.g. no data have yet
         # been synced to it), which will cause watchdog to break, so
         # make sure it exists
-        make_dir (read_path, put_lock=False)
+        make_dir (read_path)
 
         # create queue for submitting jobs
         queue = Queue()
@@ -369,18 +389,17 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
             time.sleep(60)
 
         # all done!
-        genlog.info ('stopping time reached, exiting night mode')
+        log.info ('stopping time reached, exiting night mode')
         observer.stop() #stop observer
         observer.join() #join observer
 
         # create and email obslog
-        create_obslog (date, email=True, tel=tel, log=genlog)
+        create_obslog (date, email=True, tel=tel)
 
 
 
     if get_par(set_zogy.timing,tel):
-        log_timing_memory (t0=t_run_blackbox, label='run_blackbox at very end',
-                           log=genlog)
+        log_timing_memory (t0=t_run_blackbox, label='run_blackbox at very end')
 
 
     logging.shutdown()
@@ -389,13 +408,12 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
 ################################################################################
 
-def create_masters (mdate=None, run_fpack=True, run_create_jpg=True, nproc=1,
-                    log=None):
+def create_masters (mdate=None, run_fpack=True, run_create_jpg=True, nproc=1):
 
     if get_par(set_zogy.timing,tel):
         t = time.time()
     
-    genlog.info ('creating master frames')
+    log.info ('creating master frames')
     
     # prepare list of all red/yyyy/mm/dd/bias and flat directories
     red_dir = get_par(set_bb.red_dir,tel)
@@ -492,36 +510,33 @@ def create_masters (mdate=None, run_fpack=True, run_create_jpg=True, nproc=1,
     # use [pool_func] to process list of masters; pick_alt is set to
     # False as there is no need to look for an alternative master flat
     list_fits_master = pool_func (master_prep, list_masters, data_shape, True,
-                                  False, genlog, log=genlog, nproc=nproc)
+                                  False, nproc=nproc)
 
 
     if get_par(set_zogy.timing,tel):
-        log_timing_memory (t0=t, label='create_masters before fpacking',
-                           log=genlog)
+        log_timing_memory (t0=t, label='create_masters before fpacking')
 
 
     # use [pool_func] to fpack masters just created
     list_masters_existing = [f for f in list_masters if os.path.isfile(f)]
     if run_fpack:
-        genlog.info ('fpacking master frames')
-        results = pool_func (fpack, list_masters_existing, genlog,
-                             log=genlog, nproc=nproc)
+        log.info ('fpacking master frames')
+        results = pool_func (fpack, list_masters_existing, nproc=nproc)
 
 
     # use [pool_func] to create jpegs
     if run_create_jpg:
-        genlog.info ('creating jpg images')
+        log.info ('creating jpg images')
         if run_fpack:
             list_masters_existing = ['{}.fz'.format(f)
                                      for f in list_masters_existing]
 
-        results = pool_func (create_jpg, list_masters_existing, genlog,
-                             log=genlog, nproc=nproc)
+        results = pool_func (create_jpg, list_masters_existing, nproc=nproc)
 
         
     if get_par(set_zogy.timing,tel):
         log_timing_memory (t0=t, label='create_masters after fpacking and '
-                           'creating jpgs', log=genlog)
+                           'creating jpgs')
 
     return
 
@@ -550,7 +565,7 @@ def already_exists (filename, get_filename=False):
 
 ################################################################################
 
-def pool_func (func, filelist, *args, log=None, nproc=1):
+def pool_func (func, filelist, *args, nproc=1):
 
     try:
         results = []
@@ -565,13 +580,11 @@ def pool_func (func, filelist, *args, log=None, nproc=1):
         pool.close()
         pool.join()
         results = [r.get() for r in results]
-        #if log is not None:
-        #    log.info ('result from pool.apply_async: {}'.format(results))
+        #log.info ('result from pool.apply_async: {}'.format(results))
     except Exception as e:
-        if log is not None:
-            #log.exception (traceback.format_exc())
-            log.exception ('exception was raised during [pool.apply_async({})]: '
-                           '{}'.format(func, e))
+        #log.exception (traceback.format_exc())
+        log.exception ('exception was raised during [pool.apply_async({})]: '
+                       '{}'.format(func, e))
 
         #logging.shutdown()
         #raise SystemExit
@@ -581,9 +594,9 @@ def pool_func (func, filelist, *args, log=None, nproc=1):
 
 ################################################################################
 
-def fpack (filename, log=None):
-
-    """Fpack fits images; skip fits tables"""
+def fpack (filename):
+    
+    """fpack fits images; skip fits tables"""
 
     try:
     
@@ -609,26 +622,24 @@ def fpack (filename, log=None):
                 filename_packed = '{}.fz'.format(filename)
                 if os.path.exists(filename_packed):
                     os.remove(filename_packed)
-                    if log is not None:
-                        log.warning ('fpacking over already existing file {}'
-                                     .format(filename_packed))
+                    log.warning ('fpacking over already existing file {}'
+                                 .format(filename_packed))
 
                 subprocess.call(cmd)
                 filename = filename_packed
                 
 
     except Exception as e:
-        if log is not None:
-            #log.exception (traceback.format_exc())
-            log.exception ('exception was raised in fpacking of image {}: {}'
-                           .format(filename,e))
+        #log.exception (traceback.format_exc())
+        log.exception ('exception was raised in fpacking of image {}: {}'
+                       .format(filename,e))
 
     return filename
 
 
 ################################################################################
 
-def create_jpg (filename, log=None):
+def create_jpg (filename):
 
     """Create jpg image from fits"""
 
@@ -638,8 +649,7 @@ def create_jpg (filename, log=None):
 
         if not os.path.isfile(image_jpg):
 
-            if log is not None:
-                log.info ('saving {} to {}'.format(filename, image_jpg))
+            log.info ('saving {} to {}'.format(filename, image_jpg))
               
             # read input image
             data, header = read_hdulist(filename, get_header=True)
@@ -671,10 +681,9 @@ def create_jpg (filename, log=None):
             
 
     except Exception as e:
-        if log is not None:
-            #log.exception (traceback.format_exc())
-            log.exception ('exception was raised in creating jpg of image {}: {}'
-                           .format(filename,e))
+        #log.exception (traceback.format_exc())
+        log.exception ('exception was raised in creating jpg of image {}: {}'
+                       .format(filename,e))
 
 
 ################################################################################
@@ -727,17 +736,17 @@ def blackbox_reduce (filename):
 
     if get_par(set_zogy.timing,tel):
         t_blackbox_reduce = time.time()
-        mem_use (label='blackbox_reduce at start', log=genlog)
+        mem_use (label='blackbox_reduce at start')
 
 
     # just read the header for the moment
     try:
         header = read_hdulist(filename, get_data=False, get_header=True)
     except Exception as e:
-        #genlog.exception (traceback.format_exc())
-        genlog.exception ('exception was raised in read_hdulist at top of '
-                          '[blackbox_reduce]: {}; not processing {}'
-                          .format(e, filename))
+        #log.exception (traceback.format_exc())
+        log.exception ('exception was raised in read_hdulist at top of '
+                       '[blackbox_reduce]: {}; not processing {}'
+                       .format(e, filename))
         return None
 
 
@@ -755,9 +764,9 @@ def blackbox_reduce (filename):
     src = filename
     dest = '{}/{}'.format(raw_path, filename.split('/')[-1])
     if already_exists (dest):
-        genlog.info ('{} already exists; not copying/moving file'.format(dest))
+        log.info ('{} already exists; not copying/moving file'.format(dest))
     else:
-        make_dir (raw_path, lock=lock)
+        make_dir (raw_path)
         # moving:
         #shutil.move(src, dest)
         # copying:
@@ -769,10 +778,10 @@ def blackbox_reduce (filename):
 
     
     # check quality control
-    qc_flag = run_qc_check (header, tel, log=genlog)
+    qc_flag = run_qc_check (header, tel)
     if qc_flag=='red':
-        genlog.error ('red QC flag in image {}; returning without making '
-                      'dummy catalogs'.format(filename))
+        log.error ('red QC flag in image {}; returning without making '
+                   'dummy catalogs'.format(filename))
         return None
     
 
@@ -785,8 +794,8 @@ def blackbox_reduce (filename):
     # then also return
     imgtype = header['IMAGETYP'].lower()
     if imgtype not in imgtypes2process:
-        genlog.warning ('image type ({}) not in [imgtypes] ({}); not processing '
-                        '{}'.format(imgtype, imgtypes2process, filename))
+        log.warning ('image type ({}) not in [imgtypes] ({}); not processing '
+                     '{}'.format(imgtype, imgtypes2process, filename))
         return None
 
 
@@ -794,10 +803,10 @@ def blackbox_reduce (filename):
     try: 
         header = set_header(header, filename)
     except Exception as e:
-        #genlog.exception (traceback.format_exc())
-        genlog.exception ('exception was raised during [set_header] of image {}: '
-                          '{}; returning without making dummy catalogs'
-                          .format(filename, e))
+        #log.exception (traceback.format_exc())
+        log.exception ('exception was raised during [set_header] of image {}: '
+                       '{}; returning without making dummy catalogs'
+                       .format(filename, e))
         return None
     
     
@@ -819,7 +828,7 @@ def blackbox_reduce (filename):
     
     # define [write_path] using the header DATE-OBS
     write_path, date_eve = get_path(header['DATE-OBS'], 'write')
-    make_dir (write_path, lock=lock)
+    make_dir (write_path)
     bias_path = '{}/bias'.format(write_path)
     dark_path = '{}/dark'.format(write_path)
     flat_path = '{}/flat'.format(write_path)
@@ -838,35 +847,34 @@ def blackbox_reduce (filename):
     # image, skip image
     if 'EXPTIME' in header:
         exptime = float(header['EXPTIME'])
-        if 'IMAGETYP' in header and (header['IMAGETYP'].lower()=='object'
+        if ('IMAGETYP' in header and header['IMAGETYP'].lower()=='object'
             and int(exptime)==0):
-            genlog.error ('science image {} with EXPTIME of zero; skipping image'
-                          .format(filename))
+            log.error ('science image {} with EXPTIME of zero; skipping image'
+                       .format(filename))
             return None
     else:
-        genlog.warning ('keyword EXPTIME not in header of {}; skipping image'
-                        .format(filename))
+        log.warning ('keyword EXPTIME not in header of {}; skipping image'
+                     .format(filename))
         return None
 
 
     # if [only_filt] is specified, skip image if not relevant
     if filts is not None:
         if filt not in filts and imgtype != 'bias' and imgtype != 'dark':
-            genlog.warning ('image filter ({}) not in [only_filters] ({}); '
-                            'not processing {}'
-                            .format(filt, filts, filename))
+            log.warning ('image filter ({}) not in [only_filters] ({}); '
+                         'not processing {}'.format(filt, filts, filename))
             return None
 
     fits_out = '{}/{}_{}_{}.fits'.format(path[imgtype], tel, utdate, uttime)
     
     if imgtype == 'bias':
-        make_dir (bias_path, lock=lock)
+        make_dir (bias_path)
 
     elif imgtype == 'dark':
-        make_dir (dark_path, lock=lock)
+        make_dir (dark_path)
         
     elif imgtype == 'flat':
-        make_dir (flat_path, lock=lock)
+        make_dir (flat_path)
         fits_out = fits_out.replace('.fits', '_{}.fits'.format(filt))
 
     elif imgtype == 'object':
@@ -893,9 +901,9 @@ def blackbox_reduce (filename):
             #if utdate_ref==utdate and uttime_ref==uttime:
             # new check:
             if header_ref['R-NUSED']==1 and header_ref['R-IM1'] in fits_out:
-                genlog.warning ('this image {} is the current reference image '
-                                'of field {}; not processing it'
-                                .format(fits_out.split('/')[-1], obj))
+                log.warning ('this image {} is the current reference image '
+                             'of field {}; not processing it'
+                             .format(fits_out.split('/')[-1], obj))
                 return None
 
 
@@ -907,7 +915,7 @@ def blackbox_reduce (filename):
         # image without the .fits extension.
         tmp_path = '{}/{}'.format(get_par(set_bb.tmp_dir,tel),
                                   fits_out.split('/')[-1].replace('.fits',''))
-        make_dir (tmp_path, empty=True, lock=lock)
+        make_dir (tmp_path, empty=True)
         
         # for object files, prepare the logfile in [tmp_path]
         logfile = '{}/{}'.format(tmp_path, fits_out.split('/')[-1]
@@ -926,6 +934,12 @@ def blackbox_reduce (filename):
         # for biases, darks and flats
         logfile = fits_out.replace('.fits','.log')
 
+
+    # attach logfile to logging
+    fileHandler = logging.FileHandler(logfile, 'a')
+    fileHandler.setFormatter(logFormatter)
+    fileHandler.setLevel('INFO')
+    log.addHandler(fileHandler)
 
 
     # check if reduction steps could be skipped
@@ -946,24 +960,21 @@ def blackbox_reduce (filename):
         text_tmp = ('corresponding reduced {} image {} already exists; skipping '
                     'its reduction; for object images copying existing products '
                     'to tmp folder')
-        genlog.warning (text_tmp.format(imgtype, fits_out_present.split('/')[-1]))
+        log.warning (text_tmp.format(imgtype, fits_out_present.split('/')[-1]))
 
         # copy relevant files to tmp folder for object images
         if imgtype == 'object':
 
-            # create a logger that will append the log commands to [logfile]
-            log = create_log (logfile, name='log')
-            
             copy_files2keep(new_base, tmp_base,
                             get_par(set_bb.img_reduce_exts,tel),
-                            move=False, do_fpack=False, log=log)
+                            move=False, do_fpack=False)
 
             do_reduction = False
 
         else:
             # for non-object images, leave function; if reduction steps would
             # not have been skipped, this would have happened before
-            #close_log(log, logfile)
+            close_log(log, logfile)
             return fits_out
             
     else:
@@ -972,9 +983,9 @@ def blackbox_reduce (filename):
         do_reduction = True
         
         if file_present:
-
-            genlog.info ('forced reprocessing: removing all existing products '
-                         'in reduced folder for {}'.format(filename))
+            
+            log.info ('forced reprocessing: removing all existing products '
+                      'in reduced folder for {}'.format(filename))
 
             # this is a forced re-reduction; delete all corresponding
             # files in reduced folder as they will become obsolete
@@ -987,16 +998,13 @@ def blackbox_reduce (filename):
                 jpgfile = '{}.jpg'.format(fits_out_present.split('.fits')[0])
                 files_2remove = [fits_out_present, logfile, jpgfile]
                 # master bias and/or flat are removed inside [master_prep]
-
+                
             for file_2remove in files_2remove:
-                genlog.info ('removing existing {}'.format(file_2remove))
+                log.info ('removing existing {}'.format(file_2remove))
                 os.remove(file_2remove)
 
 
-        # create a logger that will append the log commands to [logfile]
-        log = create_log (logfile, name='log')
-
-        # immediately write some info to the log
+        # write some info to the log
         if file_present:
             log.info('forced re-processing of {}'.format(filename))
         else:
@@ -1007,6 +1015,7 @@ def blackbox_reduce (filename):
                   .format(imgtype, filt, exptime))
         if imgtype == 'object':
             log.info ('OBJECT (field ID): {}'.format(obj))        
+
         log.info ('write_path:  {}'.format(write_path))
         log.info ('bias_path:   {}'.format(bias_path))
         log.info ('dark_path:   {}'.format(dark_path))
@@ -1017,7 +1026,7 @@ def blackbox_reduce (filename):
 
 
         # general log file
-        header['LOG'] = (genlogfile.split('/')[-1], 'name general logfile')
+        header['LOG'] = (str(genlogfile).split('/')[-1], 'name general logfile')
         # image log file
         header['LOG-IMA'] = (logfile.split('/')[-1], 'name image logfile')
     
@@ -1027,7 +1036,7 @@ def blackbox_reduce (filename):
         except:
             log.exception('problem reading image {}; leaving function '
                           'blackbox_reduce'.format(filename))
-            clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel), log=log)
+            clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel))
             close_log(log, logfile)
             return None
 
@@ -1051,7 +1060,7 @@ def blackbox_reduce (filename):
         try:
             log.info('correcting for the gain')
             gain_processed = False
-            data = gain_corr(data, header, tel=tel, log=log)
+            data = gain_corr(data, header, tel=tel)
         except Exception as e:
             #log.exception(traceback.format_exc())
             log.exception('exception was raised during [gain_corr] of image {}: '
@@ -1081,7 +1090,7 @@ def blackbox_reduce (filename):
                 log.info('correcting for the crosstalk')
                 xtalk_processed = False
                 crosstalk_file = get_par(set_bb.crosstalk_file,tel)
-                data = xtalk_corr (data, crosstalk_file, log=log)
+                data = xtalk_corr (data, crosstalk_file)
             except Exception as e:
                 #log.exception(traceback.format_exc())
                 log.exception('exception was raised during [xtalk_corr] of image '
@@ -1103,7 +1112,7 @@ def blackbox_reduce (filename):
         try: 
             log.info('correcting for the overscan')
             os_processed = False
-            data = os_corr(data, header, imgtype, tel=tel, log=log)
+            data = os_corr(data, header, imgtype, tel=tel)
         except Exception as e:
             #log.exception(traceback.format_exc())
             log.exception('exception was raised during [os_corr] of image {}: {}'
@@ -1130,7 +1139,7 @@ def blackbox_reduce (filename):
             try:
                 log.info('correcting for the non-linearity')
                 nonlin_corr_file = get_par(set_bb.nonlin_corr_file,tel)
-                data = nonlin_corr(data, nonlin_corr_file, log=log)
+                data = nonlin_corr(data, nonlin_corr_file)
                 header['NONLIN-F'] = (nonlin_corr_file.split('/')[-1],
                                       'name non-linearity correction file')
             except Exception as e:
@@ -1146,13 +1155,13 @@ def blackbox_reduce (filename):
         # if IMAGETYP=bias or dark, write [data] to fits and return
         if imgtype == 'bias' or imgtype == 'dark':
             # call [run_qc_check] to update header with any QC flags
-            run_qc_check (header, tel, log=log)
+            run_qc_check (header, tel)
             header['DATEFILE'] = (Time.now().isot, 'UTC date of writing file')
             fits.writeto(fits_out, data.astype('float32'), header, overwrite=True)
             # fpack
-            fits_out = fpack (fits_out, log=log)
+            fits_out = fpack (fits_out)
             # create jpg
-            create_jpg (fits_out, log=log)
+            create_jpg (fits_out)
             # close down logging and leave
             close_log(log, logfile)
             return fits_out
@@ -1168,7 +1177,7 @@ def blackbox_reduce (filename):
             # prepare or point to the master bias
             fits_master = '{}/bias_{}.fits'.format(bias_path, date_eve)
             fits_mbias = master_prep (fits_master, data.shape,
-                                      get_par(set_bb.create_master,tel), log=log)
+                                      get_par(set_bb.create_master,tel))
 
         except Exception as e:
             #log.exception(traceback.format_exc())
@@ -1226,8 +1235,7 @@ def blackbox_reduce (filename):
             try:
                 log.info('preparing the initial mask')
                 mask_processed = False
-                data_mask, header_mask = mask_init (data, header, filt, imgtype,
-                                                    log=log)
+                data_mask, header_mask = mask_init (data, header, filt, imgtype)
             except Exception as e:
                 #log.exception(traceback.format_exc())
                 log.exception('exception was raised during [mask_init] for image '
@@ -1248,17 +1256,17 @@ def blackbox_reduce (filename):
 
             # first add some image statistics to header
             if os_processed:
-                get_flatstats (data, header, data_mask, tel=tel, log=log)
+                get_flatstats (data, header, data_mask, tel=tel)
 
             # call [run_qc_check] to update header with any QC flags
-            run_qc_check (header, tel, log=log)
+            run_qc_check (header, tel)
             # write to fits
             header['DATEFILE'] = (Time.now().isot, 'UTC date of writing file')
             fits.writeto(fits_out, data.astype('float32'), header, overwrite=True)
             # fpack
-            fits_out = fpack (fits_out, log=log)
+            fits_out = fpack (fits_out)
             # create jpg
-            create_jpg (fits_out, log=log)
+            create_jpg (fits_out)
             # close down logging and leave
             close_log(log, logfile)
             return fits_out
@@ -1274,7 +1282,7 @@ def blackbox_reduce (filename):
             # prepare or point to the master flat
             fits_master = '{}/flat_{}_{}.fits'.format(flat_path, date_eve, filt)
             fits_mflat = master_prep (fits_master, data.shape,
-                                      get_par(set_bb.create_master,tel), log=log)
+                                      get_par(set_bb.create_master,tel))
 
         except Exception as e:
             #log.exception(traceback.format_exc())
@@ -1336,8 +1344,7 @@ def blackbox_reduce (filename):
         try:
             log.info('detecting cosmic rays')
             cosmics_processed = False
-            data, data_mask = cosmics_corr(data, header, data_mask, header_mask,
-                                           log=log)
+            data, data_mask = cosmics_corr(data, header, data_mask, header_mask)
         except Exception as e:
             header['NCOSMICS'] = ('None', '[/s] number of cosmic rays identified')
             #log.exception(traceback.format_exc())
@@ -1368,7 +1375,7 @@ def blackbox_reduce (filename):
             if get_par(set_bb.detect_sats,tel):
                 log.info('detecting satellite trails')
                 data_mask = sat_detect(data, header, data_mask, header_mask,
-                                       tmp_path, log=log)
+                                       tmp_path)
         except Exception as e:
             header['NSATS'] = ('None', 'number of satellite trails identified')
             #log.exception(traceback.format_exc())
@@ -1437,7 +1444,7 @@ def blackbox_reduce (filename):
 
 
         # check quality control
-        qc_flag = run_qc_check (header, tel, log=log, check_key_type='full')
+        qc_flag = run_qc_check (header, tel, check_key_type='full')
 
 
         # update [new_fits] header with qc-flags
@@ -1459,19 +1466,26 @@ def blackbox_reduce (filename):
             log.error('red QC flag in image {}; making dummy catalogs and '
                       'returning'.format(fits_out))
             run_qc_check (header, tel, cat_type='new', cat_dummy=fits_tmp_cat,
-                          log=log, check_key_type='full')
+                          check_key_type='full')
             run_qc_check (header, tel, cat_type='trans', cat_dummy=fits_tmp_trans,
-                          log=log, check_key_type='trans')
+                          check_key_type='trans')
 
             # verify headers of catalogs
-            verify_header (fits_tmp_cat, ['raw','full'], log=log)
-            verify_header (fits_tmp_trans, ['raw','full','trans'], log=log)
+            verify_header (fits_tmp_cat, ['raw','full'])
+            verify_header (fits_tmp_trans, ['raw','full','trans'])
 
-            # copy selected output files to new directory and remove tmp folder
-            # corresponding to the object image
-            copy_files2keep(tmp_base, new_base, get_par(set_bb.all_2keep,tel),
-                            move=(not get_par(set_bb.keep_tmp,tel)), log=log)
-            clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel), log=log)
+            # copy selected output files to new directory
+            list_2keep = get_par(set_bb.all_2keep,tel)
+            copy_files2keep(tmp_base, new_base, list_2keep,
+                            move=(not get_par(set_bb.keep_tmp,tel)))
+
+            # only for ML, create symbolic links in alternative
+            # directory structure if transient catalog is involved
+            if tel=='ML1' and '_trans.fits' in list_2keep:
+                create_symlinks (new_base, obj, filt)
+
+            # remove tmp folder corresponding to the object image
+            clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel))
             close_log(log, logfile)
             return fits_out
 
@@ -1491,22 +1505,22 @@ def blackbox_reduce (filename):
                  'nothing left to do for {}'.format(filename))
 
         # verify image header
-        verify_header (new_fits, ['raw'], log=log)
+        verify_header (new_fits, ['raw'])
 
         if do_reduction:
             # if reduction steps were performed, copy selected output
             # files to new directory and clean up tmp folder if needed
             copy_files2keep(tmp_base, new_base,
                             get_par(set_bb.img_reduce_exts,tel),
-                            move=(not get_par(set_bb.keep_tmp,tel)), log=log)
-            clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel), log=log)
+                            move=(not get_par(set_bb.keep_tmp,tel)))
+            clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel))
             close_log(log, logfile)
             return fits_out
 
         else:
             # if reduction steps were skipped, reduced img products
             # should still be present
-            clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel), log=log)
+            clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel))
             close_log(log, logfile)
             return None
 
@@ -1530,11 +1544,11 @@ def blackbox_reduce (filename):
             text = 'cat_extract and trans_extract'
             
             # check if transient catalog is a dummy
-            dumcat = is_dumcat(fits_trans, log=log)
+            dumcat = is_dumcat(fits_trans)
 
             if get_par(set_bb.cat_extract,tel):
                 # check if full-source catalog is also a dummy
-                dumcat &= is_dumcat(fits_cat, log=log)
+                dumcat &= is_dumcat(fits_cat)
 
 
         elif get_par(set_bb.cat_extract,tel):
@@ -1542,7 +1556,7 @@ def blackbox_reduce (filename):
             text = 'cat_extract'            
 
             # check if full-source catalog is a dummy
-            dumcat = is_dumcat(fits_cat, log=log)
+            dumcat = is_dumcat(fits_cat)
 
                 
         present = (np.array([ext in fn for ext in ext_list for fn in new_list])
@@ -1559,7 +1573,7 @@ def blackbox_reduce (filename):
                           'transient catalog is a dummy; nothing left to do for '
                           '{}'.format(filename))
 
-            clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel), log=log)
+            clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel))
             close_log(log, logfile)
 
             if do_reduction:
@@ -1576,7 +1590,7 @@ def blackbox_reduce (filename):
             # otherwise, copy cat_extract products and trans_extract
             # to tmp folder and continue
             copy_files2keep(new_base, tmp_base, ext_list, move=False,
-                            do_fpack=False, log=log)
+                            do_fpack=False)
 
 
     elif get_par(set_bb.force_reproc_new,tel) and not do_reduction:
@@ -1593,7 +1607,7 @@ def blackbox_reduce (filename):
         # should full-source catalog be empty, also redo the
         # catalog extraction as this is a forced rereduction
         fits_cat = '{}_red_cat.fits'.format(new_base)
-        dumcat = is_dumcat(fits_cat, log=log)
+        dumcat = is_dumcat(fits_cat)
         if not os.path.isfile(fits_cat):
             # if full-source catalog does not exist, force
             # the re-extraction
@@ -1664,7 +1678,7 @@ def blackbox_reduce (filename):
             # the tmp folder, as the cat_extract can be skipped
             copy_files2keep(new_base, tmp_base,
                             get_par(set_bb.cat_extract_exts,tel),
-                            move=False, do_fpack=False, log=log)
+                            move=False, do_fpack=False)
 
 
 
@@ -1733,6 +1747,7 @@ def blackbox_reduce (filename):
             time.sleep(5)
             if not check_ref(ref_ID_filt, (obj, filt)):
                 break
+
         log.info ('done waiting for reference image to be made for '
                   'OBJECT: {}, FILTER: {}'.format(obj, filt))
         
@@ -1762,13 +1777,13 @@ def blackbox_reduce (filename):
             zogy_processed = False
             header_new = optimal_subtraction(
                 new_fits=new_fits, new_fits_mask=new_fits_mask, 
-                set_file='set_zogy', log=log, verbose=None, redo_new=None,
+                set_file='set_zogy', verbose=None, redo_new=None,
                 nthreads=get_par(set_bb.nthreads,tel), telescope=tel,
                 keep_tmp=get_par(set_bb.keep_tmp,tel))
 
             # add offset between RA/DEC-CNTR coords and ML/BG field
             # definition to the header
-            radec_offset (header_new, filename, log=log)
+            radec_offset (header_new, filename)
 
         except Exception as e:
             #log.exception(traceback.format_exc())
@@ -1785,8 +1800,8 @@ def blackbox_reduce (filename):
                            '[blackbox_reduce] prematurely')
                 copy_files2keep(tmp_base, new_base,
                                 get_par(set_bb.img_reduce_exts,tel),
-                                move=(not get_par(set_bb.keep_tmp,tel)), log=log)
-                clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel), log=log)
+                                move=(not get_par(set_bb.keep_tmp,tel)))
+                clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel))
                 close_log(log, logfile)
                 return None
 
@@ -1794,7 +1809,7 @@ def blackbox_reduce (filename):
                 # feed [header_new] to [run_qc_check], and make
                 # dummy catalogs if there is a red flag
                 try:
-                    qc_flag = run_qc_check (header_new, tel, log=log,
+                    qc_flag = run_qc_check (header_new, tel,
                                             check_key_type='full')
                 except Exception as e:
                     #log.exception(traceback.format_exc())
@@ -1805,21 +1820,21 @@ def blackbox_reduce (filename):
                     log.error('red QC flag in [header_new] returned by new-only '
                               '[optimal_subtraction]; making dummy catalogs')
                     run_qc_check (header_new, tel, cat_type='new',
-                                  cat_dummy=fits_tmp_cat, log=log,
+                                  cat_dummy=fits_tmp_cat,
                                   check_key_type='full')
                     # make copy to avoid keywords related to transient
                     # catalog (TQC-FLAG and TDUMCAT) being added to
                     # [header_new]
                     header_trans = header_new.copy()
                     run_qc_check (header_trans, tel, cat_type='trans',
-                                  cat_dummy=fits_tmp_trans, log=log,
+                                  cat_dummy=fits_tmp_trans,
                                   check_key_type='trans')
 
                 else:
                     # update full-source catalog header with latest
                     # qc-flags; transient catalog not needed
                     log.info ('updating new catalog header with QC flags')
-                    update_cathead (fits_tmp_cat, header_new, log=log)
+                    update_cathead (fits_tmp_cat, header_new)
 
 
                 # update reduced image header with extended header
@@ -1846,13 +1861,13 @@ def blackbox_reduce (filename):
             zogy_processed = False
             header_ref = optimal_subtraction(
                 ref_fits=new_fits, ref_fits_mask=new_fits_mask, 
-                set_file='set_zogy', log=log, verbose=None, redo_ref=None,
+                set_file='set_zogy', verbose=None, redo_ref=None,
                 nthreads=get_par(set_bb.nthreads,tel), telescope=tel,
                 keep_tmp=get_par(set_bb.keep_tmp,tel))
 
             # add offset between RA/DEC-CNTR coords and ML/BG field
             # definition to the header
-            radec_offset (header_ref, filename, log=log)
+            radec_offset (header_ref, filename)
 
         except Exception as e:
             #log.exception(traceback.format_exc())
@@ -1869,7 +1884,7 @@ def blackbox_reduce (filename):
                            '[blackbox_reduce] prematurely')
                 copy_files2keep(tmp_base, new_base,
                                 get_par(set_bb.img_reduce_exts,tel),
-                                move=(not get_par(set_bb.keep_tmp,tel)), log=log)
+                                move=(not get_par(set_bb.keep_tmp,tel)))
 
                 # before leaving, remove this reference ID
                 # and filter combination from the [ref_ID_filt] queue
@@ -1877,25 +1892,23 @@ def blackbox_reduce (filename):
                           'the [ref_ID_filt] queue')
                 result = check_ref(ref_ID_filt, (obj, filt), method='remove')
 
-                clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel), log=log)
+                clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel))
                 close_log(log, logfile)
                 return None
 
             else:
                 # feed [header_ref] to [run_qc_check], and make
                 # dummy catalogs if there is a red flag
-                qc_flag = run_qc_check (header_ref, tel, log=log,
-                                        check_key_type='full')
+                qc_flag = run_qc_check (header_ref, tel, check_key_type='full')
                 if qc_flag=='red':
                     log.error('red QC flag in [header_ref] returned by reference '
                               '[optimal_subtraction]; making dummy catalogs as '
                               'if it were a new image')
                     run_qc_check (header_ref, tel, cat_type='new',
-                                  cat_dummy=fits_tmp_cat, log=log,
-                                  check_key_type='full')
+                                  cat_dummy=fits_tmp_cat, check_key_type='full')
                     header_trans = header_ref.copy()
                     run_qc_check (header_trans, tel, cat_type='trans',
-                                  cat_dummy=fits_tmp_trans, log=log,
+                                  cat_dummy=fits_tmp_trans,
                                   check_key_type='trans')
 
                 else:
@@ -1912,7 +1925,7 @@ def blackbox_reduce (filename):
 
                 if qc_flag != 'red':
                     # move [ref_2keep] to the reference directory
-                    make_dir (ref_path, lock=lock)
+                    make_dir (ref_path)
                     ref_base = ref_fits_out.split('_red.fits')[0]
                     copy_files2keep(tmp_base, ref_base,
                                     get_par(set_bb.ref_2keep,tel),
@@ -1920,7 +1933,7 @@ def blackbox_reduce (filename):
                                     # copying of some of the same
                                     # files in list_2keep is done
                                     # further down below
-                                    move=False, log=log)
+                                    move=False)
 
 
                 # now that reference is built, remove this reference ID
@@ -1980,14 +1993,14 @@ def blackbox_reduce (filename):
             zogy_processed = False
             header_new, header_trans = optimal_subtraction(
                 new_fits=new_fits, ref_fits=ref_fits, new_fits_mask=new_fits_mask,
-                ref_fits_mask=ref_fits_mask, set_file='set_zogy', log=log, 
+                ref_fits_mask=ref_fits_mask, set_file='set_zogy', 
                 verbose=None, redo_new=None, redo_ref=None,
                 nthreads=get_par(set_bb.nthreads,tel), telescope=tel,
                 keep_tmp=get_par(set_bb.keep_tmp,tel))
 
             # add offset between RA/DEC-CNTR coords and ML/BG field
             # definition to the new header
-            radec_offset (header_new, filename, log=log)
+            radec_offset (header_new, filename)
 
         except Exception as e:
             #log.exception(traceback.format_exc())
@@ -2005,25 +2018,25 @@ def blackbox_reduce (filename):
                            '[blackbox_reduce] prematurely')
                 copy_files2keep(tmp_base, new_base,
                                 get_par(set_bb.img_reduce_exts,tel),
-                                move=(not get_par(set_bb.keep_tmp,tel)), log=log)
+                                move=(not get_par(set_bb.keep_tmp,tel)))
 
                 # remove cat_extract and trans_extract products?
                 
-                clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel), log=log)
+                clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel))
                 close_log(log, logfile)
                 return None
 
             else:
                 # feed [header_new] to [run_qc_check], and if there
                 # is a red flag: make output dummy catalog
-                qc_flag = run_qc_check (header_new, tel, log=log,
+                qc_flag = run_qc_check (header_new, tel,
                                         check_key_type='full')
                 if qc_flag=='red':
                     log.error('red QC flag in [header_new] returned by new '
                               'vs. ref [optimal_subtraction]: making dummy '
                               'full-source catalog')
                     run_qc_check (header_new, tel, cat_type='new',
-                                  cat_dummy=fits_tmp_cat, log=log,
+                                  cat_dummy=fits_tmp_cat,
                                   check_key_type='full')
                 else:
                     log.info ('updating new catalog header with QC flags')
@@ -2034,14 +2047,14 @@ def blackbox_reduce (filename):
 
                 # same for transient catalog
                 header_newtrans = header_new+header_trans
-                tqc_flag = run_qc_check (header_newtrans, tel, log=log,
+                tqc_flag = run_qc_check (header_newtrans, tel,
                                          check_key_type='trans')
                 if qc_flag=='red' or tqc_flag=='red':
                     log.error('red transient QC flag in [header_newtrans] '
                               'returned by new vs ref [optimal_subtraction]: '
                               'making dummy transient catalog')
                     run_qc_check (header_newtrans, tel, cat_type='trans',
-                                  cat_dummy=fits_tmp_trans, log=log,
+                                  cat_dummy=fits_tmp_trans,
                                   check_key_type='trans')
                 else:
                     # update transient catalog header with latest qc-flags
@@ -2057,8 +2070,8 @@ def blackbox_reduce (filename):
 
 
     # verify headers of catalogs
-    verify_header (fits_tmp_cat, ['raw','full'], log=log)
-    verify_header (fits_tmp_trans, ['raw','full','trans'], log=log)
+    verify_header (fits_tmp_cat, ['raw','full'])
+    verify_header (fits_tmp_trans, ['raw','full','trans'])
 
 
     # list of files to copy/move to reduced folder; need to include
@@ -2083,13 +2096,19 @@ def blackbox_reduce (filename):
 
     # copy/move files over
     copy_files2keep(tmp_base, new_base, list_2keep,
-                    move=(not get_par(set_bb.keep_tmp,tel)), log=log)
+                    move=(not get_par(set_bb.keep_tmp,tel)))
+
+
+    # only for ML, create symbolic links in alternative directory
+    # structure if transient catalog is involved
+    if tel=='ML1' and '_trans.fits' in list_2keep:
+        create_symlinks (new_base, obj, filt)
+
 
     if get_par(set_zogy.timing,tel):
-        log_timing_memory (t0=t_blackbox_reduce, label='blackbox_reduce at end',
-                           log=log)
+        log_timing_memory (t0=t_blackbox_reduce, label='blackbox_reduce at end')
 
-    clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel), log=log)
+    clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel))
     close_log(log, logfile)
     
     return fits_out
@@ -2097,7 +2116,51 @@ def blackbox_reduce (filename):
 
 ################################################################################
 
-def is_dumcat (fits_cat, log=None):
+def create_symlinks (new_base, obj, filt):
+
+    # extensions for which to create symbolic links
+    symlink_exts = ['_cat.fits', '_cat_hdr.fits', '_trans.fits',
+                    '_trans_hdr.fits', '_trans_light.fits']
+
+    src_files = ['{}_red{}'.format(new_base, ext) for ext in symlink_exts]
+    files_present = [os.path.isfile(f) for f in src_files]
+
+    # only creating symbolic links if all extensions are present
+    if np.all(files_present):
+
+        # create target directory if not already existing
+        target_dir = '{}/fields/{}/{}'.format(get_par(set_bb.red_dir,tel),
+                                              obj, filt)
+        make_dir (target_dir)
+
+
+        for src_file in src_files:
+
+            src_dir, src_name = os.path.split(src_file)
+            target_file = '{}/{}'.format(target_dir, src_name)
+
+            try: 
+                os.symlink (src_file, target_file)
+                log.info ('creating symbolic link: {} -> {}'
+                          .format(target_file, src_file))
+
+            except FileExistsError:
+                log.error ('target_file {} already exist; symbolic link not '
+                           'made for {}'.format(target_file, src_file))
+
+    else:
+
+        log.warning ('these source files do not exist: {}; not creating any '
+                     'symbolic link for files with new_base {}'
+                     .format(np.array(src_files)[files_present], new_base))
+
+
+    return
+                
+
+################################################################################
+
+def is_dumcat (fits_cat):
     
     dumcat = False
     if os.path.isfile(fits_cat):
@@ -2108,15 +2171,14 @@ def is_dumcat (fits_cat, log=None):
             dumcat = True
 
     else:
-        if log is not None:
-            log.warning ('catalog {} does not exist'.format(fits_cat))
+        log.warning ('catalog {} does not exist'.format(fits_cat))
 
     return dumcat
             
                 
 ################################################################################
 
-def verify_header (filename, htypes=None, log=None):
+def verify_header (filename, htypes=None):
     
     """function to verify the presence of keywords in the header of the
        input fits file [filename], where the type of header to check
@@ -2415,9 +2477,8 @@ def verify_header (filename, htypes=None, log=None):
         header = read_hdulist (filename, get_data=False, get_header=True)
     else:
         # return success=False if it does not exist
-        if log is not None:
-            log.warning ('file {} does not exist; not able to verify its header'
-                         .format(filename))
+        log.warning ('file {} does not exist; not able to verify its header'
+                     .format(filename))
         return False
 
 
@@ -2436,13 +2497,12 @@ def verify_header (filename, htypes=None, log=None):
 
             # provide warning if dtype not as expected and header
             # keyword value is not 'None'
-            if log is not None:
-                if (dict_head[key]['dtype'] != type(header[key]) and
-                    header[key] != 'None'):
-                    log.warning ('dtype of keyword {}: {} does not match the '
-                                 'expected dtype: {} in header of {}'
-                                 .format(key, type(header[key]),
-                                         dict_head[key]['dtype'], filename))
+            if (dict_head[key]['dtype'] != type(header[key]) and
+                header[key] != 'None'):
+                log.warning ('dtype of keyword {}: {} does not match the '
+                             'expected dtype: {} in header of {}'
+                             .format(key, type(header[key]),
+                                     dict_head[key]['dtype'], filename))
 
             # if key goes to DataBase and value is 'None' or None
             # while 'None_OK' is False, raise an exception
@@ -2450,10 +2510,7 @@ def verify_header (filename, htypes=None, log=None):
                 (header[key] is None or header[key] == 'None')):
                 msg = ('DataBase keyword {} not allowed to have \'None\' or '
                        'None value in header of {}'.format(key, filename))
-                
-                if log is not None:
-                    log.error (msg)
-
+                log.error (msg)
                 raise ValueError (msg)
 
 
@@ -2461,16 +2518,11 @@ def verify_header (filename, htypes=None, log=None):
             msg = 'keyword {} not present in header of {}'.format(key, filename)
             # if keyword will be ingested into the database, raise an exception
             if dict_head[key]['DB']:
-
-                if log is not None:
-                    log.error (msg)
-
+                log.error (msg)
                 raise KeyError (msg)
 
             else:
-                
-                if log is not None:
-                    log.warning (msg)
+                log.warning (msg)
 
 
     return
@@ -2478,7 +2530,7 @@ def verify_header (filename, htypes=None, log=None):
 
 ################################################################################
 
-def update_cathead (filename, header, log=None):
+def update_cathead (filename, header):
     
     with fits.open(filename, 'update', memmap=True) as hdulist:
         for key in header:
@@ -2523,7 +2575,7 @@ def order_QCkeys (header):
 
 ################################################################################
 
-def create_obslog (date, email=True, tel=None, log=None):
+def create_obslog (date, email=True, tel=None):
     
     # extract table with various observables/keywords from the headers
     # of all raw/reduced files of a particular (evening) date,
@@ -2538,11 +2590,10 @@ def create_obslog (date, email=True, tel=None, log=None):
     
     date_eve = ''.join(e for e in date if e.isdigit())
     if len(date_eve) != 8:
-        if log is not None:
-            log.error ('input date to function create_obslog needs to consist of '
-                       'at least 8 digits, yyyymmdd, where the year, month and '
-                       'day can be connected with any type of character, e.g. '
-                       'yyyy/mm/dd or yyyy-mm-dd, etc.')
+        log.error ('input date to function create_obslog needs to consist of '
+                   'at least 8 digits, yyyymmdd, where the year, month and '
+                   'day can be connected with any type of character, e.g. '
+                   'yyyy/mm/dd or yyyy-mm-dd, etc.')
         return
 
 
@@ -2633,10 +2684,9 @@ def create_obslog (date, email=True, tel=None, log=None):
                    'https://suthweather.saao.ac.za']
             subprocess.call(cmd)
         except Exception as e:
-            if log is not None:
-                log.exception ('exception occurred while making screenshot of '
-                               'SAAO weather page '
-                               '(https://suthweather.saao.ac.za): {}'.format(e))
+            log.exception ('exception occurred while making screenshot of '
+                           'SAAO weather page '
+                           '(https://suthweather.saao.ac.za): {}'.format(e))
     else:
         png_name = None
 
@@ -2657,9 +2707,8 @@ def create_obslog (date, email=True, tel=None, log=None):
                         port=get_par(set_bb.port,tel),
                         use_SSL=get_par(set_bb.use_SSL,tel))
         except Exception as e:
-            if log is not None:
-                log.exception('exception occurred during sending of email: {}'
-                              .format(e))
+            log.exception('exception occurred during sending of email: {}'
+                          .format(e))
 
 
     return
@@ -2716,7 +2765,7 @@ def send_email (recipients, subject, body,
     
 ################################################################################
     
-def get_flatstats (data, header, data_mask, tel=None, log=None):
+def get_flatstats (data, header, data_mask, tel=None):
 
     if get_par(set_zogy.timing,tel):
         t = time.time()
@@ -2843,7 +2892,7 @@ def get_flatstats (data, header, data_mask, tel=None, log=None):
 
 
     if get_par(set_zogy.timing,tel):
-        log_timing_memory (t0=t, label='get_flatstats', log=log)
+        log_timing_memory (t0=t, label='get_flatstats')
 
     return
 
@@ -2897,7 +2946,7 @@ def check_ref (queue_ref, obj_filt, method=None, put_lock=True):
                 
 ################################################################################
 
-def try_func (func, args_in, args_out, log=None):
+def try_func (func, args_in, args_out):
 
     """Helper function to avoid duplication when executing the different
        functions."""
@@ -2905,55 +2954,19 @@ def try_func (func, args_in, args_out, log=None):
     func_name = func.__name__
 
     try:
-        if log is not None:
-            log.info('executing [{}]'.format(func_name))
+        log.info('executing [{}]'.format(func_name))
         proc_ok = False
         args[0] = func (args[1:])
     except Exception as e:
-        if log is not None:
-            #log.exception(traceback.format_exc())
-            log.exception('exception was raised during [{}]: {}'
-                          .format(func_name, e))
+        #log.exception(traceback.format_exc())
+        log.exception('exception was raised during [{}]: {}'
+                      .format(func_name, e))
     else:
         proc_ok = True
 
     return proc_ok
 
     
-################################################################################
-
-def create_log (logfile, name=None, loglevel='INFO'):
-
-    #log = logging.getLogger() #create logger
-    #log.setLevel(logging.INFO) #set level of logger
-    #formatter = logging.Formatter("%(asctime)s %(funcName)s %(lineno)d %(levelname)s %(message)s") #set format of logger
-    #logging.Formatter.converter = time.gmtime #convert time in logger to UTC
-    #filehandler = logging.FileHandler(fits_out.replace('.fits','.log'), 'w+') #create log file
-    #filehandler.setFormatter(formatter) #add format to log file
-    #log.addHandler(filehandler) #link log file to logger
-
-    log = logging.getLogger(name)
-    #log.setLevel(logging.INFO)
-    #log.setLevel(exec('logging.{}'.format(loglevel.upper())))
-    log.setLevel(loglevel)
-    logFormatter = logging.Formatter('%(asctime)s.%(msecs)03d [%(levelname)s, '
-                                     '%(process)s] %(message)s [%(funcName)s, '
-                                     'line %(lineno)d]', '%Y-%m-%dT%H:%M:%S')
-    logging.Formatter.converter = time.gmtime #convert time in logger to UTC
-
-    #streamHandler = logging.StreamHandler()
-    #streamHandler.setFormatter(logFormatter)
-    #streamHandler.setLevel(logging.WARNING)
-    #log.addHandler(streamHandler)
-
-    fileHandler = logging.FileHandler(logfile, 'a')
-    fileHandler.setFormatter(logFormatter)
-    fileHandler.setLevel(logging.INFO)
-    log.addHandler(fileHandler)
-
-    return log
-    
-
 ################################################################################
 
 def close_log (log, logfile):
@@ -2973,37 +2986,28 @@ def close_log (log, logfile):
 
 ################################################################################
 
-def make_dir (path, empty=False, put_lock=True, lock=None):
+def make_dir (path, empty=False):
 
     """Function to make directory. If [empty] is True and the directory
-       already exists, it will first be removed. Multiprocessing lock
-       will be applied depending on the value of [put_lock].
-    """
-
-    if put_lock:
-        lock.acquire()
+       already exists, it will first be removed. """
 
     # if already exists but needs to be empty, remove it first
     if os.path.isdir(path) and empty:
         shutil.rmtree(path)
 
-    #if not os.path.isdir(path):
-    #    os.makedirs(path)
     # do not check if directory exists, just try to make it; changed this
     # after racing condition occurred on the ilifu Slurm cluster when
     # reducing flatfields, where different tasks need to make the same
     # directory
     os.makedirs(path, exist_ok=True)
-    
-    if put_lock:
-        lock.release()
-        
+
+
     return
 
 
 ################################################################################
 
-def clean_tmp (tmp_path, keep_tmp, log=None):
+def clean_tmp (tmp_path, keep_tmp):
     
     """ Function that removes the tmp folder corresponding to the
         reduced image / reference image if [set_bb.keep_tmp] not True.
@@ -3015,18 +3019,16 @@ def clean_tmp (tmp_path, keep_tmp, log=None):
         # delete [tmp_path] folder if [set_bb.keep_tmp] not True
         if not keep_tmp:
             shutil.rmtree(tmp_path)
-            if log is not None:
-                log.info ('removing temporary folder: {}'.format(tmp_path))
+            log.info ('removing temporary folder: {}'.format(tmp_path))
                 
         else:
             # otherwise fpack its fits images
             list_2pack = glob.glob('{}/*.fits'.format(tmp_path))
             for filename in list_2pack:
-                __ = fpack (filename, log=log)
+                __ = fpack (filename)
 
     else:
-        if log is not None:
-            log.warning ('tmp folder {} does not exist'.format(tmp_path))
+        log.warning ('tmp folder {} does not exist'.format(tmp_path))
 
 
     return
@@ -3035,7 +3037,7 @@ def clean_tmp (tmp_path, keep_tmp, log=None):
 ################################################################################
 
 def copy_files2keep (src_base, dest_base, ext2keep, move=True,
-                     do_fpack=True, remove_existing=True, log=None):
+                     do_fpack=True, remove_existing=True):
 
     """Function to copy/move files with base name [src_base] and
     extensions [ext2keep] to files with base name [dest_base] with the
@@ -3047,8 +3049,7 @@ def copy_files2keep (src_base, dest_base, ext2keep, move=True,
 
     # select unique entries in input [ext2keep]
     ext2keep_uniq = list(set(ext2keep_copy))
-    if log is not None:
-        log.info ('extensions to copy: {}'.format(ext2keep_uniq))
+    log.info ('extensions to copy: {}'.format(ext2keep_uniq))
 
     # list of all files starting with [src_base]
     src_files = glob.glob('{}*'.format(src_base))
@@ -3067,7 +3068,7 @@ def copy_files2keep (src_base, dest_base, ext2keep, move=True,
 
                     if do_fpack:
                         # fpack src_file if needed
-                        src_file = fpack (src_file, log=log)
+                        src_file = fpack (src_file)
 
                         # add '.fz' extension to [dest_file] in case
                         # [src_file] was fpacked (not all files are
@@ -3087,20 +3088,14 @@ def copy_files2keep (src_base, dest_base, ext2keep, move=True,
 
                         if os.path.isfile(file_2remove):
                             os.remove(file_2remove)
-                            if log is not None:
-                                log.info('removing existing {}'
-                                         .format(file_2remove))
+                            log.info('removing existing {}'.format(file_2remove))
 
                     # move or copy file
                     if not move:
-                        if log is not None:
-                            log.info('copying {} to {}'.
-                                     format(src_file, dest_file))
+                        log.info('copying {} to {}'.format(src_file, dest_file))
                         shutil.copy2(src_file, dest_file)
                     else:
-                        if log is not None:
-                            log.info('moving {} to {}'
-                                     .format(src_file, dest_file))
+                        log.info('moving {} to {}'.format(src_file, dest_file))
                         shutil.move(src_file, dest_file)
 
 
@@ -3111,7 +3106,7 @@ def copy_files2keep (src_base, dest_base, ext2keep, move=True,
                     if do_fpack and ('_red.fits' in dest_file or
                                      '_D.fits' in dest_file or
                                      '_Scorr.fits' in dest_file):
-                        create_jpg (dest_file, log=log)
+                        create_jpg (dest_file)
 
 
     return
@@ -3119,7 +3114,7 @@ def copy_files2keep (src_base, dest_base, ext2keep, move=True,
 
 ################################################################################
 
-def sat_detect (data, header, data_mask, header_mask, tmp_path, log=None):
+def sat_detect (data, header, data_mask, header_mask, tmp_path):
 
     # could also try skimage.transform.probabilistic_hough_line()
     
@@ -3146,16 +3141,13 @@ def sat_detect (data, header, data_mask, header_mask, tmp_path, log=None):
                                      buf=40, sigma=3, h_thresh=0.2, plot=False,
                                      verbose=False)
         except Exception as e:
-            if log is not None:
-                log.exception('exception was raised during [detsat]: {}'
-                              .format(e))
+            log.exception('exception was raised during [detsat]: {}'.format(e))
             # raise exception
             raise RuntimeError ('problem with running detsat module')
         else:
             # also raise exception if detsat module returns errors
             if len(errors) != 0:
-                if log is not None:
-                    log.error('detsat errors: {}'.format(errors))
+                log.error('detsat errors: {}'.format(errors))
                 raise RuntimeError ('problem with running detsat module')
 
         #create satellite trail if found
@@ -3165,14 +3157,14 @@ def sat_detect (data, header, data_mask, header_mask, tmp_path, log=None):
             trail_segment = trail_coords[0]
             try: 
                 #create satellite trail mask
-                mask_binned = make_mask(fits_binned_mask, 0, trail_segment, sublen=5,
-                                        pad=0, sigma=5, subwidth=5000).astype(np.uint8)
+                mask_binned = make_mask(fits_binned_mask, 0, trail_segment,
+                                        sublen=5, pad=0, sigma=5,
+                                        subwidth=5000).astype('uint8')
             except ValueError:
                 #if error occurs, add comment
-                if log is not None:
-                    log.exception ('satellite trail found but could not be '
-                                   'fitted for file {} and is not included in '
-                                   'the mask'.format(tmp_path.split('/')[-1]))
+                log.exception ('satellite trail found but could not be '
+                               'fitted for file {} and is not included in '
+                               'the mask'.format(tmp_path.split('/')[-1]))
                 break
 
             satellite_fitting = True
@@ -3203,31 +3195,30 @@ def sat_detect (data, header, data_mask, header_mask, tmp_path, log=None):
     header['NSATS'] = (nsats, 'number of satellite trails identified')
     header_mask['NSATS'] = (nsats, 'number of satellite trails identified')
 
-    if log is not None:
-        log.info('number of satellite trails identified: {}'.format(nsats))
+    log.info('number of satellite trails identified: {}'.format(nsats))
 
 
     # remove file(s) if not keeping intermediate/temporary files
     if not get_par(set_bb.keep_tmp,tel):
-        remove_files ([fits_binned_mask], log=log)
+        remove_files ([fits_binned_mask])
         if 'fits_old_mask' in locals():
-            remove_files ([fits_old_mask], log=log)
+            remove_files ([fits_old_mask])
 
         
     if get_par(set_zogy.timing,tel):
-        log_timing_memory (t0=t, label='sat_detect', log=log)
+        log_timing_memory (t0=t, label='sat_detect')
 
     return data_mask
 
         
 ################################################################################
 
-def cosmics_corr (data, header, data_mask, header_mask, log=None):
+def cosmics_corr (data, header, data_mask, header_mask):
 
     if get_par(set_zogy.timing,tel):
         t = time.time()
 
-    mem_use (label='cosmics_corr at start', log=log) 
+    mem_use (label='cosmics_corr at start') 
 
 
     # set satlevel to infinite, as input [data_mask] already contains
@@ -3258,9 +3249,8 @@ def cosmics_corr (data, header, data_mask, header_mask, log=None):
             
             rdn_str = 'RDN{}'.format(i_chan+1)
             if rdn_str not in header:
-                if log is not None:
-                    log.error ('keyword {} expected but not present in header'
-                               .format(rdn_str))
+                log.error ('keyword {} expected but not present in header'
+                           .format(rdn_str))
             else:
                 data_rdnoise2[sec_tmp] = header[rdn_str]**2
             
@@ -3299,7 +3289,7 @@ def cosmics_corr (data, header, data_mask, header_mask, log=None):
 
 
 
-    mem_use (label='cosmics_corr just after astroscrappy', log=log) 
+    mem_use (label='cosmics_corr just after astroscrappy') 
     
     # from astroscrappy 'manual': To reproduce the most similar
     # behavior to the original LA Cosmic (written in IRAF), set inmask
@@ -3322,19 +3312,19 @@ def cosmics_corr (data, header, data_mask, header_mask, log=None):
     header['NCOSMICS'] = (ncosmics_persec, '[/s] number of cosmic rays identified')
     # also add this to header of mask image
     header_mask['NCOSMICS'] = (ncosmics_persec, '[/s] number of cosmic rays identified')
-    if log is not None:
-        log.info('number of cosmic rays identified: {}'.format(ncosmics))
+
+    log.info('number of cosmic rays identified: {}'.format(ncosmics))
 
         
     if get_par(set_zogy.timing,tel):
-        log_timing_memory (t0=t, label='cosmics_corr', log=log)
+        log_timing_memory (t0=t, label='cosmics_corr')
 
     return data, data_mask
 
 
 ################################################################################
 
-def mask_init (data, header, filt, imgtype, log=None):
+def mask_init (data, header, filt, imgtype):
     
     """Function to create initial mask from the bad pixel mask (defining
        the bad and edge pixels), and pixels that are saturated and
@@ -3355,8 +3345,7 @@ def mask_init (data, header, filt, imgtype, log=None):
     else:
         # if not, create uint8 array of zeros with same shape as
         # [data]
-        if log is not None:
-            log.info('Warning: bad pixel mask {} does not exist'.format(fits_bpm))
+        log.info('Warning: bad pixel mask {} does not exist'.format(fits_bpm))
         data_mask = np.zeros(np.shape(data), dtype='uint8')
 
 
@@ -3412,7 +3401,7 @@ def mask_init (data, header, filt, imgtype, log=None):
 
 
     if get_par(set_zogy.timing,tel):
-        log_timing_memory (t0=t, label='mask_init', log=log)
+        log_timing_memory (t0=t, label='mask_init')
 
     return data_mask.astype('uint8'), header_mask
 
@@ -3443,7 +3432,7 @@ def mask_header(data_mask, header_mask):
 
 ################################################################################
 
-def master_prep (fits_master, data_shape, create_master, pick_alt=True, log=None):
+def master_prep (fits_master, data_shape, create_master, pick_alt=True):
 
     if get_par(set_zogy.timing,tel):
         t = time.time()
@@ -3463,7 +3452,7 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True, log=None
     master_present, fits_master = already_exists (fits_master, get_filename=True)
 
 
-    if log is not None and master_present:
+    if master_present:
         log.info ('master {} {} already exists'.format(imtype, fits_master))
 
 
@@ -3485,9 +3474,8 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True, log=None
             if '.fz' in fits_master:
                 fits_master = fits_master.replace('.fz','')
 
-            if log is not None:
-                log.info ('forced reprocessing; deleting master {} {} and its jpg'
-                          .format(imtype, fits_master))
+            log.info ('forced reprocessing; deleting master {} {} and its jpg'
+                      .format(imtype, fits_master))
 
 
 
@@ -3497,9 +3485,8 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True, log=None
         header_master = read_hdulist (fits_master, get_data=False, get_header=True)
         if ('QC-FLAG' in header_master and header_master['QC-FLAG']=='red'):
             master_ok = False
-            if log is not None:
-                log.warning ('existing master {} {} contains a red flag'
-                             .format(imtype, fits_master))
+            log.warning ('existing master {} {} contains a red flag'
+                         .format(imtype, fits_master))
 
 
     if not (master_present and master_ok):
@@ -3579,12 +3566,11 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True, log=None
             # select nmax
             file_list = file_list[index_sort][0:nmax]
             nfiles = len(file_list)
-            if log is not None:
-                log.info ('number of available {} frames ({}) exceeds the '
-                          'maximum specified ({}); using these frames closest '
-                          'in time to midnight of the evening date ({}): {}'
-                          .format(imtype, len(index_sort), nmax, mjd_midnight,
-                                  file_list))
+            log.info ('number of available {} frames ({}) exceeds the '
+                      'maximum specified ({}); using these frames closest '
+                      'in time to midnight of the evening date ({}): {}'
+                      .format(imtype, len(index_sort), nmax, mjd_midnight,
+                              file_list))
  
 
         # look for a nearby master instead if the master bias/flat
@@ -3593,11 +3579,10 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True, log=None
         # switched off
         if nfiles < 3 or not master_ok or not create_master:
 
-            if log is not None:
-                if imtype=='flat':
-                    msg = 'flat in filter {}'.format(filt)
-                else:
-                    msg = 'bias'
+            if imtype=='flat':
+                msg = 'flat in filter {}'.format(filt)
+            else:
+                msg = 'bias'
 
             # if input [pick_alt] is True, look for a nearby master
             # flat, otherwise just return None
@@ -3605,12 +3590,11 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True, log=None
                 fits_master_close = get_closest_biasflat(date_eve, imtype,
                                                          filt=filt)
             else:
-                if log is not None:
-                    if master_ok:
-                        log.warning ('too few good frames available to produce '
-                                     'master {} for evening date {} +/- window '
-                                     'of {} days'.format(msg, date_eve, nwindow))
-                        
+                if master_ok:
+                    log.warning ('too few good frames available to produce '
+                                 'master {} for evening date {} +/- window '
+                                 'of {} days'.format(msg, date_eve, nwindow))
+
                 return None
 
             if fits_master_close is not None:
@@ -3620,9 +3604,9 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True, log=None
                 # case switch is on, otherwise it is confusing
                 if ((imtype=='bias' and get_par(set_bb.subtract_mbias,tel))
                     or imtype=='flat'):
-                    if log is not None:
-                        log.warning ('using {} as master for evening date {}'
-                                     .format(fits_master_close, date_eve))
+                    log.warning ('using {} as master for evening date {}'
+                                 .format(fits_master_close, date_eve))
+
                 # previously we created a symbolic link so future
                 # files would automatically use this as the master
                 # file, but as this symbolic link is confusing, let's
@@ -3634,25 +3618,23 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True, log=None
             else:
                 if ((imtype=='bias' and get_par(set_bb.subtract_mbias,tel))
                     or imtype=='flat'):
-                    if log is not None:
-                        log.error('no alternative master {} found'
-                                  .format(msg))
+                    log.error('no alternative master {} found'
+                              .format(msg))
+
                 return None
                 
         else:
 
-            if log is not None:
+            if imtype=='flat':
+                msg = 'flat in filter {}'.format(filt)
+            else:
+                msg = 'bias'
 
-                if imtype=='flat':
-                    msg = 'flat in filter {}'.format(filt)
-                else:
-                    msg = 'bias'
-
-                log.info ('making master {} for night {}'.format(msg, date_eve))
-                if imtype=='bias':
-                    if not get_par(set_bb.subtract_mbias,tel):
-                        log.info ('(but will not be applied to input image '
-                                  'as [subtract_mbias] is set to False)')
+            log.info ('making master {} for night {}'.format(msg, date_eve))
+            if imtype=='bias':
+                if not get_par(set_bb.subtract_mbias,tel):
+                    log.info ('(but will not be applied to input image '
+                              'as [subtract_mbias] is set to False)')
 
             # assuming that individual flats/biases have the same
             # shape as the input data
@@ -3678,9 +3660,8 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True, log=None
                         index_flat_norm = get_par(set_bb.flat_norm_sec,tel)
                         median = np.median(master_cube[i_file][index_flat_norm])
 
-                    if log is not None:
-                        log.info ('flat name: {}, median: {:.1f}'
-                                  .format(filename, median))
+                    log.info ('flat name: {}, median: {:.1f}'
+                              .format(filename, median))
 
                     if median != 0:
                         master_cube[i_file] /= median
@@ -3905,23 +3886,23 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True, log=None
                         'bias'.format(i_chan+1))
 
             # call [run_qc_check] to update master header with any QC flags
-            run_qc_check (header_master, tel, log=log)
+            run_qc_check (header_master, tel)
             # make dir for output file if it doesn't exist yet
-            make_dir (os.path.split(fits_master)[0], put_lock=False)
+            make_dir (os.path.split(fits_master)[0])
             # write to output file
             header_master['DATEFILE'] = (Time.now().isot, 'UTC date of writing '
                                          'file')
             fits.writeto(fits_master, master_median.astype('float32'),
                          header_master, overwrite=True)
             # fpack
-            fits_master = fpack (fits_master, log=log)
+            fits_master = fpack (fits_master)
             # create jpg
-            create_jpg (fits_master, log=log)
+            create_jpg (fits_master)
 
             
 
     if get_par(set_zogy.timing,tel):
-        log_timing_memory (t0=t, label='master_prep', log=log)
+        log_timing_memory (t0=t, label='master_prep')
 
     return fits_master
 
@@ -3995,8 +3976,8 @@ def check_header1 (header, filename):
     # crucial keywords for any image type
     for key in ['IMAGETYP', 'DATE-OBS', 'FILTER']:
         if key not in header:
-            genlog.error ('crucial keyword {} not present in header; '
-                          'not processing {}'.format(key, filename))
+            log.error ('crucial keyword {} not present in header; '
+                       'not processing {}'.format(key, filename))
             header_ok = False
             # return immediately in this case as keyword 'IMAGETYP' is
             # used below which may not exist
@@ -4017,8 +3998,8 @@ def check_header1 (header, filename):
         if imgtype=='object':
             # if neither FIELD_ID nor OBJECT present in header of an
             # object image, then also bail out
-            genlog.error ('FIELD_ID or OBJECT keyword not present in '
-                          'header; not processing {}'.format(filename))
+            log.error ('FIELD_ID or OBJECT keyword not present in '
+                       'header; not processing {}'.format(filename))
             header_ok = False
             # return right away as otherwise [obj] not defined, which
             # is used below
@@ -4031,16 +4012,16 @@ def check_header1 (header, filename):
         try:
             int(obj)
         except Exception as e:
-            genlog.exception ('keyword OBJECT (or FIELD_ID if present) does '
-                              'not contain digits only; not processing {}'
-                              .format(filename))
+            log.exception ('keyword OBJECT (or FIELD_ID if present) does '
+                           'not contain digits only; not processing {}'
+                           .format(filename))
             header_ok = False
 
         else:
             # check if OBJECT keyword is in the right range 1-19999
             if int(obj)==0 or int(obj)>=20000:
-                genlog.error ('OBJECT (or FIELD_ID) not in range 1-19999; '
-                              'not processing {}'.format(filename))
+                log.error ('OBJECT (or FIELD_ID) not in range 1-19999; '
+                           'not processing {}'.format(filename))
                 header_ok = False
    
 
@@ -4050,16 +4031,16 @@ def check_header1 (header, filename):
         # any potential dithering will not be detected)
         for keys in ['EXPTIME', 'RA', 'DEC']:
             if key not in header:
-                genlog.error ('crucial keyword {} not present in header; '
-                              'not processing {}'.format(key, filename))
+                log.error ('crucial keyword {} not present in header; '
+                           'not processing {}'.format(key, filename))
                 header_ok = False
 
 
     # check if filename contains 'test'
     if False:
         if 'test' in filename.lower():
-            genlog.warning ('filename contains string \'test\'; '
-                            'not processing {}'.format(filename))
+            log.warning ('filename contains string \'test\'; '
+                         'not processing {}'.format(filename))
             header_ok = False
 
 
@@ -4068,7 +4049,7 @@ def check_header1 (header, filename):
 
 ################################################################################
 
-def radec_offset (header, filename, log=None):
+def radec_offset (header, filename):
 
     # determine the offset between the RA-CNTR and DEC-CNTR (inferred
     # in [zogy]) and the expected RA and DEC from the definition of
@@ -4151,18 +4132,18 @@ def check_header2 (header, filename):
             if sum(mask_match) == 0:
                 # observed field is not present in definition of field IDs
                 header_ok = False
-                genlog.error ('input header field ID not present in definition '
-                              'of field IDs:\n{}\nheader field ID: {}, RA-REF: '
-                              '{:.4f}, DEC-REF: {:.4f}\nnot processing {}'
-                              .format(mlbg_fieldIDs, obj, ra_deg, dec_deg,
-                                      filename))
+                log.error ('input header field ID not present in definition '
+                           'of field IDs:\n{}\nheader field ID: {}, RA-REF: '
+                           '{:.4f}, DEC-REF: {:.4f}\nnot processing {}'
+                           .format(mlbg_fieldIDs, obj, ra_deg, dec_deg,
+                                   filename))
 
             else:
                 i_grid = np.nonzero(mask_match)[0][0]
                 if haversine(table_grid['ra_c'][i_grid],
                              table_grid['dec_c'][i_grid],
                              ra_deg, dec_deg) > offset_max/60.:
-                    genlog.error (
+                    log.error (
                         'input header field ID, RA-REF and DEC-REF combination '
                         'is inconsistent (>{}\') with definition of field IDs\n'
                         'header field ID: {}, RA-REF: {:.4f}, DEC-REF: {:.4f}\n'
@@ -4180,7 +4161,7 @@ def check_header2 (header, filename):
     # if binning is not 1x1, also skip processing
     if 'XBINNING' in header and 'YBINNING' in header: 
         if int(header['XBINNING']) != 1 or int(header['YBINNING']) != 1:
-            genlog.error ('BINNING not 1x1; not processing {}'.format(filename))
+            log.error ('BINNING not 1x1; not processing {}'.format(filename))
 
             header_ok = False
 
@@ -4197,8 +4178,8 @@ def set_header(header, filename):
         if value is not None:
             if key in header:
                 if header[key] != value and value != 'None':
-                    genlog.warning ('value of existing keyword {} updated from '
-                                    '{} to {}'.format(key, header[key], value))
+                    log.warning ('value of existing keyword {} updated from '
+                                 '{} to {}'.format(key, header[key], value))
                     header[key] = value
             else:
                 header[key] = value
@@ -4207,14 +4188,14 @@ def set_header(header, filename):
             if key in header:
                 header.comments[key] = comments
             else:
-                genlog.warning ('keyword {} does not exist: comment is not '
-                                'updated'.format(key))
+                log.warning ('keyword {} does not exist: comment is not '
+                             'updated'.format(key))
         # update dtype
         if dtype is not None:
             if key in header and header[key] != 'None':
                 header[key] = dtype(header[key])
             else:
-                genlog.warning ('dtype of keyword {} is not updated'.format(key))
+                log.warning ('dtype of keyword {} is not updated'.format(key))
 
                 
     edit_head(header, 'NAXIS', comments='number of array dimensions')
@@ -4415,17 +4396,17 @@ def set_header(header, filename):
         # ALTITUDE and AZIMUTH not always present in raw header, so
         # add the values calculated using [get_airmass] above
         if 'ALTITUDE' in header:
-            genlog.info ('ALTITUDE in raw header: {:.2f}, value calculated using '
-                         '[get_airmass]: {:.2f}; adopting the latter'
-                         .format(header['ALTITUDE'], alt))
+            log.info ('ALTITUDE in raw header: {:.2f}, value calculated using '
+                      '[get_airmass]: {:.2f}; adopting the latter'
+                      .format(header['ALTITUDE'], alt))
 
         edit_head(header, 'ALTITUDE', value=float(alt),
                   comments='[deg] Telescope altitude')
 
         if 'AZIMUTH' in header:
-            genlog.info ('AZIMUTH in raw header: {:.2f}, value calculated using '
-                         '[get_airmass]: {:.2f}; adopting the latter'
-                         .format(header['AZIMUTH'], az))
+            log.info ('AZIMUTH in raw header: {:.2f}, value calculated using '
+                      '[get_airmass]: {:.2f}; adopting the latter'
+                      .format(header['AZIMUTH'], az))
 
         edit_head(header, 'AZIMUTH', value=float(az),
                   comments='[deg] Telescope azimuth (N=0;E=90)')
@@ -4659,9 +4640,9 @@ def set_header(header, filename):
                     'RA-TEL', 'DEC-TEL']
     for key in keys_2remove:
         if key in header:
-            genlog.info ('removing keyword {}'.format(key))
+            log.info ('removing keyword {}'.format(key))
             header.remove(key, remove_all=True)
-    
+
             
     # put some order in the header
     keys_sort = ['SIMPLE', 'BITPIX', 'NAXIS', 'NAXIS1', 'NAXIS2',
@@ -4693,7 +4674,7 @@ def set_header(header, filename):
             # append key, value and comments to new header
             header_sort.append((key, header[key], header.comments[key]))
         else:
-            genlog.warning ('keyword {} not in header'.format(key))            
+            log.warning ('keyword {} not in header'.format(key))            
 
     return header_sort
 
@@ -4793,7 +4774,7 @@ def define_sections (data_shape, xbin=1, ybin=1, tel=None):
 
 ################################################################################
 
-def os_corr (data, header, imgtype, xbin=1, ybin=1, tel=None, log=None):
+def os_corr (data, header, imgtype, xbin=1, ybin=1, tel=None):
 
     """Function that corrects [data] for the overscan signal in the
        vertical and horizontal overscan strips. The definitions of the
@@ -4861,10 +4842,9 @@ def os_corr (data, header, imgtype, xbin=1, ybin=1, tel=None, log=None):
             p = np.polyfit(y_vos, mean_vos_col, vos_poldeg)
         except Exception as e:
             polyfit_ok = False
-            if log is not None:
-                #log.exception(traceback.format_exc())
-                log.exception('exception was raised during polynomial fit to '
-                              'channel {} vertical overscan'.format(i_chan))
+            #log.exception(traceback.format_exc())
+            log.exception('exception was raised during polynomial fit to '
+                          'channel {} vertical overscan'.format(i_chan))
 
         # add fit coefficients to image header
         for nc in range(len(p)):
@@ -4924,7 +4904,7 @@ def os_corr (data, header, imgtype, xbin=1, ybin=1, tel=None, log=None):
         # interpolate spline over these pixels
         if imgtype == 'object':
             data_hos_replaced = inter_pix (data_hos, std_vos[i_chan], mask_hos,
-                                           dpix=10, k=2, log=log)
+                                           dpix=10, k=2)
         
         # determine clipped mean for each column
         mean_hos, __, __ = sigma_clipped_stats(data_hos, axis=0,
@@ -4990,24 +4970,23 @@ def os_corr (data, header, imgtype, xbin=1, ybin=1, tel=None, log=None):
 
 
     if get_par(set_zogy.timing,tel):
-        log_timing_memory (t0=t, label='os_corr', log=log)
+        log_timing_memory (t0=t, label='os_corr')
 
     return data_out
 
 
 ################################################################################
 
-def xtalk_corr (data, crosstalk_file, log=None):
+def xtalk_corr (data, crosstalk_file):
 
     if get_par(set_zogy.timing,tel):
         t = time.time()
 
 
-    if log is not None:
-        if os.path.isfile(crosstalk_file):
-            log.info ('crosstalk file: {}'.format(crosstalk_file))
+    if os.path.isfile(crosstalk_file):
+        log.info ('crosstalk file: {}'.format(crosstalk_file))
 
-        
+
     # read file with corrections
     if False:
         victim, source, correction = np.loadtxt(crosstalk_file, unpack=True)
@@ -5114,14 +5093,14 @@ def xtalk_corr (data, crosstalk_file, log=None):
 
         
     if get_par(set_zogy.timing,tel):
-        log_timing_memory (t0=t, label='xtalk_corr', log=log)
+        log_timing_memory (t0=t, label='xtalk_corr')
 
     return data
 
     
 ################################################################################
 
-def nonlin_corr(data, nonlin_corr_file, log=None):
+def nonlin_corr(data, nonlin_corr_file):
 
     if get_par(set_zogy.timing,tel):
         t = time.time()
@@ -5162,14 +5141,14 @@ def nonlin_corr(data, nonlin_corr_file, log=None):
 
 
     if get_par(set_zogy.timing,tel):
-        log_timing_memory (t0=t, label='nonlin_corr', log=log)
+        log_timing_memory (t0=t, label='nonlin_corr')
         
     return data
 
 
 ################################################################################
 
-def gain_corr(data, header, tel=None, log=None):
+def gain_corr(data, header, tel=None):
 
     """Returns [data] corrected for the [gain] defined in [set_bb.gain]
        for the different channels
@@ -5190,7 +5169,7 @@ def gain_corr(data, header, tel=None, log=None):
                                              'channel {}'.format(i_chan+1))
 
     if get_par(set_zogy.timing,tel):
-        log_timing_memory (t0=t, label='gain_corr', log=log)
+        log_timing_memory (t0=t, label='gain_corr')
         
     return data
 
@@ -5270,11 +5249,11 @@ def get_path (date, dir_type):
     elif dir_type == 'write':
         root_dir = get_par(set_bb.red_dir,tel)
     else:
-        genlog.error ('[dir_type] not one of "read" or "write"')
+        log.error ('[dir_type] not one of "read" or "write"')
         
     path = '{}/{}'.format(root_dir, date_dir)
     if '//' in path:
-        genlog.info ('replacing double slash in path name: {}'.format(path))
+        log.info ('replacing double slash in path name: {}'.format(path))
         path = path.replace('//','/')
     
     return path, date_eve
@@ -5324,8 +5303,8 @@ def sort_files(read_path, search_str, recursive=False):
         header = read_hdulist(filename, get_data=False, get_header=True)
         
         if 'IMAGETYP' not in header:
-            genlog.info ('keyword IMAGETYP not present in header of image; '
-                         'not processing {}'.format(filename))
+            log.info ('keyword IMAGETYP not present in header of image; '
+                      'not processing {}'.format(filename))
             # add this file to [others] list, which will not be reduced
             others.append(filename)
 
@@ -5350,7 +5329,7 @@ def sort_files(read_path, search_str, recursive=False):
 
 ################################################################################
 
-def unzip(imgname, put_lock=True, timeout=None, log=None):
+def unzip(imgname, put_lock=True, timeout=None):
 
     """Unzip a gzipped of fpacked file.
        Same [subpipe] function STAP_unzip.
@@ -5360,13 +5339,12 @@ def unzip(imgname, put_lock=True, timeout=None, log=None):
         lock.acquire()
 
     if '.gz' in imgname:
-        if log is not None:
-            log.info ('gunzipping {}'.format(imgname))
+        log.info ('gunzipping {}'.format(imgname))
         subprocess.call(['gunzip',imgname])
         imgname = imgname.replace('.gz','')
+
     elif '.fz' in imgname:
-        if log is not None:
-            log.info ('funpacking {}'.format(imgname))
+        log.info ('funpacking {}'.format(imgname))
         subprocess.call(['funpack','-D',imgname])
         imgname = imgname.replace('.fz','')
 
@@ -5509,7 +5487,7 @@ def action(queue):
     while True:
 
         if queue.empty():
-            genlog.info ('queue is empty for now')
+            log.info ('queue is empty for now')
 
         # get event from queue
         event = queue.get(True)
@@ -5524,18 +5502,17 @@ def action(queue):
             # [run_blackbox]
             filename = event
             filetype = 'pre-existing'
-            genlog.exception ('exception occurred: {}'.format(e))
+            log.exception ('exception occurred: {}'.format(e))
 
 
-        genlog.info ('detected a {} file: {}'.format(filetype, filename))
-        genlog.info ('type(filename): {}'.format(type(filename)))
+        log.info ('detected a {} file: {}'.format(filetype, filename))
+        log.info ('type(filename): {}'.format(type(filename)))
 
 
         # only continue if a fits file
         if 'fits' not in filename:
 
-            genlog.info ('{} is not a fits file; skipping it'
-                         .format(filename))
+            log.info ('{} is not a fits file; skipping it'.format(filename))
 
         else:
             # if filename is a temporary rsync copy (default
@@ -5547,8 +5524,8 @@ def action(queue):
             if fn_tail[0] == '.':
                 filename = '{}/{}'.format(fn_head, '.'
                                           .join(fn_tail.split('.')[1:-1]))
-                genlog.info ('changed filename from rsync temporary file {} to {}'
-                             .format(event.src_path, filename))
+                log.info ('changed filename from rsync temporary file {} to {}'
+                          .format(event.src_path, filename))
 
             # this while loop below replaces the old [copying]
             # function; it times out after wait_max is reached
@@ -5565,9 +5542,9 @@ def action(queue):
 
                     process = False
                     if nsleep==0:
-                        genlog.exception ('problem reading file {} but will keep '
-                                          'trying for {}s; current exception: {}'
-                                          .format(filename, wait_max, e))
+                        log.exception ('problem reading file {} but will keep '
+                                       'trying for {}s; current exception: {}'
+                                       .format(filename, wait_max, e))
 
                     # give file a bit of time to arrive before next read attempt
                     time.sleep(5)
@@ -5586,9 +5563,9 @@ def action(queue):
                 filenames_reduced.append(filename_reduced)
                 
             else:
-                genlog.info ('wait time for file {} exceeded {}s; '
-                             'bailing out with final exception: {}'
-                             .format(filename, wait_max, e))
+                log.info ('wait time for file {} exceeded {}s; '
+                          'bailing out with final exception: {}'
+                          .format(filename, wait_max, e))
 
     return filenames_reduced
 
