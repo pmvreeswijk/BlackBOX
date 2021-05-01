@@ -158,7 +158,10 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     if keep_tmp is not None:
         set_bb.keep_tmp = str2bool(keep_tmp)
 
-
+    # in night mode, force create_master to be True
+    if mode == 'night':
+        set_bb.create_master = True
+        
 
 
     if get_par(set_zogy.timing,tel):
@@ -2617,7 +2620,7 @@ def create_obslog (date, email=True, tel=None):
     # keywords to add to table
     keys = ['ORIGFILE', 'IMAGETYP', 'DATE-OBS', 'PROGNAME', 'PROGID', 'OBJECT',
             'FILTER', 'EXPTIME', 'RA', 'DEC', 'AIRMASS', 'FOCUSPOS',
-            'S-SEEING', 'QC-FLAG', 'QC-RED1', 'QC-RED2', 'QC-RED3']
+            'S-SEEING', 'QC-FLAG', 'QCRED1', 'QCRED2', 'QCRED3']
     formats = {#'ORIGFILE': '{:60}',
                #'IMAGETYP': '{:<8}',
                'DATE-OBS': '{:.19}',
@@ -5502,11 +5505,9 @@ def action(queue):
             # [run_blackbox]
             filename = event
             filetype = 'pre-existing'
-            log.exception ('exception occurred: {}'.format(e))
 
 
         log.info ('detected a {} file: {}'.format(filetype, filename))
-        log.info ('type(filename): {}'.format(type(filename)))
 
 
         # only continue if a fits file
