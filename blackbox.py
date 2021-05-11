@@ -385,11 +385,22 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
         # keep monitoring [read_path] directory as long as:
         while ephem.now()-sunrise < ephem.hour:
-            time.sleep(1)
+            time.sleep(60)
+
+        log.info ('night has finished; sunrise was an hour ago')
+            
 
         # night has finished, but finish queue if not empty yet
         while not queue.empty:
             time.sleep(60)
+
+        log.info ('queue is empty')
+
+
+        # closing and joining pool
+        pool.close()
+        pool.join()
+        
 
         # all done!
         log.info ('stopping time reached, exiting night mode')
@@ -398,7 +409,6 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
         # create and email obslog
         create_obslog (date, email=True, tel=tel)
-
 
 
     if get_par(set_zogy.timing,tel):
