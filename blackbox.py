@@ -397,23 +397,24 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
             
 
         # night has finished, but finish queue if not empty yet
-        while not queue.empty:
+        while not queue.empty():
             time.sleep(60)
 
         log.info ('queue is empty')
 
 
-        # closing and joining pool
-        pool.close()
-        pool.join()
-        
-
-        # all done!
-        log.info ('stopping time reached, exiting night mode')
+        # watchdog can be stopped
         observer.stop() #stop observer
         observer.join() #join observer
 
+
+        # closing and joining pool of workers
+        pool.close()
+        pool.join()
+
+        
         # create and email obslog
+        log.info ('night processing has finished; creating and emailing obslog')
         create_obslog (date, email=True, tel=tel)
 
 
