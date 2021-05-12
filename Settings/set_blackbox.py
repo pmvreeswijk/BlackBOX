@@ -5,10 +5,10 @@ import os
 #===============================================================================
 
 # number of processes to run in parallel
-nproc = 8
+nproc = 16
 # maximum number of threads for each process (this parameter
 # cannot be made telescope dependent through a dictionary!)
-nthreads = 4
+nthreads = 2
 
 #===============================================================================
 # Reduction steps
