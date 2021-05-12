@@ -359,29 +359,35 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
         # make sure it exists
         make_dir (read_path)
 
+
         # create queue for submitting jobs
         queue = Queue()
         # create pool with given number of processes and queue feeding
         # into action function
         pool = Pool(nproc, action, (queue,))
 
+
         # create and setup observer, but do not start just yet
         observer = Observer()
         observer.schedule(FileWatcher(queue), read_path, recursive=recursive)
+
 
         # add files that are already present in the read_path
         # directory to the night queue, to reduce these first
         for filename in filenames: 
             queue.put(filename)
             
+
         # determine time of next sunrise
         obs = ephem.Observer()
         obs.lat = str(get_par(set_zogy.obs_lat,tel))
         obs.lon = str(get_par(set_zogy.obs_lon,tel))
         sunrise = obs.next_rising(ephem.Sun())
 
+
         # start observer
         observer.start()
+
 
         # keep monitoring [read_path] directory as long as:
         while ephem.now()-sunrise < ephem.hour:
@@ -3504,6 +3510,12 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True):
 
     if not (master_present and master_ok):
 
+        # sleep for 60s to make sure individual biases and/or flats
+        # have been reduced and written to disk
+        # check!!! - in google mode this 60s sleep should be avoided
+        time.sleep(60)
+
+        
         # prepare master image from files in [path] +/- the specified
         # time window
         if imtype=='flat':
@@ -5553,9 +5565,9 @@ def action(queue):
 
                     process = False
                     if nsleep==0:
-                        log.exception ('problem reading file {} but will keep '
-                                       'trying for {}s; current exception: {}'
-                                       .format(filename, wait_max, e))
+                        log.warning ('file {} has not fully arrived yet; will '
+                                     'keep trying to read it in for {}s'
+                                     .format(filename, wait_max))
 
                     # give file a bit of time to arrive before next read attempt
                     time.sleep(5)
