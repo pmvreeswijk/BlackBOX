@@ -91,7 +91,7 @@ tnow = Time.now()
 tnow.ut1  
 
 
-__version__ = '1.0.0'
+__version__ = '1.0.1'
 keywords_version = '1.0.0'
 
 #def init(l):
@@ -360,24 +360,6 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
         make_dir (read_path)
 
 
-        # create queue for submitting jobs
-        queue = Queue()
-        # create pool with given number of processes and queue feeding
-        # into action function
-        pool = Pool(nproc, action, (queue,))
-
-
-        # create and setup observer, but do not start just yet
-        observer = Observer()
-        observer.schedule(FileWatcher(queue), read_path, recursive=recursive)
-
-
-        # add files that are already present in the read_path
-        # directory to the night queue, to reduce these first
-        for filename in filenames: 
-            queue.put(filename)
-            
-
         # determine time of next sunrise
         obs = ephem.Observer()
         obs.lat = str(get_par(set_zogy.obs_lat,tel))
@@ -385,23 +367,45 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
         sunrise = obs.next_rising(ephem.Sun())
 
 
-        # start observer
+        # create queue for submitting jobs
+        queue = Queue()
+
+        # add files that are already present in the read_path
+        # directory to the night queue, to reduce these first
+        for filename in filenames: 
+            queue.put(filename)
+
+
+        # create and setup observer, but do not start just yet
+        observer = Observer()
+        observer.schedule(FileWatcher(queue), read_path, recursive=recursive)
+
+
+        # create pool of workers
+        results = []
+        pool = Pool(nproc)
+
+
+        # start monitoring [read_path] for incoming files
         observer.start()
 
 
-        # keep monitoring [read_path] directory as long as:
-        while ephem.now()-sunrise < ephem.hour:
-            time.sleep(60)
+        # keep monitoring queue - which is being filled with new files
+        # detected by watchdog - as long as it is nighttime or the
+        # queue is not empty yet
+        while ephem.now()-sunrise < ephem.hour or not queue.empty():
 
-        log.info ('night has finished; sunrise was an hour ago')
+            if queue.empty():
+                time.sleep(60)
+            else:
+                filename = get_file (queue)
+                if filename is not None:
+                    # process it by one of the workers
+                    results.append(pool.apply_async(blackbox_reduce, [filename]))
+
+        
+        log.info ('night has finished and queue is empty')
             
-
-        # night has finished, but finish queue if not empty yet
-        while not queue.empty():
-            time.sleep(60)
-
-        log.info ('queue is empty')
-
 
         # watchdog can be stopped
         observer.stop() #stop observer
@@ -412,7 +416,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
         pool.close()
         pool.join()
 
-        
+
         # create and email obslog
         log.info ('night processing has finished; creating and emailing obslog')
         create_obslog (date, email=True, tel=tel)
@@ -424,6 +428,114 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
     logging.shutdown()
     return
+
+
+################################################################################
+
+def get_file (queue):
+
+    """Get file from queue after making sure it arrived completely; None
+    is returned if the file is not a fits file or still having trouble
+    reading the fits file even after waiting for 60s; otherwise the
+    filename is returned.
+
+    """
+
+    # get event from queue
+    event = queue.get(True)
+    
+    try:
+        # get name of new file
+        filename = str(event.src_path)
+        filetype = 'new'
+
+    except AttributeError as e:
+        # instead of event, queue entry is a filename added in
+        # [run_blackbox]
+        filename = event
+        filetype = 'pre-existing'
+
+
+    log.info ('detected a {} file: {}'.format(filetype, filename))
+
+
+    # only continue if a fits file
+    if 'fits' not in filename:
+
+        log.info ('{} is not a fits file; skipping it'.format(filename))
+        filename = None
+            
+    else:
+
+        # if filename is a temporary rsync copy (default
+        # behaviour of rsync is to create a temporary file
+        # starting with .[filename].[randomstr]; can be
+        # changed with option "--inplace"), then let filename
+        # refer to the eventual file created by rsync
+        fn_head, fn_tail = os.path.split(filename)
+        if fn_tail[0] == '.':
+            filename = '{}/{}'.format(fn_head, '.'
+                                      .join(fn_tail.split('.')[1:-1]))
+            log.info ('changed filename from rsync temporary file {} to {}'
+                      .format(event.src_path, filename))
+
+        # this while loop below replaces the old [copying]
+        # function; it times out after wait_max is reached
+        wait_max = 60
+        t0 = time.time()
+        nsleep = 0
+        while time.time()-t0 < wait_max:
+                    
+            try:
+                # read the file
+                data = read_hdulist(filename)
+
+            except Exception as e:
+                
+                process = False
+                if nsleep==0:
+                    log.warning ('file {} has not fully arrived yet; will '
+                                 'keep trying to read it in for {}s'
+                                 .format(filename, wait_max))
+
+                # give file a bit of time to arrive before next read attempt
+                time.sleep(5)
+                nsleep += 1
+
+            else:
+                # if fits file was read fine, set process flag to True
+                process = True
+                # and break out of while loop
+                break
+
+
+        if not process:
+            log.info ('timeout for reading file exceeded {}s, not '
+                      'processing {}; exception: {}'
+                      .format(wait_max, filename, e))
+            filename = None
+
+
+    return filename
+
+
+################################################################################
+
+class FileWatcher(FileSystemEventHandler, object):
+    '''Monitors directory for new files.
+
+    :param queue: multiprocessing queue for new files
+    :type queue: multiprocessing.Queue'''
+    
+    def __init__(self, queue):
+        self._queue = queue
+        
+    def on_created(self, event):
+        '''Action to take for new files.
+
+        :param event: new event found
+        :type event: event'''
+        self._queue.put(event)
 
 
 ################################################################################
@@ -5476,141 +5588,6 @@ class MyLogger(object):
         :type message: str
         '''
         slack_client().api_call("chat.postMessage", channel=channel,  text=message, as_user=True)
-
-
-################################################################################
-
-def copying(file):
-    '''Waits for file size to stablize.
-
-    Function that waits until the given file size is no longer changing before returning.
-    This ensures the file has finished copying before the file is accessed.
-
-    :param file: file
-    :type file: str
-    '''
-    copying_file = True #file is copying
-    size_earlier = -1 #set inital size of file
-    while copying_file:
-        size_now = os.path.getsize(file) #get current size of file
-        if size_now == size_earlier: #if the size of the file has not changed, return
-            time.sleep(1)
-            return
-        else: #if the size of the file has changed
-            size_earlier = os.path.getsize(file) #get new size of file
-            time.sleep(1) #wait
-
-
-################################################################################
-
-def action(queue):
-
-    """Action to take during night mode of pipeline."""
-
-    # record reduced files in filenames_reduced
-    filenames_reduced = []
-
-    while True:
-
-        if queue.empty():
-            log.info ('queue is empty for now')
-
-        # get event from queue
-        event = queue.get(True)
-
-        try:
-            # get name of new file
-            filename = str(event.src_path)
-            filetype = 'new'
-            
-        except AttributeError as e:
-            # instead of event, queue entry is a filename added in
-            # [run_blackbox]
-            filename = event
-            filetype = 'pre-existing'
-
-
-        log.info ('detected a {} file: {}'.format(filetype, filename))
-
-
-        # only continue if a fits file
-        if 'fits' not in filename:
-
-            log.info ('{} is not a fits file; skipping it'.format(filename))
-
-        else:
-            # if filename is a temporary rsync copy (default
-            # behaviour of rsync is to create a temporary file
-            # starting with .[filename].[randomstr]; can be
-            # changed with option "--inplace"), then let filename
-            # refer to the eventual file created by rsync
-            fn_head, fn_tail = os.path.split(filename)
-            if fn_tail[0] == '.':
-                filename = '{}/{}'.format(fn_head, '.'
-                                          .join(fn_tail.split('.')[1:-1]))
-                log.info ('changed filename from rsync temporary file {} to {}'
-                          .format(event.src_path, filename))
-
-            # this while loop below replaces the old [copying]
-            # function; it times out after wait_max is reached
-            wait_max = 60
-            t0 = time.time()
-            nsleep = 0
-            while time.time()-t0 < wait_max:
-                    
-                try:
-                    # read the file
-                    data = read_hdulist(filename)
-
-                except Exception as e:
-
-                    process = False
-                    if nsleep==0:
-                        log.warning ('file {} has not fully arrived yet; will '
-                                     'keep trying to read it in for {}s'
-                                     .format(filename, wait_max))
-
-                    # give file a bit of time to arrive before next read attempt
-                    time.sleep(5)
-                    nsleep += 1
-
-                else:
-                    # if fits file was read fine, set process flag to True
-                    process = True
-                    # and break out of while loop
-                    break
-
-
-            if process:
-                # if fits file was read fine, process it
-                filename_reduced = blackbox_reduce (filename)
-                filenames_reduced.append(filename_reduced)
-                
-            else:
-                log.info ('wait time for file {} exceeded {}s; '
-                          'bailing out with final exception: {}'
-                          .format(filename, wait_max, e))
-
-    return filenames_reduced
-
-
-################################################################################
-
-class FileWatcher(FileSystemEventHandler, object):
-    '''Monitors directory for new files.
-
-    :param queue: multiprocessing queue for new files
-    :type queue: multiprocessing.Queue'''
-    
-    def __init__(self, queue):
-        self._queue = queue
-        
-    def on_created(self, event):
-        '''Action to take for new files.
-
-        :param event: new event found
-        :type event: event'''
-        self._queue.put(event)
 
 
 ################################################################################
