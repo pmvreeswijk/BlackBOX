@@ -2828,7 +2828,7 @@ def create_obslog (date, email=True, tel=None):
         # attachment) to a list of interested people
         
         # subject
-        subject = '{} obslog {}'.format(tel, date_dir.replace('/','-'))
+        subject = '{} night report {}'.format(tel, date_dir.replace('/','-'))
         
         try:
             send_email (get_par(set_bb.recipients,tel), subject, None,
