@@ -189,11 +189,11 @@ ysize_chan, xsize_chan = 5280, 1320
 #===============
 # for ML: sender apparently needs to contain <@astro.ru.nl> for emails
 # to actually arrive at Radboud; not relevant for BG/Google Cloud
-sender = {'ML1': 'MeerLICHT night log <p.vreeswijk@astro.ru.nl>',
-          'BG': 'BlackGEM night log'}
+sender = {'ML1': 'MeerLICHT night report <paul.vreeswijk@blackgem.org>',
+          'BG': 'BlackGEM night report'}
 # comma-separated email addresses of recipients
-recipients = 'p.vreeswijk@astro.ru.nl,p.groot@astro.ru.nl,s.bloemen@astro.ru.nl'
-reply_to = 'p.vreeswijk@astro.ru.nl'
+recipients = 'ml-nightreports@blackgem.org'
+reply_to = 'paul.vreeswijk@blackgem.org'
 smtp_server = {'ML1': 'localhost', 'BG': 'smtp-relay.gmail.com'}
 port = {'ML1': 0, 'BG': 465}
 use_SSL = {'ML1': False, 'BG': True}
