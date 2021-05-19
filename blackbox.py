@@ -91,7 +91,7 @@ tnow = Time.now()
 tnow.ut1  
 
 
-__version__ = '1.0.2'
+__version__ = '1.0.3'
 keywords_version = '1.0.0'
 
 #def init(l):
@@ -2670,7 +2670,19 @@ def update_cathead (filename, header):
                 hdulist[-1].header[key] = (header[key], header.comments[key])
                 
         header_update = hdulist[-1].header
-                
+
+
+    # in case of transient catalog, also update the trans_light header
+    if 'trans' in filename:
+        transcat_light = filename.replace('.fits', '_light.fits')
+        # check if it exists
+        if os.path.isfile(transcat_light):
+            with fits.open(transcat_light, 'update', memmap=True) as hdulist:
+                hdulist[-1].header = header_update
+        else:
+            log.warning ('file {} does not exist'.format(transcat_light))
+
+
     # create separate header file with updated header
     hdulist = fits.HDUList(fits.PrimaryHDU(header=header_update))
     hdulist.writeto(filename.replace('.fits', '_hdr.fits'), overwrite=True,
