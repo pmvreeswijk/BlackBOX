@@ -334,7 +334,7 @@ qc_range = {
         # if that 6 sigma changes, these number need updating with correction: -2.5*log10(nsigma/6)!
         'T-LMAG' :  {'default':'None', 'val_type': 'min_max', 'val_range': {'u': [ (18.7, 22.0), (18.0, 22.0), (0, 30) ],
                                                                             'g': [ (19.8, 23.1), (19.1, 23.1), (0, 30) ],
-                                                                            'q': [ (20.3, 23.6), (21.6, 23.6), (0, 30) ],
+                                                                            'q': [ (20.3, 23.6), (19.6, 23.6), (0, 30) ],
                                                                             'r': [ (19.6, 22.9), (18.9, 22.9), (0, 30) ],
                                                                             'i': [ (19.0, 22.3), (18.3, 22.3), (0, 30) ],
                                                                             'z': [ (17.9, 21.2), (17.2, 21.2), (0, 30) ]}, 'key_type': 'trans', 'pos': True , 'comment': '[mag] full-frame transient [T-NSIGMA]-sigma lim. mag'},
