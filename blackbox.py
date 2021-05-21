@@ -2284,7 +2284,7 @@ def create_symlinks (new_base, obj, filt):
 
         log.warning ('these source files do not exist: {}; not creating any '
                      'symbolic link for files with new_base {}'
-                     .format(np.array(src_files)[files_present], new_base))
+                     .format(np.array(src_files)[~files_present], new_base))
 
 
     return
