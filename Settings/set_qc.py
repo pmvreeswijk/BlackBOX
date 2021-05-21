@@ -92,7 +92,7 @@ qc_range = {
         # 2019 values
         #'BIASMEAN': {'default':'None', 'val_type': 'sigma','val_range': [ (  7370, 30) ],            'key_type': 'full', 'pos': True , 'comment': 'average all channel means vertical overscan'},
         # 2021 values; multiplied above values by gain_new / gain_old, or 0.88:
-        'BIASMEAN': {'default':'None', 'val_type': 'sigma','val_range': [ (  6520, 30) ],            'key_type': 'full', 'pos': True , 'comment': 'average all channel means vertical overscan'},
+        'BIASMEAN': {'default':'None', 'val_type': 'sigma','val_range': [ (  6450, 50) ],            'key_type': 'full', 'pos': True , 'comment': 'average all channel means vertical overscan'},
         
 
         # for the moment, skip the value range check on the individual channels' bias levels ('sigma' replaced with 'skip')
@@ -133,7 +133,7 @@ qc_range = {
 
         # Channel read noise [e-]
         # 2019 values
-        'RDNOISE' : {'default':'None', 'val_type': 'min_max','val_range': [ (5,12), (5,13), (5,15) ], 'key_type': 'full', 'pos': True , 'comment': 'average all channel sigmas vertical overscan'},
+        'RDNOISE' : {'default':'None', 'val_type': 'min_max','val_range': [ (5,11), (5,13), (5,15) ], 'key_type': 'full', 'pos': True , 'comment': 'average all channel sigmas vertical overscan'},
         # for the moment, skip the value range check on the individual channels' readnoise ('sigma' replaced with 'skip')
         'RDN1'    : {'default':'None', 'val_type': 'skip', 'val_range': [ (    13.222,    0.230) ],  'key_type': 'full', 'pos': True , 'comment': 'channel 1 sigma (STD) vertical overscan'},
         'RDN2'    : {'default':'None', 'val_type': 'skip', 'val_range': [ (     7.853,    0.144) ],  'key_type': 'full', 'pos': True , 'comment': 'channel 2 sigma (STD) vertical overscan'},
@@ -205,8 +205,8 @@ qc_range = {
         'N-INFNAN': {'default':'None', 'val_type': 'min_max', 'val_range': [ (0,0), (1,10), (11,1e6) ],         'key_type': 'full', 'pos': True , 'comment': 'number of pixels with infinite/nan values'},
 
         # cosmics/satellites
-        'NCOSMICS': {'default':'None', 'val_type': 'min_max', 'val_range': [ (3,50), (2.5,100), (2,500) ],      'key_type': 'full', 'pos': True , 'comment': '[/s] number of cosmic rays identified'},
-        'NSATS'   : {'default':'None', 'val_type': 'min_max', 'val_range': [ (0,1), (2,3), (4,5) ],             'key_type': 'full', 'pos': True , 'comment': 'number of satellite trails identified'},
+        'NCOSMICS': {'default':'None', 'val_type': 'min_max', 'val_range': [ (3,50), (2,100), (0,500) ],        'key_type': 'full', 'pos': True , 'comment': '[/s] number of cosmic rays identified'},
+        'NSATS'   : {'default':'None', 'val_type': 'min_max', 'val_range': [ (0,10), (10,20), (20,100) ],         'key_type': 'full', 'pos': True , 'comment': 'number of satellite trails identified'},
 
         # SExtractor
         'S-NOBJ'  : {'default':'None', 'val_type': 'skip',    'val_range': [ (4e3,1e4), (3e3,2e5), (1e3,1e7) ], 'key_type': 'full', 'pos': True , 'comment': 'number of objects detected by SExtractor'},
