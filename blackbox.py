@@ -91,7 +91,7 @@ tnow = Time.now()
 tnow.ut1  
 
 
-__version__ = '1.0.3'
+__version__ = '1.0.4'
 keywords_version = '1.0.0'
 
 #def init(l):
@@ -2761,7 +2761,8 @@ def create_obslog (date, email=True, tel=None):
     # keywords to add to table
     keys = ['ORIGFILE', 'IMAGETYP', 'DATE-OBS', 'PROGNAME', 'PROGID', 'OBJECT',
             'FILTER', 'EXPTIME', 'RA', 'DEC', 'AIRMASS', 'FOCUSPOS',
-            'S-SEEING', 'QC-FLAG', 'QCRED1', 'QCRED2', 'QCRED3']
+            'S-SEEING', 'CL-BASE', 'RH-MAST', 'LIMMAG', 'QC-FLAG',
+            'QCRED1', 'QCRED2', 'QCRED3']
     formats = {#'ORIGFILE': '{:60}',
                #'IMAGETYP': '{:<8}',
                'DATE-OBS': '{:.19}',
@@ -5506,100 +5507,16 @@ def unzip(imgname, put_lock=True, timeout=None):
     
 ################################################################################
 
-class MyLogger(object):
-    '''Logger to control logging and uploading to slack.
-
-    :param log: pipeline log file
-    :type log: Logger
-    :param mode: mode of pipeline
-    :type mode: str
-    :param log_stream: stream for log file
-    :type log_stream: instance
-    :param slack_upload: upload to slack
-    :type slack_upload: bool
-    '''
-
-    def __init__(self, log, mode, log_stream, slack_upload):
-        self._log = log
-        self._mode = mode
-        self._log_stream = log_stream
-        self._slack_upload = slack_upload
-
-    def info(self, text):
-        '''Function to log at the INFO level.
-        
-        Logs messages to log file at the INFO level. If the night mode of the pipeline
-        is running and 'Successfully' appears in the message, upload the message to slack.
-        This allows only the overall running of the night pipeline to be uploaded to slack.
-        
-        :param text: message from pipeline
-        :type text: str
-        :exceptions: ConnectionError
-        '''
-        self._log.info(text)
-        message = self._log_stream.getvalue()
-        #only allow selected messages in night mode of pipeline to upload to slack
-        if self._slack_upload is True and self._mode == 'night' and 'Successfully' in message: 
-            try:
-                self.slack(self._mode,text) #upload to slack
-            except ConnectionError: #if connection error occurs, add to log
-                self._log.error('Connection error: failed to connect to slack. Above meassage not uploaded.')
-
-    def warning(self, text):
-        '''Function to log at the INFO level.
-
-        Logs messages to log file at the WARN level.'''
-
-        self._log.warning(text)
-        message = self._log_stream.getvalue()
-
-    def error(self, text):
-        '''Function to log at the ERROR level.
-
-        Logs messages to log file at the ERROR level. If the night mode of the pipeline
-        is running, upload the message to slack. This allows only the overall running of
-        the night pipeline to be uploaded to slack.
-
-        :param text: message from pipeline
-        :type text: str
-        :exceptions: ConnectionError
-        '''
-        self._log.error(text)
-        message = self._log_stream.getvalue()
-        if self._slack_upload is True and self._mode == 'night': #only night mode of pipeline uploads to slack
-            try:
-                self.slack(self._mode,text) #upload to slack
-            except ConnectionError: #if connection error occurs, add to log
-                self._log.error('Connection error: failed to connect to slack. Above meassage not uploaded.')
-
-    def critical(self, text):
-        '''Function to log at the CRITICAL level.
-
-        Logs messages to log file at the CRITICAL level. If the night mode of the pipeline
-        is running, upload the message to slack. This allows only the overall running of
-        the night pipeline to be uploaded to slack. Pipeline will exit on critical errror.
-        
-        :param text: message from pipeline
-        :type text: str
-        :exceptions: ConnectionError
-        :raises: SystemExit
-        '''
-        self._log.critical(text)
-        message = self._log_stream.getvalue()
-        if self._slack_upload is True and self._mode == 'night': #only night mode of pipeline uploads to slack
-            try:
-                self.slack('critical',text) #upload to slack
-            except ConnectionError:
-                self._log.error('Connection error: failed to connect to slack. Above meassage not uploaded.') #if connection error occurs, add to log
-        raise SystemExit
-
-    def slack(self, channel, message):
-        '''Slack bot for uploading messages to slack.
-
-        :param message: message to upload
-        :type message: str
-        '''
-        slack_client().api_call("chat.postMessage", channel=channel,  text=message, as_user=True)
+# from https://stackoverflow.com/questions/15008758/parsing-boolean-values-with-argparse
+def str2bool(v):
+    if isinstance(v, bool):
+        return v
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
 
 
 ################################################################################
