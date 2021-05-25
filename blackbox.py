@@ -2761,7 +2761,7 @@ def create_obslog (date, email=True, tel=None):
     # keywords to add to table
     keys = ['ORIGFILE', 'IMAGETYP', 'DATE-OBS', 'PROGNAME', 'PROGID', 'OBJECT',
             'FILTER', 'EXPTIME', 'RA', 'DEC', 'AIRMASS', 'FOCUSPOS',
-            'S-SEEING', 'CL-BASE', 'RH-MAST', 'LIMMAG', 'QC-FLAG',
+            'S-SEEING', 'CL-BASE', 'RH-MAST', 'WINDAVE', 'LIMMAG', 'QC-FLAG',
             'QCRED1', 'QCRED2', 'QCRED3']
     formats = {#'ORIGFILE': '{:60}',
                #'IMAGETYP': '{:<8}',
