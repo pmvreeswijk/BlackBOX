@@ -91,7 +91,7 @@ tnow = Time.now()
 tnow.ut1  
 
 
-__version__ = '1.0.4'
+__version__ = '1.0.5'
 keywords_version = '1.0.0'
 
 #def init(l):
@@ -2255,7 +2255,7 @@ def create_symlinks (new_base, obj, filt):
                     '_trans_hdr.fits', '_trans_light.fits']
 
     src_files = ['{}_red{}'.format(new_base, ext) for ext in symlink_exts]
-    files_present = [os.path.isfile(f) for f in src_files]
+    files_present = np.array([os.path.isfile(f) for f in src_files])
 
     # only creating symbolic links if all extensions are present
     if np.all(files_present):
