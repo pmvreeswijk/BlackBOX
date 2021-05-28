@@ -2764,14 +2764,17 @@ def create_obslog (date, email=True, tel=None):
             'S-SEEING', 'CL-BASE', 'RH-MAST', 'WINDAVE', 'LIMMAG', 'QC-FLAG',
             'QCRED1', 'QCRED2', 'QCRED3']
     formats = {#'ORIGFILE': '{:60}',
-               #'IMAGETYP': '{:<8}',
-               'DATE-OBS': '{:.19}',
-               'EXPTIME': '{:.1f}',              
-               'RA': '{:.3f}',
-               'DEC': '{:.3f}',
-               'AIRMASS': '{:.3f}',
-               'S-SEEING': '{:.4}'
-               }
+        #'IMAGETYP': '{:<8}',
+        'DATE-OBS': '{:.19}',
+        'EXPTIME': '{:.1f}',              
+        'RA': '{:.3f}',
+        'DEC': '{:.3f}',
+        'AIRMASS': '{:.3f}',
+        'S-SEEING': '{:.4}',
+        'CL-BASE': '{:.0f}',
+        'RH-MAST': '{:.1f}',
+        'WINDAVE': '{:.1f}',
+        'LIMMAG': '{:.2f}'}
 
     # loop input list of filenames
     rows = []
