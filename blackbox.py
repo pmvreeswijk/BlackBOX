@@ -91,7 +91,7 @@ tnow = Time.now()
 tnow.ut1  
 
 
-__version__ = '1.0.5'
+__version__ = '1.0.6'
 keywords_version = '1.0.0'
 
 #def init(l):
@@ -401,11 +401,12 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
                 filename = get_file (queue)
                 if filename is not None:
                     # process it by one of the workers
-                    results.append(pool.apply_async(blackbox_reduce, [filename]))
+                    results.append(pool.apply_async(try_blackbox_reduce,
+                                                    [filename]))
 
-        
+
         log.info ('night has finished and queue is empty')
-            
+
 
         # watchdog can be stopped
         observer.stop() #stop observer
@@ -419,7 +420,11 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
         # create and email obslog
         log.info ('night processing has finished; creating and emailing obslog')
-        create_obslog (date, email=True, tel=tel)
+        try:
+            create_obslog (date, email=True, tel=tel)
+        except Exception as e:
+            log.exception ('exception was raised in creating obslog: {}'
+                           .format(e))
 
 
     if get_par(set_zogy.timing,tel):
@@ -2774,7 +2779,8 @@ def create_obslog (date, email=True, tel=None):
         'CL-BASE': '{:.0f}',
         'RH-MAST': '{:.1f}',
         'WINDAVE': '{:.1f}',
-        'LIMMAG': '{:.2f}'}
+        'LIMMAG': '{:.5}'
+    }
 
     # loop input list of filenames
     rows = []
