@@ -91,7 +91,7 @@ tnow = Time.now()
 tnow.ut1  
 
 
-__version__ = '1.0.6'
+__version__ = '1.0.7'
 keywords_version = '1.0.0'
 
 #def init(l):
@@ -4849,7 +4849,7 @@ def jnow2icrs (ra_in, dec_in, equinox, icrs2jnow=False):
     """
 
     if icrs2jnow:
-        coords = SkyCoord(ra_in*u.degree, dec=dec_in*u.degree, frame='icrs')
+        coords = SkyCoord(ra_in*u.degree, dec_in*u.degree, frame='icrs')
         jnow = FK5(equinox=equinox)
         coords_out = coords.transform_to(jnow)
         
