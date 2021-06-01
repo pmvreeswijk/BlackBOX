@@ -2683,7 +2683,16 @@ def update_cathead (filename, header):
         # check if it exists
         if os.path.isfile(transcat_light):
             with fits.open(transcat_light, 'update', memmap=True) as hdulist:
-                hdulist[-1].header = header_update
+                # N.B.: cannot simply copy updated header above
+                # (header_update) as that will also define the
+                # thumbnail columns while these are not present in the
+                # light version
+                #hdulist[-1].header = header_update
+                for key in header:
+                    if 'QC' in key or 'DUMCAT' in key or 'RADECOFF' in key:
+                        hdulist[-1].header[key] = (header[key],
+                                                   header.comments[key])
+
         else:
             log.warning ('file {} does not exist'.format(transcat_light))
 
