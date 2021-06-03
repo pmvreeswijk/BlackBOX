@@ -1617,9 +1617,11 @@ def blackbox_reduce (filename):
                             move=(not get_par(set_bb.keep_tmp,tel)))
 
             # only for ML, create symbolic links in alternative
-            # directory structure if transient catalog is involved
-            if tel=='ML1' and '_trans.fits' in list_2keep:
-                create_symlinks (new_base, obj, filt)
+            # directory structure if transient catalog is involved;
+            # turn off for now
+            if False:
+                if tel=='ML1' and '_trans.fits' in list_2keep:
+                    create_symlinks (new_base, obj, filt)
 
             # remove tmp folder corresponding to the object image
             clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel))
@@ -2237,9 +2239,10 @@ def blackbox_reduce (filename):
 
 
     # only for ML, create symbolic links in alternative directory
-    # structure if transient catalog is involved
-    if tel=='ML1' and '_trans.fits' in list_2keep:
-        create_symlinks (new_base, obj, filt)
+    # structure if transient catalog is involved; turn off for now
+    if False:
+        if tel=='ML1' and '_trans.fits' in list_2keep:
+            create_symlinks (new_base, obj, filt)
 
 
     if get_par(set_zogy.timing,tel):
