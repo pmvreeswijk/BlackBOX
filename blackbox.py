@@ -2673,10 +2673,22 @@ def verify_header (filename, htypes=None):
 def update_cathead (filename, header):
     
     with fits.open(filename, 'update', memmap=True) as hdulist:
-        for key in header:
-            if 'QC' in key or 'DUMCAT' in key or 'RADECOFF' in key:
-                hdulist[-1].header[key] = (header[key], header.comments[key])
-                
+        # if existing header is minimal (practically only table
+        # columns), which can be the case if zogy.optimal_subtraction
+        # did not reach the end and the catalog is not flagged red (in
+        # which case a dummy catalog with header would have been
+        # created before this function is called), then add the full
+        # input [header] to it
+        #if 'CCD-TEMP' not in hdulist[-1].header:
+        # FORMAT-P is only in header if end of zogy.optimal_subtraction
+        # was reached
+        if 'FORMAT-P' not in hdulist[-1].header:
+            hdulist[-1].header += header
+        else:
+            for key in header:
+                if 'QC' in key or 'DUMCAT' in key or 'RADECOFF' in key:
+                    hdulist[-1].header[key] = (header[key], header.comments[key])
+
         header_update = hdulist[-1].header
 
 
