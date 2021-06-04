@@ -328,7 +328,7 @@ qc_range = {
         'Z-SCMED' : {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 0.30) ],                       'key_type': 'trans', 'pos': False, 'comment': 'median Scorr full image'},
         'Z-SCSTD' : {'default':'None', 'val_type': 'sigma',   'val_range': [ (1, 0.15) ],                       'key_type': 'trans', 'pos': True , 'comment': 'sigma (STD) Scorr full image'},
         'T-NTRANS': {'default':'None', 'val_type': 'skip',    'val_range': [ (100, 200)],                       'key_type': 'trans', 'pos': True , 'comment': 'number of >= [T-NSIGMA]-sigma transients (pre-vetting)'},
-        'T-FTRANS': {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 0.01) ],                       'key_type': 'trans', 'pos': True , 'comment': 'transient fraction: T-NTRANS / NOBJECTS'},
+        'T-FTRANS': {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 0.03) ],                       'key_type': 'trans', 'pos': True , 'comment': 'transient fraction: T-NTRANS / NOBJECTS'},
 
         # N.B.: these limmags below are assuming 6 sigma, as set by transient_nsigma in ZOGY settings file        
         # if that 6 sigma changes, these number need updating with correction: -2.5*log10(nsigma/6)!
