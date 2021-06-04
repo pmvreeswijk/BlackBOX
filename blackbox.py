@@ -762,9 +762,9 @@ def fpack (filename):
                     log.warning ('fpacking over already existing file {}'
                                  .format(filename_packed))
 
-                subprocess.call(cmd)
+                subprocess.run(cmd)
                 filename = filename_packed
-                
+
 
     except Exception as e:
         #log.exception (traceback.format_exc())
@@ -2860,7 +2860,8 @@ def create_obslog (date, email=True, tel=None):
                                                          date_eve)
             cmd = ['firefox', '--screenshot', png_name,
                    'https://suthweather.saao.ac.za']
-            subprocess.call(cmd)
+            result = subprocess.run(cmd, capture_output=True, timeout=180)
+            log.info (result.stdout.decode('UTF-8'))
         except Exception as e:
             log.exception ('exception occurred while making screenshot of '
                            'SAAO weather page '
@@ -5524,12 +5525,12 @@ def unzip(imgname, put_lock=True, timeout=None):
 
     if '.gz' in imgname:
         log.info ('gunzipping {}'.format(imgname))
-        subprocess.call(['gunzip',imgname])
+        subprocess.run(['gunzip',imgname])
         imgname = imgname.replace('.gz','')
 
     elif '.fz' in imgname:
         log.info ('funpacking {}'.format(imgname))
-        subprocess.call(['funpack','-D',imgname])
+        subprocess.run(['funpack','-D',imgname])
         imgname = imgname.replace('.fz','')
 
     if put_lock:
