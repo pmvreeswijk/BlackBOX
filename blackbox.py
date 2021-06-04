@@ -91,7 +91,7 @@ tnow = Time.now()
 tnow.ut1  
 
 
-__version__ = '1.0.7'
+__version__ = '1.0.8'
 keywords_version = '1.0.0'
 
 #def init(l):
@@ -732,11 +732,11 @@ def pool_func (func, filelist, *args, nproc=1):
 ################################################################################
 
 def fpack (filename):
-    
+
     """fpack fits images; skip fits tables"""
 
     try:
-    
+
         # fits check if extension is .fits and not an LDAC fits file
         if filename.split('.')[-1] == 'fits' and '_ldac.fits' not in filename:
             header = read_hdulist(filename, get_data=False, get_header=True,
@@ -815,7 +815,7 @@ def create_jpg (filename):
             #f.set_theme('pretty')
             f.save(image_jpg, adjust_bbox=False)
             f.close()
-            
+
 
     except Exception as e:
         #log.exception (traceback.format_exc())
@@ -1582,7 +1582,6 @@ def blackbox_reduce (filename):
 
         # check quality control
         qc_flag = run_qc_check (header, tel, check_key_type='full')
-
 
         # update [new_fits] header with qc-flags
         header_update = read_hdulist(new_fits, get_data=False, get_header=True)
@@ -2726,7 +2725,7 @@ def update_imhead (filename, header):
     # optimal_subtraction
     header['DATEFILE'] = (Time.now().isot, 'UTC date of writing file')
     with fits.open(filename, 'update', memmap=True) as hdulist:
-        hdulist[-1].header = header
+        hdulist[-1].header += header
         
     # create separate header file
     hdulist = fits.HDUList(fits.PrimaryHDU(header=header))
