@@ -2746,7 +2746,7 @@ def order_QCkeys (header):
 
 ################################################################################
 
-def create_obslog (date, email=True, tel=None):
+def create_obslog (date, email=True, tel=None, weather_screenshot=True):
     
     # extract table with various observables/keywords from the headers
     # of all raw/reduced files of a particular (evening) date,
@@ -2852,7 +2852,7 @@ def create_obslog (date, email=True, tel=None):
     
     # for MeerLICHT, save the Sutherland weather page as a screen
     # shot, and add it as attachment to the mail
-    if tel=='ML1':
+    if tel=='ML1' and weather_screenshot:
         try:
             png_name = '{}/{}/{}_SAAOweather.png'.format(red_path, date_dir,
                                                          date_eve)
