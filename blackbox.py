@@ -138,7 +138,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
     # update nthreads in set_bb with value of environment variable
     # 'OMP_NUM_THREADS' set at the top
-    if int(os.environ['OMP_NUM_THREADS']) != get_par(set_bb.nthreads,tel):
+    if int(os.environ['OMP_NUM_THREADS']) != set_bb.nthreads:
         set_bb.nthreads = int(os.environ['OMP_NUM_THREADS'])
 
     # update various parameters in set_bb if corresponding input
@@ -205,7 +205,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
     log.info ('processing mode:        {}'.format(mode))
     log.info ('number of processes:    {}'.format(nproc))
-    log.info ('number of threads:      {}'.format(get_par(set_bb.nthreads,tel)))
+    log.info ('number of threads:      {}'.format(set_bb.nthreads))
     log.info ('switch img_reduce:      {}'.format(get_par(set_bb.img_reduce,tel)))
     log.info ('switch cat_extract:     {}'.format(get_par(set_bb.cat_extract,tel)))
     log.info ('switch trans_extract:   {}'.format(get_par(set_bb.trans_extract,tel)))
@@ -1916,7 +1916,7 @@ def blackbox_reduce (filename):
             header_new = optimal_subtraction(
                 new_fits=new_fits, new_fits_mask=new_fits_mask, 
                 set_file='set_zogy', verbose=None, redo_new=None,
-                nthreads=get_par(set_bb.nthreads,tel), telescope=tel,
+                nthreads=set_bb.nthreads, telescope=tel,
                 keep_tmp=get_par(set_bb.keep_tmp,tel))
 
             # add offset between RA/DEC-CNTR coords and ML/BG field
@@ -2000,7 +2000,7 @@ def blackbox_reduce (filename):
             header_ref = optimal_subtraction(
                 ref_fits=new_fits, ref_fits_mask=new_fits_mask, 
                 set_file='set_zogy', verbose=None, redo_ref=None,
-                nthreads=get_par(set_bb.nthreads,tel), telescope=tel,
+                nthreads=set_bb.nthreads, telescope=tel,
                 keep_tmp=get_par(set_bb.keep_tmp,tel))
 
             # add offset between RA/DEC-CNTR coords and ML/BG field
@@ -2133,7 +2133,7 @@ def blackbox_reduce (filename):
                 new_fits=new_fits, ref_fits=ref_fits, new_fits_mask=new_fits_mask,
                 ref_fits_mask=ref_fits_mask, set_file='set_zogy', 
                 verbose=None, redo_new=None, redo_ref=None,
-                nthreads=get_par(set_bb.nthreads,tel), telescope=tel,
+                nthreads=set_bb.nthreads, telescope=tel,
                 keep_tmp=get_par(set_bb.keep_tmp,tel))
 
             # add offset between RA/DEC-CNTR coords and ML/BG field
@@ -2674,13 +2674,12 @@ def update_cathead (filename, header):
     with fits.open(filename, 'update', memmap=True) as hdulist:
         # if existing header is minimal (practically only table
         # columns), which can be the case if zogy.optimal_subtraction
-        # did not reach the end and the catalog is not flagged red (in
-        # which case a dummy catalog with header would have been
-        # created before this function is called), then add the full
-        # input [header] to it
-        #if 'CCD-TEMP' not in hdulist[-1].header:
-        # FORMAT-P is only in header if end of zogy.optimal_subtraction
-        # was reached
+        # did not reach the end (due to an issue in the transient
+        # extraction) and QC-FLAG is not red (in which case a dummy
+        # catalog with header would have been created before this
+        # function is called), then add the full input [header] to it;
+        # FORMAT-P is only in header if end of
+        # zogy.optimal_subtraction was reached
         if 'FORMAT-P' not in hdulist[-1].header:
             hdulist[-1].header += header
         else:
@@ -2725,7 +2724,7 @@ def update_imhead (filename, header):
     # optimal_subtraction
     header['DATEFILE'] = (Time.now().isot, 'UTC date of writing file')
     with fits.open(filename, 'update', memmap=True) as hdulist:
-        hdulist[-1].header += header
+        hdulist[-1].header = header
         
     # create separate header file
     hdulist = fits.HDUList(fits.PrimaryHDU(header=header))
@@ -3315,7 +3314,7 @@ def sat_detect (data, header, data_mask, header_mask, tmp_path):
         #detect satellite trails
         try:
             results, errors = detsat(fits_binned_mask, chips=[0],
-                                     n_processes=get_par(set_bb.nthreads,tel),
+                                     n_processes=set_bb.nthreads,
                                      buf=40, sigma=3, h_thresh=0.2, plot=False,
                                      verbose=False)
         except Exception as e:
@@ -5556,76 +5555,75 @@ def str2bool(v):
 
 if __name__ == "__main__":
     
-    params = argparse.ArgumentParser(description='User parameters')
+    parser = argparse.ArgumentParser(description='User parameters')
 
-    params.add_argument('--telescope', type=str, default='ML1', 
+    parser.add_argument('--telescope', type=str, default='ML1', 
                         help='Telescope name (ML1, BG2, BG3 or BG4); '
                         'default=\'ML1\'')
 
-    params.add_argument('--mode', type=str, default='day', 
+    parser.add_argument('--mode', type=str, default='day', 
                         help='Day or night mode of pipeline; default=\'day\'')
 
-    params.add_argument('--date', type=str, default=None,
+    parser.add_argument('--date', type=str, default=None,
                         help='Date to process (yyyymmdd, yyyy-mm-dd, yyyy/mm/dd '
                         'or yyyy.mm.dd); default=None')
 
-    params.add_argument('--read_path', type=str, default=None,
+    parser.add_argument('--read_path', type=str, default=None,
                         help='Full path to the input raw data directory; if not '
                         'defined it is determined from [set_blackbox.raw_dir], '
                         '[telescope] and [date]; default=None') 
 
-    params.add_argument('--recursive', type=str2bool, default=False,
+    parser.add_argument('--recursive', type=str2bool, default=False,
                         help='Recursively include subdirectories for input '
                         'files; default=False')
 
-    params.add_argument('--imgtypes', type=str, default=None,
+    parser.add_argument('--imgtypes', type=str, default=None,
                         help='Only consider this(these) image type(s); '
                         'default=None')
 
-    params.add_argument('--filters', type=str, default=None,
+    parser.add_argument('--filters', type=str, default=None,
                         help='Only consider this(these) filter(s); default=None')
 
-    params.add_argument('--image', type=str, default=None, help='Only process '
+    parser.add_argument('--image', type=str, default=None, help='Only process '
                         'this particular image (requires full path); '
                         'default=None')
     
-    params.add_argument('--image_list', type=str, default=None,
+    parser.add_argument('--image_list', type=str, default=None,
                         help='Process images listed in ASCII file with this '
                         'name; default=None')
 
-    params.add_argument('--img_reduce', type=str, default=None,
+    parser.add_argument('--img_reduce', type=str, default=None,
                         help='Perform basic image reduction part; default=None')
 
-    params.add_argument('--cat_extract', type=str, default=None,
+    parser.add_argument('--cat_extract', type=str, default=None,
                         help='Perform catalog extraction and calibration part; '
                         'default=None')
 
-    params.add_argument('--trans_extract', type=str, default=None,
+    parser.add_argument('--trans_extract', type=str, default=None,
                         help='Perform transient extraction part; default=None')
 
-    params.add_argument('--force_reproc_new', type=str, default=None,
+    parser.add_argument('--force_reproc_new', type=str, default=None,
                         help='Force reprocessing of new image; default=None')
 
-    params.add_argument('--master_date', type=str, default=None,
+    parser.add_argument('--master_date', type=str, default=None,
                         help='Create master file of type(s) [imgtypes] and '
                         'filter(s) [filters] for this(these) date(s) (e.g. 2019 '
                         'or 2019/10 or 2019-10-14; can also be an ascii file '
                         'with the date(s) in the 1st column and optionally the '
                         'filter(s) in the 2nd column); default=None')
 
-    params.add_argument('--name_genlog', type=str, default=None,
+    parser.add_argument('--name_genlog', type=str, default=None,
                         help='Name of general log file to save; if path is not '
                         'provided, it will be saved in the telescope\'s log '
                         'directory; default of None will create logfile with name '
                         '[tel]_[date]_[time].log with date/time at start of '
                         'running blackbox')
 
-    params.add_argument('--keep_tmp', default=None,
+    parser.add_argument('--keep_tmp', default=None,
                         help='keep temporary directories')
 
 
-    args = params.parse_args()
-
+    args = parser.parse_args()
     run_blackbox (telescope=args.telescope, mode=args.mode, date=args.date, 
                   read_path=args.read_path, recursive=args.recursive, 
                   imgtypes=args.imgtypes, filters=args.filters, image=args.image,
