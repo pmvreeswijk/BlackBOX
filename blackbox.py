@@ -91,7 +91,7 @@ tnow = Time.now()
 tnow.ut1  
 
 
-__version__ = '1.0.8'
+__version__ = '1.0.9'
 keywords_version = '1.0.0'
 
 #def init(l):
