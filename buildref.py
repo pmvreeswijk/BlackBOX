@@ -28,6 +28,7 @@ else:
     # not really necessary - already done in cluster batch script
     os.environ['OMP_NUM_THREADS'] = str(cpus_per_task)
 
+
 from astropy.coordinates import Angle
 
 # trouble installing fitsio in singularity container so create
@@ -55,15 +56,15 @@ from qc import qc_check, run_qc_check
 import set_blackbox as set_bb
 
 
-__version__ = '0.8.0'
+__version__ = '0.8.1'
 
 
 ################################################################################
 
 def buildref (telescope=None, fits_table=None, table_only=None, date_start=None,
-              date_end=None, field_IDs=None, filters=None, qc_flag_max=None,
-              seeing_max=None, make_colfig=False, filters_colfig='iqu',
-              extension=None):
+              date_end=None, field_IDs=None, filters=None, go_deep=None,
+              qc_flag_max=None, seeing_max=None, make_colfig=False,
+              filters_colfig='iqu', extension=None, keep_tmp=None):
 
 
     """Module to consider one specific or all available field IDs within a
@@ -79,7 +80,7 @@ def buildref (telescope=None, fits_table=None, table_only=None, date_start=None,
     """
     
     global tel, lock, max_qc_flag, max_seeing, start_date, end_date
-    global time_refstart, ext
+    global time_refstart, ext, deep
     tel = telescope
     lock = Lock()
     max_qc_flag = qc_flag_max
@@ -87,7 +88,7 @@ def buildref (telescope=None, fits_table=None, table_only=None, date_start=None,
     start_date = date_start
     end_date = date_end
     ext = extension
-
+    deep = go_deep
 
     # define number of processes or tasks [nproc]; when running on the
     # ilifu cluster the environment variable SLURM_NTASKS should be
@@ -101,8 +102,12 @@ def buildref (telescope=None, fits_table=None, table_only=None, date_start=None,
 
     # update nthreads in set_br with value of environment variable
     # 'OMP_NUM_THREADS' set at the top
-    if int(os.environ['OMP_NUM_THREADS']) != get_par(set_br.nthreads,tel):
+    if int(os.environ['OMP_NUM_THREADS']) != set_br.nthreads:
         set_br.nthreads = int(os.environ['OMP_NUM_THREADS'])
+
+
+    if keep_tmp is not None:
+        set_br.keep_tmp = str2bool(keep_tmp)
 
 
     # record starting time to add to header
@@ -111,7 +116,7 @@ def buildref (telescope=None, fits_table=None, table_only=None, date_start=None,
 
     log.info ('building reference images')
     log.info ('number of processes: {}'.format(nproc))
-    log.info ('number of threads:   {}'.format(get_par(set_br.nthreads,tel)))
+    log.info ('number of threads:   {}'.format(set_br.nthreads))
     log.info ('telescope:           {}'.format(telescope))
     log.info ('date_start:          {}'.format(date_start))
     log.info ('date_end:            {}'.format(date_end))
@@ -540,7 +545,13 @@ def buildref (telescope=None, fits_table=None, table_only=None, date_start=None,
             
 
             # filter based on target limiting magnitude
-            limmag_target = get_par(set_br.limmag_target,tel)[filt]
+            if not deep:
+                limmag_target = get_par(set_br.limmag_target,tel)[filt]
+            else:
+                # set limiting magnitudes to mag=30 for all filters
+                limmag_target = 30.0
+
+
             # add dmag to target magnitude to account for the fact
             # that the projected limiting magnitude will be somewhat
             # higher than the actual one. Even higher in clipped mode
@@ -667,47 +678,6 @@ def buildref (telescope=None, fits_table=None, table_only=None, date_start=None,
                               .format(e))
             raise RuntimeError
 
-    # not needed anymore; fpacking and jpegging is now done inside
-    # BB's [copy_files2keep]
-    if False:
-        
-        # fpack reference fits files
-        # --------------------------
-        log.info ('fpacking reference fits images')
-        ref_dir = get_par(set_bb.ref_dir,tel)
-        list_2pack = []
-        for field_ID in objs_uniq:
-            ref_path = '{}/{:0>5}'.format(ref_dir, field_ID)
-            if ext is not None:
-                ref_path = '{}{}'.format(ref_path, ext)
-                
-            list_2pack.append(glob.glob('{}/*.fits'.format(ref_path)))
-            list_2pack.append(glob.glob('{}/Old/*.fits'.format(ref_path)))
-
-        # unnest nested list_2pack
-        list_2pack = list(itertools.chain.from_iterable(list_2pack))
-        
-        # use [pool_func] to process the list
-        result = pool_func (fpack, list_2pack, nproc=nproc)
-
-
-        # create jpg images for reference frames
-        # --------------------------------------
-        log.info ('creating jpg images')
-        # create list of files to jpg
-        list_2jpg = []
-        for field_ID in objs_uniq:
-            ref_path = '{}/{:0>5}'.format(ref_dir, field_ID)
-            if ext is not None:
-                ref_path = '{}{}'.format(ref_path, ext)
-                
-            list_2jpg.append(glob.glob('{}/*_red.fits.fz'.format(ref_path)))
-
-        # unnest nested list_2pack
-        list_2jpg = list(itertools.chain.from_iterable(list_2jpg))
-
-        # use [pool_func] to process the list
-        result = pool_func (create_jpg, list_2jpg, nproc=nproc)
 
 
     logging.shutdown()
@@ -941,6 +911,9 @@ def prep_colfig (field_ID, filters):
     
     # determine reference directory and file
     ref_path = '{}/{:0>5}'.format(get_par(set_bb.ref_dir,tel), field_ID)
+    if deep:
+        ref_path = ref_path.replace('/ref/', '/deep/')
+
     # for the moment, add _alt to this path to separate it from
     # existing reference images
     if ext is not None:
@@ -1012,6 +985,10 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
 
     # determine and create reference directory
     ref_path = '{}/{:0>5}'.format(get_par(set_bb.ref_dir,tel), field_ID)
+    # in deep mode, change this path to the deep folder
+    if deep:
+        ref_path = ref_path.replace('/ref/', '/deep/')
+    
     make_dir (ref_path)
     
     # name of output file, including full path
@@ -1064,9 +1041,16 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
 
         
     # prepare temporary folder
-    tmp_path = ('{}/{:0>5}/{}'
-                .format(get_par(set_bb.tmp_dir,tel), field_ID,
-                        ref_fits_out.split('/')[-1].replace('.fits','')))
+    if not deep:
+        tmp_path = ('{}/{:0>5}/{}'
+                    .format(get_par(set_bb.tmp_dir,tel), field_ID,
+                            ref_fits_out.split('/')[-1].replace('.fits','')))
+    else:
+        # slightly different in deep mode
+        tmp_path = ('{}/{:0>5}_deep/{}'
+                    .format(get_par(set_bb.tmp_dir,tel), field_ID,
+                            ref_fits_out.split('/')[-1].replace('.fits','')))
+
     make_dir (tmp_path, empty=True)
 
 
@@ -1125,7 +1109,7 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
                        back_filtersize = get_par(set_zogy.bkg_filtersize,tel),
                        remap_each = True,
                        swarp_cfg = get_par(set_zogy.swarp_cfg,tel),
-                       nthreads = get_par(set_br.nthreads,tel))
+                       nthreads = set_br.nthreads)
 
         except Exception as e:
             #log.exception (traceback.format_exc())
@@ -1142,7 +1126,7 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
             header_optsub = optimal_subtraction(
                 ref_fits=ref_fits, ref_fits_mask=ref_fits_mask,
                 set_file='set_zogy', verbose=None,
-                nthreads=get_par(set_br.nthreads,tel), telescope=tel)
+                nthreads=set_br.nthreads, telescope=tel)
         except Exception as e:
             #log.exception (traceback.format_exc())
             log.exception ('exception was raised during reference '
@@ -1221,7 +1205,7 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
                        masktype_discard=masktype_discard, tempdir=tmp_path,
                        remap_each=False,
                        swarp_cfg=get_par(set_zogy.swarp_cfg,tel),
-                       nthreads=get_par(set_br.nthreads,tel))
+                       nthreads=set_br.nthreads)
 
             # copy combined image to reference folder
             shutil.move (ref_fits_temp, ref_path)
@@ -1345,7 +1329,7 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
     if swarp_cfg is None:
         swarp_cfg = tempdir+'/swarp.config'
         cmd = 'swarp -d > {}'.format(swarp_cfg)
-        result = subprocess.call(cmd, shell=True)
+        result = subprocess.run(cmd, shell=True)
     else:
         if not os.path.isfile(swarp_cfg):
             raise IOError ('file {} does not exist'.format(swarp_cfg))
@@ -1949,7 +1933,12 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
 
     # projected and target limiting magnitudes
     header_out['R-LMPROJ'] = (limmag_proj, '[mag] projected limiting magnitude')
-    limmag_target = get_par(set_br.limmag_target,tel)[filt]
+    if not deep: 
+        limmag_target = get_par(set_br.limmag_target,tel)[filt]
+    else:
+        # set limiting magnitudes to mag=30 for all filters
+        limmag_target = 30.0
+
     header_out['R-LMTARG'] = (limmag_target, '[mag] target limiting magnitude')
 
     # combination method
@@ -3480,6 +3469,11 @@ if __name__ == "__main__":
     parser.add_argument('--filters', type=str, default=None,
                         help='only consider this(these) filter(s), e.g. uqi')
 
+    parser.add_argument('--go_deep', type=str2bool, default=False,
+                        help='use all images available (i.e. neglect values of '
+                        '[set_buildref.limmag_target]) and save in \'deep\' '
+                        'instead of \'ref\' folder')
+
     parser.add_argument('--qc_flag_max', type=str, default='orange',
                         choices=['green', 'yellow', 'orange', 'red'],
                         help='worst QC flag to consider; default=\'orange\'')
@@ -3499,8 +3493,9 @@ if __name__ == "__main__":
                         help='extension to add to default reference folder name, '
                         'e.g. _alt; default: None')
 
-    
-    
+    parser.add_argument('--keep_tmp', default=None,
+                        help='keep temporary directories')
+
     args = parser.parse_args()
 
     buildref (telescope = args.telescope,
@@ -3510,11 +3505,13 @@ if __name__ == "__main__":
               date_end = args.date_end,
               field_IDs = args.field_IDs,
               filters = args.filters,
+              go_deep = args.go_deep,
               qc_flag_max = args.qc_flag_max,
               seeing_max = args.seeing_max,
               make_colfig = args.make_colfig,
               filters_colfig = args.filters_colfig,
-              extension = args.extension)
+              extension = args.extension,
+              keep_tmp = args.keep_tmp)
 
 
 ################################################################################
