@@ -2798,9 +2798,9 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
         'DEC': '{:.3f}',
         'AIRMASS': '{:.3f}',
         'S-SEEING': '{:.4}',
-        'CL-BASE': '{:.0f}',
-        'RH-MAST': '{:.1f}',
-        'WINDAVE': '{:.1f}',
+        'CL-BASE': '{:.4}',
+        'RH-MAST': '{:.4}',
+        'WINDAVE': '{:.4}',
         'LIMMAG': '{:.5}'
     }
 
@@ -4755,9 +4755,9 @@ def set_header(header, filename):
               comments='CCD controller')
     edit_head(header, 'DETSPEED', value='None', dtype=int,
               comments='[kHz] Detector read speed')
-    edit_head(header, 'CCD-NW',   dtype=int,
+    edit_head(header, 'CCD-NW', value=get_par(set_bb.nx,tel), dtype=int,
               comments='Number of channels in width')
-    edit_head(header, 'CCD-NH',   dtype=int,
+    edit_head(header, 'CCD-NH', value=get_par(set_bb.ny,tel), dtype=int,
               comments='Number of channels in height')
     edit_head(header, 'INSTRUME', value='None', dtype=str,
               comments='Instrument name')
