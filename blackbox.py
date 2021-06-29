@@ -2783,7 +2783,7 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
     filenames = [f for sublist in filenames for f in sublist]
 
     # maximum filename length for column format
-    max_length = max([len(f.strip()) for f in filenames])
+    #max_length = max([len(f.strip()) for f in filenames])
     
     # keywords to add to table
     keys = ['ORIGFILE', 'IMAGETYP', 'DATE-OBS', 'PROGNAME', 'PROGID', 'OBJECT',
@@ -2840,9 +2840,16 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
 
     # write table to ASCII file
     obslog_name = '{}/{}/{}_obslog.txt'.format(red_path, date_dir, date_eve)
-    ascii.write (table, obslog_name, format='fixed_width_two_line',
-                 delimiter_pad=' ', position_char=' ',
-                 formats=formats, overwrite=True)
+    if len(rows) == 0:
+        # if table is empty, no files were processed and reduced
+        # folder needs to be created before writing the empty table
+        red_dir = '{}/{}'.format(red_path, date_dir)
+        make_dir (red_dir)
+        ascii.write (table, obslog_name, overwrite=True)
+    else:
+        ascii.write (table, obslog_name, format='fixed_width_two_line',
+                     delimiter_pad=' ', position_char=' ',
+                     formats=formats, overwrite=True)
 
     # additional info:
     # - any raw files that were not reduced?
