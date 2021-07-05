@@ -47,7 +47,7 @@ import aplpy
 from zogy import *
 import set_zogy
 
-from blackbox import date2mjd, unzip
+from blackbox import date2mjd, unzip, fill_sat_holes
 from blackbox import get_par, already_exists, copy_files2keep
 from blackbox import close_log, define_sections, make_dir
 from blackbox import pool_func, fpack, create_jpg, clean_tmp
@@ -56,7 +56,7 @@ from qc import qc_check, run_qc_check
 import set_blackbox as set_bb
 
 
-__version__ = '0.8.1'
+__version__ = '0.8.2'
 
 
 ################################################################################
@@ -1526,24 +1526,35 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
         # with input parameter masktype_discard) to zero in weights image
         mask_weights = np.zeros(data_mask.shape, dtype=bool)
         mask_value = get_par(set_zogy.mask_value,tel)
-        # iterate over all mask values
-        for val in mask_value.values():
-            # check if this one is to be discarded
-            if masktype_discard & val == val:
-                mask_discard = (data_mask & val == val)
-                mask_weights[mask_discard] = True
-                log.info('discarding mask value {}; no. of pixels: {}'
-                         .format(val, np.sum(mask_discard)))
+        # if more than a single image is combined, iterate over all
+        # mask values and set weights to zero of mask values to be
+        # discarded
+        if np.sum(mask_keep) > 1:
+            for val in mask_value.values():
+                # check if this one is to be discarded
+                if masktype_discard & val == val:
+                    mask_discard = (data_mask & val == val)
+                    mask_weights[mask_discard] = True
+                    log.info('discarding mask value {}; no. of pixels: {}'
+                             .format(val, np.sum(mask_discard)))
 
-        # set corresponding pixels to zero in data_weights
-        data_weights[mask_weights] = 0
+            # set corresponding pixels to zero in data_weights
+            data_weights[mask_weights] = 0
 
 
-        # fix pixels
+        # fix pixels if saturated pixels are not considered as bad
+        # pixels, i.e. their weight is not set to zero; if they are
+        # included in [masktype_discard], then the saturated and
+        # connected pixels are replaced (interpolated over) in the
+        # combined image near the end of [imcombine] instead of in the
+        # individual images
         base = image_temp.split('.fits')[0]
-        data = fixpix (data, satlevel=saturate, data_mask=data_mask,
-                       base=base, imtype='new', mask_value=mask_value,
-                       keep_tmp=get_par(set_br.keep_tmp,tel))
+        value_sat = mask_value['saturated']
+        if not (masktype_discard & value_sat == value_sat):
+            data = fixpix (data, satlevel=saturate, data_mask=data_mask,
+                           base=base, imtype='new', mask_value=mask_value,
+                           keep_tmp=get_par(set_br.keep_tmp,tel),
+                           along_row=True, interp_func='gauss')
 
 
         # fill arrays with header info
@@ -1819,17 +1830,6 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
 
                 imagelist_tmp = list(imtable['image_name_tmp'])
 
-
-                # weights images to be used in the creation of the
-                # minimum image; this is not being used; weighted mean
-                # is applied to 2 images
-                if False and len(imagelist_tmp) == 2:
-                    for fits_tmp in imagelist_tmp:
-                        fits_w_tmp = fits_tmp.replace('.fits', '_weights.fits')
-                        fits_w_orig = fits_tmp.replace('.fits',
-                                                       '_weights_orig.fits')
-                        shutil.copy2 (fits_w_tmp, fits_w_orig)
-                        
 
                 # use function [clipped2mask] to convert clipped
                 # pixels identified by SWarp, saved in [clip_logname],
@@ -2208,17 +2208,9 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
 
 
 
-    # fill_holes and binary_close saturated pixels
-    value_sat = mask_value['saturated']
-    value_satcon = mask_value['saturated-connected']
-    mask_sat = ((data_mask_out & value_sat == value_sat) |
-                (data_mask_out & value_satcon == value_satcon))
-    struct = np.ones((3,3), dtype=bool)
-    mask_sat = ndimage.binary_fill_holes(mask_sat, structure=struct)
-    struct = np.ones((5,5), dtype=bool)
-    mask_sat = ndimage.binary_closing(mask_sat, structure=struct)
-    mask_sat2add = (mask_sat & (data_mask_out==0))
-    data_mask_out[mask_sat2add] = value_satcon
+    # fill_holes and binary_close saturated pixels using function
+    # blackbox.fill_sat_holes; mask is updated in place
+    fill_sat_holes (data_mask_out, mask_value)
 
 
     # set pixels that are in the actual combined edge to [value_edge],
@@ -2251,9 +2243,22 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
     # replace zeros with maximum value
     data_bkg_std_out[mask_zero_cw] = np.amax(data_bkg_std_out[~mask_zero_cw])
     
-    # set pixels with zeros in combined weights to zero in output image
-    data_out[mask_zero_cw] = 0
-    
+
+    # if saturated pixels are considered to be bad pixels, i.e.  they
+    # are given a weight of zero, then use zogy.fixpix to interpolate
+    # over them
+    value_sat = mask_value['saturated']
+    if masktype_discard & value_sat == value_sat:
+        base = fits_out.split('.fits')[0]
+        data_out = fixpix (data_out, satlevel=saturate_eff,
+                           data_bkg_std=data_bkg_std_out,
+                           data_mask=data_mask_out, header=header_out,
+                           base=base, mask_value=mask_value,
+                           keep_tmp=get_par(set_br.keep_tmp,tel),
+                           # along column as reference image has been
+                           # re-oriented to North up, East left
+                           along_row=False, interp_func='gauss')
+
 
     # add pixels that have zero weights in the combined weights
     # image as bad pixels, only if not already masked
@@ -2261,6 +2266,15 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
     mask_bad2add = (mask_zero_cw & (data_mask_out==0))
     data_mask_out[mask_bad2add] += 1
 
+    log.info ('{} zero-weight pixels in combined image, of which {} are not '
+              'coinciding with already flagged pixels'
+              .format(np.sum(mask_zero_cw), np.sum(mask_bad2add)))
+    
+    # set values of these additional bad pixels to zero in output
+    # image
+    #data_out[mask_bad2add] = 0
+    
+    
     if False:
         if len(imtable) != 2:
             data_mask_out[mask_bad2add] += 1
