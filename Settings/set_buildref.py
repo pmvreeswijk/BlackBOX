@@ -54,7 +54,7 @@ nmin_4clipping = 3
 
 
 # sum of mask type integers (bad=1,..) to discard
-masktype_discard = 51 # i.e. discard bad (1) + cosmic (2) + satellite (16)
+masktype_discard = 63 # i.e. discard bad (1) + cosmic (2) + satellite (16)
                       # + edge (32)
 
 # centering method; options: 'grid', 'median_field' or 'median_filter'
