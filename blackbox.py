@@ -91,7 +91,7 @@ tnow = Time.now()
 tnow.ut1  
 
 
-__version__ = '1.0.9'
+__version__ = '1.0.10'
 keywords_version = '1.0.0'
 
 #def init(l):
@@ -495,12 +495,12 @@ def get_file (queue):
                 # read the file
                 data = read_hdulist(filename)
 
-            except Exception as e:
+            except:
                 
                 process = False
                 if nsleep==0:
-                    log.warning ('file {} has not fully arrived yet; will '
-                                 'keep trying to read it in for {}s'
+                    log.warning ('file {} has not completely arrived yet; '
+                                 'will keep trying to read it in for {}s'
                                  .format(filename, wait_max))
 
                 # give file a bit of time to arrive before next read attempt
@@ -510,14 +510,15 @@ def get_file (queue):
             else:
                 # if fits file was read fine, set process flag to True
                 process = True
+                log.info ('successfully read file {} within {:.1f}s'
+                          .format(filename, time.time()-t0))
                 # and break out of while loop
                 break
 
 
         if not process:
-            log.info ('timeout for reading file exceeded {}s, not '
-                      'processing {}; exception: {}'
-                      .format(wait_max, filename, e))
+            log.info ('{}s limit for reading file reached, not processing {}'
+                      .format(wait_max, filename))
             filename = None
 
 
@@ -3363,10 +3364,12 @@ def sat_detect (data, header, data_mask, header_mask, tmp_path):
     
     if satellite_fitting == True:
         #unbin mask
-        mask_sat = np.kron(mask_binned, np.ones((get_par(set_bb.sat_bin,tel),
-                                                 get_par(set_bb.sat_bin,tel)))).astype(np.uint8)
+        mask_sat = np.kron(
+            mask_binned, np.ones((get_par(set_bb.sat_bin,tel),
+                                  get_par(set_bb.sat_bin,tel)))).astype(np.uint8)
         # add pixels affected by satellite trails to [data_mask]
-        data_mask[mask_sat==1] += get_par(set_zogy.mask_value['satellite trail'],tel)
+        data_mask[mask_sat==1] += get_par(set_zogy.mask_value['satellite trail'],
+                                          tel)
         # determining number of trails; 2 pixels are considered from the
         # same trail also if they are only connected diagonally
         struct = np.ones((3,3), dtype=bool)
@@ -3545,9 +3548,10 @@ def mask_init (data, header, filt, imgtype):
         data[mask_infnan] = 0
         # and add them to [data_mask] with same value defined for 'bad' pixels
         # unless that pixel was already masked
-        data_mask[(mask_infnan) & (data_mask==0)] += get_par(
-            set_zogy.mask_value['bad'],tel)
-    
+        mask_value = get_par(set_zogy.mask_value,tel)
+        data_mask[(mask_infnan) & (data_mask==0)] += mask_value['bad']
+
+
         # identify saturated pixels; saturation level (ADU) is taken from
         # blackbox settings file, which needs to be mulitplied by the gain
         # and have the mean biaslevel subtracted
@@ -3556,7 +3560,8 @@ def mask_init (data, header, filt, imgtype):
                               - header['BIASMEAN'])
         mask_sat = (data >= satlevel_electrons)
         # add them to the mask of edge and bad pixels
-        data_mask[mask_sat] += get_par(set_zogy.mask_value['saturated'],tel)
+        data_mask[mask_sat] += mask_value['saturated']
+
 
         # determining number of saturated objects; 2 saturated pixels are
         # considered from the same object also if they are only connected
@@ -3564,14 +3569,19 @@ def mask_init (data, header, filt, imgtype):
         struct = np.ones((3,3), dtype=bool)
         __, nobj_sat = ndimage.label(mask_sat, structure=struct)
     
+
         # and pixels connected to saturated pixels
         struct = np.ones((3,3), dtype=bool)
-        mask_satconnect = ndimage.binary_dilation(mask_sat, structure=struct,
-                                                  iterations=1)
+        mask_satcon = ndimage.binary_dilation(mask_sat, structure=struct,
+                                              iterations=1)
         # add them to the mask
-        data_mask[(mask_satconnect) & (~mask_sat)] += get_par(
-            set_zogy.mask_value['saturated-connected'],tel)
+        mask_satcon2add = (mask_satcon & ~mask_sat)
+        data_mask[mask_satcon2add] += mask_value['saturated-connected']
 
+
+        # fill potential holes using function [fill_sat_holes]
+        fill_sat_holes (data_mask, mask_value)
+        
 
         header_mask['SATURATE'] = (satlevel_electrons, '[e-] adopted saturation '
                                    'threshold')
@@ -3592,15 +3602,33 @@ def mask_init (data, header, filt, imgtype):
 
 ################################################################################
 
+def fill_sat_holes (data_mask, mask_value):
+
+    """fill_holes and binary_close saturated pixels in data_mask"""
+    
+    value_sat = mask_value['saturated']
+    value_satcon = mask_value['saturated-connected']
+    mask_satcon = ((data_mask & value_sat == value_sat) |
+                   (data_mask & value_satcon == value_satcon))
+    struct = np.ones((3,3), dtype=bool)
+    mask_satcon = ndimage.binary_fill_holes(mask_satcon, structure=struct)
+    struct = np.ones((5,5), dtype=bool)
+    mask_satcon = ndimage.binary_closing(mask_satcon, structure=struct)
+    mask_satcon2add = (mask_satcon & (data_mask==0))
+    data_mask[mask_satcon2add] = value_satcon
+
+
+################################################################################
+
 def mask_header(data_mask, header_mask):
 
     """Function to add info from all reduction steps to mask header"""
-    
+
     mask = {}
     text = {'bad': 'BP', 'edge': 'EP', 'saturated': 'SP',
             'saturated-connected': 'SCP', 'satellite trail': 'STP',
             'cosmic ray': 'CRP'}
-    
+
     for mask_type in text.keys():
         value = get_par(set_zogy.mask_value[mask_type],tel)
         mask[mask_type] = (data_mask & value == value)
@@ -3610,7 +3638,7 @@ def mask_header(data_mask, header_mask):
             value, 'value added to mask for {} pixels'.format(mask_type))
         header_mask['M-{}NUM'.format(text[mask_type])] = (
             np.sum(mask[mask_type]), 'number of {} pixels'.format(mask_type))
-        
+
     return
 
 
