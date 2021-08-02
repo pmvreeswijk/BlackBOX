@@ -1126,7 +1126,9 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
             header_optsub = optimal_subtraction(
                 ref_fits=ref_fits, ref_fits_mask=ref_fits_mask,
                 set_file='set_zogy', verbose=None,
-                nthreads=set_br.nthreads, telescope=tel)
+                nthreads=set_br.nthreads, telescope=tel,
+                keep_tmp=get_par(set_br.keep_tmp,tel))
+
         except Exception as e:
             #log.exception (traceback.format_exc())
             log.exception ('exception was raised during reference '
