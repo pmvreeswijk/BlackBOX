@@ -118,13 +118,14 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
     """
 
-    global tel, filts, types
+    global tel, filts, types, proc_mode
     tel = telescope
     filts = filters
     types = imgtypes
     if imgtypes is not None:
         types = imgtypes.lower()
 
+    proc_mode = mode
 
     # define number of processes or tasks [nproc]; when running on the
     # ilifu cluster the environment variable SLURM_NTASKS should be
@@ -336,7 +337,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
  
         else:
             # use [pool_func] to process list of files
-            filenames_reduced = pool_func (blackbox_reduce, filenames,
+            filenames_reduced = pool_func (try_blackbox_reduce, filenames,
                                            nproc=nproc)
             
 
@@ -486,7 +487,7 @@ def get_file (queue):
 
         # this while loop below replaces the old [copying]
         # function; it times out after wait_max is reached
-        wait_max = 60
+        wait_max = 180
         t0 = time.time()
         nsleep = 0
         while time.time()-t0 < wait_max:
@@ -3581,7 +3582,7 @@ def mask_init (data, header, filt, imgtype):
 
         # fill potential holes using function [fill_sat_holes]
         fill_sat_holes (data_mask, mask_value)
-        
+
 
         header_mask['SATURATE'] = (satlevel_electrons, '[e-] adopted saturation '
                                    'threshold')
@@ -3611,9 +3612,8 @@ def fill_sat_holes (data_mask, mask_value):
     mask_satcon = ((data_mask & value_sat == value_sat) |
                    (data_mask & value_satcon == value_satcon))
     struct = np.ones((3,3), dtype=bool)
-    mask_satcon = ndimage.binary_fill_holes(mask_satcon, structure=struct)
-    struct = np.ones((5,5), dtype=bool)
     mask_satcon = ndimage.binary_closing(mask_satcon, structure=struct)
+    mask_satcon = ndimage.binary_fill_holes(mask_satcon, structure=struct)
     mask_satcon2add = (mask_satcon & (data_mask==0))
     data_mask[mask_satcon2add] = value_satcon
 
@@ -3703,12 +3703,13 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True):
 
     if not (master_present and master_ok):
 
-        # sleep for 60s to make sure individual biases and/or flats
-        # have been reduced and written to disk
-        # check!!! - in google mode this 60s sleep should be avoided
-        time.sleep(60)
+        # in night mode only, sleep for 60s to make sure individual
+        # biases and/or flats have been reduced and written to disk
+        # check!!!
+        if proc_mode == 'night':
+            time.sleep(60)
 
-        
+
         # prepare master image from files in [path] +/- the specified
         # time window
         if imtype=='flat':
@@ -5117,12 +5118,13 @@ def os_corr (data, header, imgtype, xbin=1, ybin=1, tel=None):
         mask_hos = (data_hos > 2000.)
         # add couple of pixels connected to this mask
         mask_hos = ndimage.binary_dilation(mask_hos,
-                                           structure=np.ones((3,3)).astype('bool'))
+                                           structure=np.ones((3,3)).astype('bool'),
+                                           iterations=2)
 
         # interpolate spline over these pixels
         if imgtype == 'object':
             data_hos_replaced = inter_pix (data_hos, std_vos[i_chan], mask_hos,
-                                           dpix=10, k=2)
+                                           dpix=10, k=3)
         
         # determine clipped mean for each column
         mean_hos, __, __ = sigma_clipped_stats(data_hos, axis=0,
