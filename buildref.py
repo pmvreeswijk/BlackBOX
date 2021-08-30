@@ -165,6 +165,13 @@ def buildref (telescope=None, fits_table=None, table_only=None, date_start=None,
 
         log.info ('file headers read in {:.2f}s'.format(time.time()-t0))
 
+
+        # remove any test files
+        mask_test = np.array(['test' in f.lower() for f in table['ORIGFILE']])
+        table = table[~mask_test]
+        log.info ('number of test files discarded: {}'.format(np.sum(mask_test)))
+
+        
         # write to file
         if fits_table is not None:
             log.info ('writing table to file {}'.format(fits_table))
@@ -765,9 +772,10 @@ def header2table (filenames):
     rows = []
 
     # keywords to add to table
-    keys = ['MJD-OBS', 'OBJECT', 'FILTER', 'QC-FLAG', 'RA-CNTR', 'DEC-CNTR',
-            'PSF-SEE', 'LIMMAG', 'S-BKGSTD']
-    keys_dtype = [float, 'U5', 'U1', 'U6', float, float, float, float, float]
+    keys = ['MJD-OBS', 'OBJECT', 'FILTER', 'QC-FLAG', 'RA-CNTR',
+            'DEC-CNTR', 'PSF-SEE', 'LIMMAG', 'S-BKGSTD', 'ORIGFILE']
+    keys_dtype = [float, 'U5', 'U1', 'U6', float,
+                  float, float, float, float, 'U100']
 
 
     # loop input list of filenames
