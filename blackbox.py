@@ -91,7 +91,7 @@ tnow = Time.now()
 tnow.ut1  
 
 
-__version__ = '1.0.10'
+__version__ = '1.0.11'
 keywords_version = '1.0.0'
 
 #def init(l):
@@ -2238,7 +2238,20 @@ def blackbox_reduce (filename):
     copy_files2keep(tmp_base, new_base, list_2keep,
                     move=(not get_par(set_bb.keep_tmp,tel)))
 
+    # only for ML and if original filename contains ADC, save any
+    # *dRADEC* files from tmp to
+    # /idia/projects/meerlicht/ADCtests/yyyymmdd folders
+    if tel=='ML1' and 'adc' in filename.lower():
 
+        dest_dir = '/idia/projects/meerlicht/ADCtests/{}'.format(date_eve)
+        make_dir (dest_dir)
+        
+        adc_files = glob.glob('{}*dRADEC*'.format(tmp_base))
+        for adc_file in adc_files:
+            shutil.copy2(adc_file, dest_dir)
+
+
+    
     # only for ML, create symbolic links in alternative directory
     # structure if transient catalog is involved; turn off for now
     if False:
@@ -2861,10 +2874,10 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
     
     # for MeerLICHT, save the Sutherland weather page as a screen
     # shot, and add it as attachment to the mail
+    png_name = '{}/{}/{}_SAAOweather.png'.format(red_path, date_dir,
+                                                 date_eve)
     if tel=='ML1' and weather_screenshot:
         try:
-            png_name = '{}/{}/{}_SAAOweather.png'.format(red_path, date_dir,
-                                                         date_eve)
             cmd = ['firefox', '--screenshot', png_name,
                    'https://suthweather.saao.ac.za']
             result = subprocess.run(cmd, capture_output=True, timeout=180)
@@ -2874,7 +2887,8 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
                            'SAAO weather page '
                            '(https://suthweather.saao.ac.za): {}'.format(e))
     else:
-        png_name = None
+        if not os.path.isfile(png_name):
+            png_name = None
 
 
     if email:
@@ -3739,26 +3753,42 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True):
         # do not consider image with header QC-FLAG set to red
         mask_keep = np.ones(len(file_list), dtype=bool)
         mjd_obs = np.zeros(len(file_list))
-        for i_file, filename in enumerate(file_list):
-
-            header_temp = read_hdulist (filename, get_data=False, get_header=True)
-            if 'QC-FLAG' in header_temp and header_temp['QC-FLAG'] == 'red':
-                mask_keep[i_file] = False
-
-            # record MJD-OBS in array
-            if 'MJD-OBS' in header_temp:
-                mjd_obs[i_file] = header_temp['MJD-OBS'] 
 
 
-            # for period from July 2019 until February 2020, avoid
-            # using MeerLICHT evening flats due to dome vignetting
-            mjd_avoid = Time(['2019-07-01T12:00:00', '2020-03-01T12:00:00'],
-                             format='isot').mjd
-            if (tel=='ML1' and mjd_obs[i_file] % 1 > 0.5 and
-                mjd_obs[i_file] > mjd_avoid[0] and
-                mjd_obs[i_file] < mjd_avoid[1]):
+        if create_master:
 
-                mask_keep[i_file] = False
+            # execute this block only if [create_master] is switched
+            # on, otherwise the line with read_hdulist below leads to
+            # an exception when running both bias and flatfield
+            # reductions on Slurm with multiple tasks/processes:
+            # Header missing END card. [blackbox_reduce, line 1323]
+
+            for i_file, filename in enumerate(file_list):
+                
+                log.info ('reading header of {}'.format(filename))
+                # check!!! - the following line leads to an exception when
+                # running both bias and flatfield reductions on Slurm with
+                # multiple tasks/processes:
+                # Header missing END card. [blackbox_reduce, line 1323]
+                header_temp = read_hdulist (filename, get_data=False,
+                                            get_header=True)
+                if 'QC-FLAG' in header_temp and header_temp['QC-FLAG'] == 'red':
+                    mask_keep[i_file] = False
+
+                # record MJD-OBS in array
+                if 'MJD-OBS' in header_temp:
+                    mjd_obs[i_file] = header_temp['MJD-OBS'] 
+
+
+                # for period from July 2019 until February 2020, avoid
+                # using MeerLICHT evening flats due to dome vignetting
+                mjd_avoid = Time(['2019-07-01T12:00:00', '2020-03-01T12:00:00'],
+                                 format='isot').mjd
+                if (tel=='ML1' and mjd_obs[i_file] % 1 > 0.5 and
+                    mjd_obs[i_file] > mjd_avoid[0] and
+                    mjd_obs[i_file] < mjd_avoid[1]):
+
+                    mask_keep[i_file] = False
 
 
 
@@ -4130,6 +4160,9 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True):
 
 def get_closest_biasflat (date_eve, file_type, filt=None):
 
+    if get_par(set_zogy.timing,tel):
+        t = time.time()
+        
     red_dir = get_par(set_bb.red_dir,tel)
     search_str = '{}/*/*/*/{}/{}_????????'.format(red_dir, file_type, file_type)
     if filt is None:
@@ -4139,7 +4172,7 @@ def get_closest_biasflat (date_eve, file_type, filt=None):
 
     files = glob.glob(search_str)
     nfiles = len(files)
-
+    
     if nfiles > 0:
         # find file that is closest in time to [date_eve]
         mjds = np.array([date2mjd(files[i].split('/')[-1].split('_')[1])
@@ -4147,12 +4180,17 @@ def get_closest_biasflat (date_eve, file_type, filt=None):
         # these mjds corresponding to the very start of the day
         # (midnight) but in the comparison this offset cancels out
         i_close = np.argmin(abs(mjds - date2mjd(date_eve)))
-        return files[i_close]
+        par2return = files[i_close]
 
     else:
-        return None
+        par2return = None
     
+    if get_par(set_zogy.timing,tel):
+        log_timing_memory (t0=t, label='get_closest_biasflat')
 
+    return par2return
+
+    
 ################################################################################
 
 def date2mjd (date_str, time_str=None, get_jd=False):
