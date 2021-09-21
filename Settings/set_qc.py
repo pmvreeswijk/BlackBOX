@@ -176,7 +176,7 @@ qc_range = {
         'MBRDN'   : {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 5) ],                'key_type': 'mbias', 'pos': True , 'comment': '[e-] sigma (STD) master bias'},
 
         # individual flats (these keywords should not end up in dummy catalogs: keytype should not be equal to 'full' or 'trans')
-        'MEDSEC'  : {'default':'None', 'val_type': 'min_max', 'val_range': [ (2.4*20e3, 2.4*30e3), (2.4*15e3, 2.4*35e3), (2.4*10e3, 2.4*40e3) ], 'key_type': 'flat', 'pos': True , 'comment': '[e-] median flat over STATSEC (bias-subtracted)'},
+        'MEDSEC'  : {'default':'None', 'val_type': 'min_max', 'val_range': [ (2.15*20e3, 2.15*30e3), (2.15*15e3, 2.15*35e3), (2.15*10e3, 2.15*40e3) ], 'key_type': 'flat', 'pos': True , 'comment': '[e-] median flat over STATSEC (bias-subtracted)'},
         #'RSTDSEC' : {'default':'None', 'val_type': 'sigma', 'val_range': [ (0, 0.01) ],              'key_type': None, 'pos': True , 'comment': 'relative sigma (STD) flat over STATSEC'},
         #'FLATRSTD': {'default':'None', 'val_type': 'sigma', 'val_range': [ (0,0.025),(0,0.026),(0,0.027)], 'key_type': None, 'pos': True , 'comment': 'relative sigma (STD) flat'},
 
