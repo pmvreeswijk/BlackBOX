@@ -2238,12 +2238,12 @@ def blackbox_reduce (filename):
     copy_files2keep(tmp_base, new_base, list_2keep,
                     move=(not get_par(set_bb.keep_tmp,tel)))
 
-    # only for ML and if original filename contains ADC, save any
-    # *dRADEC* files from tmp to
-    # /idia/projects/meerlicht/ADCtests/yyyymmdd folders
-    if tel=='ML1' and 'adc' in filename.lower():
-
-        dest_dir = '/idia/projects/meerlicht/ADCtests/{}'.format(date_eve)
+    # if original filename contains ADC, save any *dRADEC* files from
+    # tmp to /idia/projects/meerlicht/ADCtests/tel_yyyymmdd folders
+    if 'adc' in filename.lower():
+        
+        dest_dir = ('/idia/projects/meerlicht/ADCtests/{}_{}'
+                    .format(tel, date_eve))
         make_dir (dest_dir)
         
         adc_files = glob.glob('{}*dRADEC*'.format(tmp_base))
