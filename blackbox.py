@@ -40,7 +40,7 @@ from multiprocessing import Pool, Manager, Lock, Queue, Array
 import datetime as dt 
 from dateutil.tz import gettz
 from astropy.stats import sigma_clipped_stats
-from astropy.coordinates import Angle, SkyCoord, FK5 
+from astropy.coordinates import Angle, SkyCoord, FK5, ICRS, get_moon
 from astropy.time import Time
 from astropy import units as u
 from astropy.visualization import ZScaleInterval as zscale
@@ -50,7 +50,7 @@ from acstools.satdet import detsat, make_mask, update_dq
 import shutil
 #from slackclient import SlackClient as sc
 import ephem
-from watchdog.observers import Observer
+from watchdog.observers.polling import PollingObserver
 from watchdog.events import FileSystemEventHandler
 
 from qc import qc_check, run_qc_check
@@ -91,7 +91,7 @@ tnow = Time.now()
 tnow.ut1  
 
 
-__version__ = '1.0.11'
+__version__ = '1.0.12'
 keywords_version = '1.0.0'
 
 #def init(l):
@@ -378,7 +378,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
 
         # create and setup observer, but do not start just yet
-        observer = Observer()
+        observer = PollingObserver()
         observer.schedule(FileWatcher(queue), read_path, recursive=recursive)
 
 
@@ -750,10 +750,13 @@ def fpack (filename):
                 if int(header['BITPIX']) > 0:
                     cmd = ['fpack', '-D', '-Y', '-v', filename]
                 else:
-                    if 'Scorr' in filename or 'limmag' in filename:
+                    if 'Scorr' in filename:
                         quant = 1
+                    elif 'limmag' in filename:
+                        quant = 4
                     else:
                         quant = 16
+
                     cmd = ['fpack', '-q', str(quant), '-D', '-Y', '-v', filename]
 
 
@@ -4673,7 +4676,40 @@ def set_header(header, filename):
     edit_head(header, 'SITELAT',  value=lat, comments='[deg] Site latitude')
     edit_head(header, 'SITELONG', value=lon, comments='[deg] Site longitude')
     edit_head(header, 'ELEVATIO', value=height, comments='[m] Site elevation')
-   
+
+
+    if False:
+
+        # add some Moon parameters
+        location = EarthLocation(lat=lat, lon=lon, height=height)
+        coords_moon = get_moon(date_obs, location)
+        moon_ra = coords_moon.ra.deg
+        moon_dec = coords_moon.dec.deg
+        
+        if 'RA' in header and 'DEC' in header:
+            coords = SkyCoord (ra_icrs, dec_icrs, unit='deg', frame='icrs')
+            moon_sep = coords_moon.separation(coords).deg
+        else:
+            moon_sep = 'None'
+            
+        moon_altaz = coords_moon.transform_to(AltAz(obstime=date_obs,
+                                                    location=location))
+        moon_ill = moon.moon_illumination (date_obs)
+    
+        edit_head(header, 'MOON-RA', value=moon_ra,
+                  comments='[deg] Moon right ascension (GCRS)')
+        edit_head(header, 'MOON-DEC', value=moon_dec,
+                  comments='[deg] Moon declination (GCRS)')
+        edit_head(header, 'MOON-SEP', value=moon_sep,
+                  comments='[deg] Moon separation to telescope RA/DEC')
+        edit_head(header, 'MOON-ALT', value=moon_altaz.alt,
+                  comments='[deg] Moon altitude')
+        edit_head(header, 'MOON-AZ', value=moon_altaz.az,
+                  comments='[deg] Moon azimuth (N=0;E=90)')
+        edit_head(header, 'MOON-ILL', value=moon_ill,
+                  comments='Moon illumination fraction')
+
+
     # update -REF and -TEL of RAs and DECs; if the -REFs do not exist
     # yet, create them with 'None' values - needed for the Database
     edit_head(header, 'RA-REF', value='None',
@@ -4716,7 +4752,7 @@ def set_header(header, filename):
 
     
     # now that RA/DEC are (potentially) corrected, determine local
-    # hour angle this keyword was in the raw image header for a while,
+    # hour angle; this keyword was in the raw image header for a while,
     # but seems to have disappeared during the 2nd half of March 2019
     if 'RA' in header:
         lha_deg = lst_deg - ra_icrs
@@ -4913,6 +4949,8 @@ def set_header(header, filename):
                  'ACQSTART', 'ACQEND', 'GPSSTART', 'GPSEND', 'GPS-SHUT',
                  'DATE-OBS', 'MJD-OBS', 'LST', 'UTC', 'TIMESYS',
                  'SITELAT', 'SITELONG', 'ELEVATIO', 'AIRMASS',
+                 #'MOON-RA', 'MOON-DEC', 'MOON-SEP',
+                 #'MOON-ALT', 'MOON-AZ', 'MOON-ILL',
                  'SET-TEMP', 'CCD-TEMP', 'CCD-ID', 'CONTROLL', 'DETSPEED', 
                  'CCD-NW', 'CCD-NH', 'FOCUSPOS',
                  'ORIGIN', 'MPC-CODE', 'TELESCOP', 'INSTRUME', 
@@ -5475,8 +5513,18 @@ def get_path (date, dir_type):
     # provided, make sure to set [date_dir] to the date of the
     # evening before UT midnight
     #
-    # rewrite this block using astropy.time; very confusing now
     if 'T' in date:
+
+        # this line replaces block below, but with UT noon rather than
+        # local noon.
+        # date = Time(int(Time(date).jd), format='jd').strftime('%Y%m%d')
+
+        # rounds date to microseconds as more digits cannot be
+        # defined in the format (next line)
+        #date = Time(date, format='isot').isot 
+        #date_format = '%Y-%m-%dT%H:%M:%S.%f'
+        #high_noon = 'T12:00:00.0'
+        
         if '.' in date:
             # rounds date to microseconds as more digits cannot be
             # defined in the format (next line)
@@ -5487,15 +5535,17 @@ def get_path (date, dir_type):
             date_format = '%Y-%m-%dT%H:%M:%S'
             high_noon = 'T12:00:00'
 
-        date_ut = dt.datetime.strptime(date, date_format).replace(tzinfo=gettz('UTC'))
+        date_ut = dt.datetime.strptime(date, date_format).replace(
+            tzinfo=gettz('UTC'))
         date_noon = date.split('T')[0]+high_noon
-        date_local_noon = dt.datetime.strptime(date_noon, date_format).replace(
+        date_local_noon = dt.datetime.strptime(date_noon,date_format).replace(
             tzinfo=gettz(get_par(set_zogy.obs_timezone,tel)))
         if date_ut < date_local_noon: 
             # subtract day from date_only
             date = (date_ut - dt.timedelta(1)).strftime('%Y-%m-%d')
         else:
             date = date_ut.strftime('%Y-%m-%d')
+
 
     # this [date_eve] in format yyyymmdd is also returned
     date_eve = ''.join(e for e in date if e.isdigit())
