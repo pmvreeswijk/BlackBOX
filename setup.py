@@ -14,6 +14,6 @@ setup(
         #'lmfit', 'sip_tpv', 'scikit-image',
         # dependencies above: zogy
         # dependencies below: blackbox
-        'watchdog', 'acstools', 'astroscrappy', 'ephem',
+        'watchdog', 'astroscrappy', 'acstools', 'ephem',
         'aplpy', 'memory-profiler']
 )
