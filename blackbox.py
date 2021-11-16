@@ -751,8 +751,8 @@ def fpack (filename):
                     cmd = ['fpack', '-D', '-Y', '-v', filename]
                 else:
                     if 'Scorr' in filename:
-                        quant = 1
-                    elif 'limmag' in filename:
+                        quant = 2
+                    elif 'limmag' in filename or 'Fpsf' in filename:
                         quant = 4
                     else:
                         quant = 16
