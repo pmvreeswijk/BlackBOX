@@ -750,9 +750,9 @@ def fpack (filename):
                 if int(header['BITPIX']) > 0:
                     cmd = ['fpack', '-D', '-Y', '-v', filename]
                 else:
-                    if 'Scorr' in filename:
+                    if 'Scorr' in filename or 'limmag' in filename:
                         quant = 2
-                    elif 'limmag' in filename or 'Fpsf' in filename:
+                    elif 'Fpsf' in filename:
                         quant = 4
                     else:
                         quant = 16
@@ -2227,6 +2227,7 @@ def blackbox_reduce (filename):
     elif qc_flag == 'red':
         # make sure to copy dummy source catalog in case of a red flag
         list_2keep += ['_cat.fits']
+        list_2keep += ['_cat_hdr.fits']
 
     # transient extraction products
     if get_par(set_bb.trans_extract,tel):
