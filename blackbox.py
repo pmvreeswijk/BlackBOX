@@ -45,8 +45,6 @@ from astropy.time import Time
 from astropy import units as u
 from astropy.visualization import ZScaleInterval as zscale
 
-from astroplan import moon
-
 import astroscrappy
 from acstools.satdet import detsat, make_mask, update_dq
 import shutil
@@ -74,6 +72,8 @@ iers.conf.iers_auto_url = (
     'https://storage.googleapis.com/blackbox-auxdata/timing/finals2000A.all')
 iers.conf.iers_auto_url_mirror = (
     'ftp://cddis.gsfc.nasa.gov/pub/products/iers/finals2000A.all')
+
+from astroplan import moon
 
 # to send email
 import smtplib
