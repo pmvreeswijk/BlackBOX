@@ -45,6 +45,8 @@ from astropy.time import Time
 from astropy import units as u
 from astropy.visualization import ZScaleInterval as zscale
 
+from astroplan import moon
+
 import astroscrappy
 from acstools.satdet import detsat, make_mask, update_dq
 import shutil
@@ -91,8 +93,8 @@ tnow = Time.now()
 tnow.ut1  
 
 
-__version__ = '1.0.12'
-keywords_version = '1.0.0'
+__version__ = '1.0.13'
+keywords_version = '1.0.13'
 
 #def init(l):
 #    global lock
@@ -4679,36 +4681,34 @@ def set_header(header, filename):
     edit_head(header, 'ELEVATIO', value=height, comments='[m] Site elevation')
 
 
-    if False:
-
-        # add some Moon parameters
-        location = EarthLocation(lat=lat, lon=lon, height=height)
-        coords_moon = get_moon(date_obs, location)
-        moon_ra = coords_moon.ra.deg
-        moon_dec = coords_moon.dec.deg
-        
-        if 'RA' in header and 'DEC' in header:
-            coords = SkyCoord (ra_icrs, dec_icrs, unit='deg', frame='icrs')
-            moon_sep = coords_moon.separation(coords).deg
-        else:
-            moon_sep = 'None'
-            
-        moon_altaz = coords_moon.transform_to(AltAz(obstime=date_obs,
-                                                    location=location))
-        moon_ill = moon.moon_illumination (date_obs)
+    # add some Moon parameters
+    location = EarthLocation(lat=lat, lon=lon, height=height)
+    coords_moon = get_moon(date_obs, location)
+    moon_ra = coords_moon.ra.deg
+    moon_dec = coords_moon.dec.deg
     
-        edit_head(header, 'MOON-RA', value=moon_ra,
-                  comments='[deg] Moon right ascension (GCRS)')
-        edit_head(header, 'MOON-DEC', value=moon_dec,
-                  comments='[deg] Moon declination (GCRS)')
-        edit_head(header, 'MOON-SEP', value=moon_sep,
-                  comments='[deg] Moon separation to telescope RA/DEC')
-        edit_head(header, 'MOON-ALT', value=moon_altaz.alt,
-                  comments='[deg] Moon altitude')
-        edit_head(header, 'MOON-AZ', value=moon_altaz.az,
-                  comments='[deg] Moon azimuth (N=0;E=90)')
-        edit_head(header, 'MOON-ILL', value=moon_ill,
-                  comments='Moon illumination fraction')
+    if 'RA' in header and 'DEC' in header:
+        coords = SkyCoord (ra_icrs, dec_icrs, unit='deg', frame='icrs')
+        moon_sep = coords_moon.separation(coords).deg
+    else:
+        moon_sep = 'None'
+        
+    moon_altaz = coords_moon.transform_to(AltAz(obstime=date_obs,
+                                                location=location))
+    moon_ill = moon.moon_illumination (date_obs)
+
+    edit_head(header, 'MOON-RA', value=moon_ra,
+              comments='[deg] Moon right ascension (GCRS)')
+    edit_head(header, 'MOON-DEC', value=moon_dec,
+              comments='[deg] Moon declination (GCRS)')
+    edit_head(header, 'MOON-SEP', value=moon_sep,
+              comments='[deg] Moon separation to telescope RA/DEC')
+    edit_head(header, 'MOON-ALT', value=moon_altaz.alt.deg,
+              comments='[deg] Moon altitude')
+    edit_head(header, 'MOON-AZ', value=moon_altaz.az.deg,
+              comments='[deg] Moon azimuth (N=0;E=90)')
+    edit_head(header, 'MOON-ILL', value=moon_ill,
+              comments='Moon illumination fraction')
 
 
     # update -REF and -TEL of RAs and DECs; if the -REFs do not exist
@@ -4950,8 +4950,8 @@ def set_header(header, filename):
                  'ACQSTART', 'ACQEND', 'GPSSTART', 'GPSEND', 'GPS-SHUT',
                  'DATE-OBS', 'MJD-OBS', 'LST', 'UTC', 'TIMESYS',
                  'SITELAT', 'SITELONG', 'ELEVATIO', 'AIRMASS',
-                 #'MOON-RA', 'MOON-DEC', 'MOON-SEP',
-                 #'MOON-ALT', 'MOON-AZ', 'MOON-ILL',
+                 'MOON-RA', 'MOON-DEC', 'MOON-SEP',
+                 'MOON-ALT', 'MOON-AZ', 'MOON-ILL',
                  'SET-TEMP', 'CCD-TEMP', 'CCD-ID', 'CONTROLL', 'DETSPEED', 
                  'CCD-NW', 'CCD-NH', 'FOCUSPOS',
                  'ORIGIN', 'MPC-CODE', 'TELESCOP', 'INSTRUME', 
@@ -5070,7 +5070,7 @@ def define_sections (data_shape, xbin=1, ybin=1, tel=None):
 
 ################################################################################
 
-def os_corr (data, header, imgtype, xbin=1, ybin=1, tel=None):
+def os_corr (data, header, imgtype, xbin=1, ybin=1, data_limit=2000, tel=None):
 
     """Function that corrects [data] for the overscan signal in the
        vertical and horizontal overscan strips. The definitions of the
@@ -5116,6 +5116,8 @@ def os_corr (data, header, imgtype, xbin=1, ybin=1, tel=None):
 
     vos_poldeg = get_par(set_bb.voscan_poldeg,tel)
     nrows_chan = np.shape(data[chan_sec[0]])[0]
+    y_vos = np.arange(nrows_chan)
+
     
     for i_chan in range(nchans):
 
@@ -5131,16 +5133,27 @@ def os_corr (data, header, imgtype, xbin=1, ybin=1, tel=None):
         data_vos = data[os_sec_vert[i_chan]]
         mean_vos_col, __, __ = sigma_clipped_stats(data_vos, axis=1, mask_value=0)
 
-        y_vos = np.arange(nrows_chan)
-        # fit low order polynomial
+        # fit low order polynomial to vertical overscan, avoiding
+        # outlying values due to e.g. very bright star that bleeds
+        # into the vertical overscan sections at the bottom of the
+        # image for channels 1-8, and at the top for channels 9-16
         try:
             polyfit_ok = True
-            p = np.polyfit(y_vos, mean_vos_col, vos_poldeg)
+            nsigma = 5
+            mean, median, stddev = sigma_clipped_stats(mean_vos_col, sigma=nsigma)
+            if stddev==0:
+                mask_fit = np.ones(nrows_chan, dtype=bool)
+            else:
+                mask_fit = (np.abs(mean_vos_col-mean)/stddev <= nsigma)
+
+            p = np.polyfit(y_vos[mask_fit], mean_vos_col[mask_fit], vos_poldeg)
+
         except Exception as e:
             polyfit_ok = False
             #log.exception(traceback.format_exc())
             log.exception('exception was raised during polynomial fit to '
                           'channel {} vertical overscan'.format(i_chan))
+
 
         # add fit coefficients to image header
         for nc in range(len(p)):
@@ -5172,10 +5185,12 @@ def os_corr (data, header, imgtype, xbin=1, ybin=1, tel=None):
             mean_vos[i_chan] = np.nanmedian(mean_vos_col)
             data[chan_sec[i_chan]] -= mean_vos[i_chan]
 
-        #plt.plot(y_vos, mean_vos_col, color='black')
-        #plt.plot(y_vos, fit_vos_col, color='red')
-        #plt.savefig('test_poly_{}.pdf'.format(i_chan))
-        #plt.close()        
+        if False:
+            plt.plot(y_vos, mean_vos_col, color='black')
+            plt.plot(y_vos, fit_vos_col, color='red')
+            plt.ylim([mean-nsigma*stddev, mean+nsigma*stddev])
+            plt.savefig('test_poly_chan{}.pdf'.format(i_chan+1))
+            plt.close()
 
         data_vos = data[os_sec_vert[i_chan]]
         # determine mean and std of overscan subtracted vos:
@@ -5190,9 +5205,10 @@ def os_corr (data, header, imgtype, xbin=1, ybin=1, tel=None):
         # values across [dcol] columns, for [ncols] columns
         data_hos = data[os_sec_hori[i_chan]]
 
+
         # replace very high values (due to bright objects on edge of
-        # channel) with function [replace_pix] in zogy.py
-        mask_hos = (data_hos > 2000.)
+        # channel) with function [inter_pix] in zogy.py
+        mask_hos = (data_hos > data_limit)
         # add couple of pixels connected to this mask
         mask_hos = ndimage.binary_dilation(mask_hos,
                                            structure=np.ones((3,3)).astype('bool'),
@@ -5200,9 +5216,10 @@ def os_corr (data, header, imgtype, xbin=1, ybin=1, tel=None):
 
         # interpolate spline over these pixels
         if imgtype == 'object':
-            data_hos_replaced = inter_pix (data_hos, std_vos[i_chan], mask_hos,
-                                           dpix=10, k=3)
-        
+            data_hos = inter_pix (data_hos, std_vos[i_chan], mask_hos,
+                                  interp_func='poly', order=2, 
+                                  dpix=50, fit_neg_values=True)
+
         # determine clipped mean for each column
         mean_hos, __, __ = sigma_clipped_stats(data_hos, axis=0,
                                                mask_value=0)
