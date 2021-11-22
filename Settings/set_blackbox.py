@@ -87,9 +87,8 @@ cat_extract_exts = ['_cat.fits', '_psf.fits', '_psfex.cat', '_cat_hdr.fits']
 trans_extract_exts = ['_D.fits', '_Scorr.fits', '_trans_limmag.fits',
                       '_trans.fits', '_trans_hdr.fits', '_trans_light.fits',
                       '_Fpsf.fits']
-all_2keep = img_reduce_exts + cat_extract_exts
-ref_2keep = all_2keep
-new_2keep = trans_extract_exts + all_2keep
+ref_2keep = img_reduce_exts + cat_extract_exts
+all_2keep = ref_2keep + trans_extract_exts
 
 #===============================================================================
 # Calibration files
@@ -195,6 +194,6 @@ sender = {'ML1': 'MeerLICHT night report <paul.vreeswijk@blackgem.org>',
 # comma-separated email addresses of recipients
 recipients = 'ml-nightreports@blackgem.org'
 reply_to = 'paul.vreeswijk@blackgem.org'
-smtp_server = {'ML1': 'localhost', 'BG': 'smtp-relay.gmail.com'}
-port = {'ML1': 0, 'BG': 465}
-use_SSL = {'ML1': False, 'BG': True}
+smtp_server = 'smtp-relay.gmail.com'
+port = 465
+use_SSL = True
