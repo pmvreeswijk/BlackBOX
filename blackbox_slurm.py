@@ -81,7 +81,7 @@ def run_blackbox_slurm (date=None, nthreads=4, runtime='3:00:00'):
     mode = 'night'
 
     # if date is not specified, set it to the date of the last local
-    # noon, i.e. just before 12:00 SAST, yesterday's date will be used
+    # noon; so just before 12:00 SAST yesterday's date will be used
     # SAST is always 2 hours ahead of UT, so can add 2/24 to make the
     # date change at local noon instead of noon UT.
     date_today = Time(int(Time.now().jd+2/24), format='jd').strftime('%Y%m%d')
@@ -237,10 +237,12 @@ def run_blackbox_slurm (date=None, nthreads=4, runtime='3:00:00'):
         # date that is being processed
         screenshot = False
 
-    python_cmdstr = (
-        'python -c \"from blackbox import create_obslog; '
-        'create_obslog (\'{}\', email=False, tel=\'{}\', weather_screenshot={})\"'
-        .format(date, tel, screenshot))
+
+    python_cmdstr = ('python -c \"import set_blackbox as set_bb; '
+                     'from blackbox import create_obslog; '
+                     'create_obslog (\'{}\', email=True, '
+                     'tel=\'{}\', weather_screenshot={})\"'
+                     .format(date, tel, screenshot))
 
     slurm_process (python_cmdstr, nthreads=1, runtime='0:10:00',
                    jobname='obslog_{}'.format(date_eve), jobnight=jobnight,
@@ -627,224 +629,6 @@ def read_hdulist (fits_file, get_data=True, get_header=False,
                 return header
             else:
                 return
-
-
-################################################################################
-
-def create_obslog (date, email=True, tel=None, weather_screenshot=True):
-    
-    # extract table with various observables/keywords from the headers
-    # of all raw/reduced files of a particular (evening) date,
-    # e.g. ORIGFILE, IMAGETYP, DATE-OBS, PROGNAME, PROGID, OBJECT,
-    # FILTER, EXPTIME, RA, DEC, AIRMASS, FOCUSPOS, image quality
-    # (PSF-FWHM), QC-FLAG, ..
-    #
-    # if email==True, also send an email to people that are
-    # interested; the email parameters such as sender, recipients,
-    # etc., can be defined in BlackBOX settings file
-
-    date_eve = ''.join(e for e in date if e.isdigit())
-    if len(date_eve) != 8:
-        log.error ('input date to function create_obslog needs to consist of '
-                   'at least 8 digits, yyyymmdd, where the year, month and '
-                   'day can be connected with any type of character, e.g. '
-                   'yyyy/mm/dd or yyyy-mm-dd, etc.')
-        return
-
-
-    date_dir = '{}/{}/{}'.format(date_eve[0:4], date_eve[4:6], date_eve[6:8])
-    #red_path = get_par(set_bb.red_dir,tel)
-    red_path = red_dir
-    full_path = '{}/{}'.format(red_path, date_dir)
-
-    # collect reduced biases, darks, flats and science frames in
-    # different lists
-    bias_list = glob.glob('{}/bias/{}*.fits*'.format(full_path, tel))
-    dark_list = glob.glob('{}/dark/{}*.fits*'.format(full_path, tel))
-    flat_list = glob.glob('{}/flat/{}*.fits*'.format(full_path, tel))
-    object_list = glob.glob('{}/{}*_red.fits*'.format(full_path, tel))
-    filenames = [bias_list, dark_list, flat_list, object_list]
-    # clean up [filenames]
-    filenames = [f for sublist in filenames for f in sublist]
-
-    # number of different reduced files
-    nred = len(filenames)
-    nbias_red = len(bias_list)
-    ndark_red = len(dark_list)
-    nflat_red = len(flat_list)
-    nobject_red = len(object_list)
-    
-    # collect raw image list
-    #raw_path = get_par(set_bb.raw_dir,tel)
-    raw_path = raw_dir
-    raw_list = glob.glob('{}/{}/*.fits*'.format(raw_path, date_dir))
-
-    # number of different raw files
-    nraw = len(raw_list)
-    nbias_raw = 0
-    ndark_raw = 0
-    nflat_raw = 0
-    nobject_raw = 0
-    for f in raw_list:
-        if 'bias' in f.lower():
-            nbias_raw += 1
-        elif 'dark' in f.lower():
-            ndark_raw += 1
-        elif 'flat' in f.lower():
-            nflat_raw += 1
-        else:
-            nobject_raw += 1
-
-
-    # maximum filename length for column format
-    #max_length = max([len(f.strip()) for f in filenames])
-    
-    # keywords to add to table
-    keys = ['ORIGFILE', 'IMAGETYP', 'DATE-OBS', 'PROGNAME', 'PROGID', 'OBJECT',
-            'FILTER', 'EXPTIME', 'RA', 'DEC', 'AIRMASS', 'FOCUSPOS',
-            'S-SEEING', 'CL-BASE', 'RH-MAST', 'WINDAVE', 'LIMMAG', 'QC-FLAG',
-            'QCRED1', 'QCRED2', 'QCRED3']
-    formats = {#'ORIGFILE': '{:60}',
-        #'IMAGETYP': '{:<8}',
-        'DATE-OBS': '{:.19}',
-        'EXPTIME': '{:.1f}',              
-        'RA': '{:.3f}',
-        'DEC': '{:.3f}',
-        'AIRMASS': '{:.3f}',
-        'S-SEEING': '{:.4}',
-        'CL-BASE': '{:.4}',
-        'RH-MAST': '{:.4}',
-        'WINDAVE': '{:.4}',
-        'LIMMAG': '{:.5}'
-    }
-
-    # loop input list of filenames
-    rows = []
-    for filename in filenames:
-
-        # read file header
-        header = read_hdulist (filename, get_data=False, get_header=True)
-
-        # prepare row of filename and header values
-        row = []
-        for key in keys:
-            if key in header:
-                row.append(header[key])
-            else:
-                row.append(' ')
-
-        # append to rows
-        rows.append(row)
-
-        
-    # create table from rows
-    names = []
-    for i_key, key in enumerate(keys):
-        names.append(key)
-
-    if len(rows) == 0:
-        # rows without entries: create empty table
-        table = Table(names=names)
-    else: 
-        table = Table(rows=rows, names=names)
-
-    # order by DATE-OBS
-    index_sort = np.argsort(table['DATE-OBS'])
-    table = table[index_sort]
-
-    # write table to ASCII file
-    obslog_name = '{}/{}/{}_obslog.txt'.format(red_path, date_dir, date_eve)
-    if len(rows) == 0:
-        # if table is empty, no files were processed and reduced
-        # folder needs to be created before writing the empty table
-        full_path = '{}/{}'.format(red_path, date_dir)
-        os.makedirs(full_path, exist_ok=True)
-        ascii.write (table, obslog_name, overwrite=True)
-    else:
-        ascii.write (table, obslog_name, format='fixed_width_two_line',
-                     delimiter_pad=' ', position_char=' ',
-                     formats=formats, overwrite=True)
-
-    
-    # for MeerLICHT, save the Sutherland weather page as a screen
-    # shot, and add it as attachment to the mail
-    png_name = '{}/{}/{}_SAAOweather.png'.format(red_path, date_dir, date_eve)
-    if tel=='ML1' and weather_screenshot:
-        try:
-            cmd = ['firefox', '--screenshot', png_name,
-                   'https://suthweather.saao.ac.za']
-            result = subprocess.run(cmd, capture_output=True, timeout=180)
-            log.info (result.stdout.decode('UTF-8'))
-        except Exception as e:
-            log.exception ('exception occurred while making screenshot of '
-                           'SAAO weather page '
-                           '(https://suthweather.saao.ac.za): {}'.format(e))
-    else:
-        if not os.path.isfile(png_name):
-            png_name = None
-
-
-    # additional info that could be added to body of email
-    # - any raw files that were not reduced?
-    # - list any observing gaps, in fractional UT hours
-    # - using above gaps, list fraction of night that telescope was observing
-    # - list average exposure overhead in seconds
-
-    body  = 'Summary of {} observations:\n'.format(date_dir.replace('/','-'))
-    body += '-----------------------------------\n'
-    
-    if False:
-        # determine night length between astronomical twilight
-        obs = ephem.Observer()
-        obs.lat = str(obs_lat)
-        obs.lon = str(obs_lon)
-        sunset = obs.previous_setting(ephem.Sun())
-        sunrise = obs.previous_rising(ephem.Sun())
-        #body += 'sunset:  {}\n'.format(ephem.localtime(sunset))
-        #body += 'sunrise: {}\n'.format(ephem.localtime(sunrise))
-        
-        obs.horizon = '-18'
-        sunset = obs.previous_setting(ephem.Sun(), use_center=True)
-        sunrise = obs.previous_rising(ephem.Sun(), use_center=True)
-        nhours = sunrise - sunset
-        #body += 'evening twilight (-18): {}\n'.format(ephem.localtime(sunset))
-        #body += 'morning twilight (-18): {}\n'.format(ephem.localtime(sunrise))
-        #body += 'length of night: {:.2f} hours\n'.format(nhours)
-        
-
-    body += ('# raw images:       {} ({} biases, {} darks, {} flats, {} objects)\n'
-             .format(nraw, nbias_raw, ndark_raw, nflat_raw, nobject_raw))
-    body += ('# reduced images:   {} ({} biases, {} darks, {} flats, {} objects)\n'
-             .format(nred, nbias_red, ndark_red, nflat_red, nobject_red))
-    cat_list = glob.glob('{}/{}*_red_cat.fits'.format(full_path, tel))
-    body += ('# full-source cats: {}\n'.format(len(cat_list)))
-    trans_list = glob.glob('{}/{}*_red_trans.fits'.format(full_path, tel))
-    body += ('# transient cats:   {}\n'.format(len(trans_list)))
-    body += '\n'
-    
-    
-        
-    if email:
-        # email the obslog (with the weather page for MeerLICHT as
-        # attachment) to a list of interested people
-        
-        # subject
-        subject = '{} night report {}'.format(tel, date_dir.replace('/','-'))
-        
-        try:
-            send_email (recipients, subject, body,
-                        attachments='{},{}'.format(obslog_name, png_name),
-                        sender=sender,
-                        reply_to=reply_to,
-                        smtp_server=smtp_server,
-                        port=port,
-                        use_SSL=use_SSL)
-        except Exception as e:
-            log.exception('exception occurred during sending of email: {}'
-                          .format(e))
-
-
-    return
 
 
 ################################################################################
