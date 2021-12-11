@@ -2945,14 +2945,18 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
         # subject
         recipients = get_par(set_bb.recipients,tel)
         subject = '{} night report {}'.format(tel, date_dir.replace('/','-'))
-        
+        smtp_server = get_par(set_bb.smtp_server,tel)
+        port = get_par(set_bb.port,tel)
+
         try:
+            log.info ('sending email with subject {} to {} using smtp server {} '
+                      'on port {}'
+                      .format(subject, recipients, smtp_server, port))
             send_email (recipients, subject, body,
                         attachments='{},{}'.format(obslog_name, png_name),
                         sender=get_par(set_bb.sender,tel),
                         reply_to=get_par(set_bb.reply_to,tel),
-                        smtp_server=get_par(set_bb.smtp_server,tel),
-                        port=get_par(set_bb.port,tel),
+                        smtp_server=smtp_server, port=port,
                         use_SSL=get_par(set_bb.use_SSL,tel))
         except Exception as e:
             log.exception('exception occurred during sending of email: {}'
