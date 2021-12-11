@@ -37,7 +37,7 @@ from zogy import *
 import re   # Regular expression operations
 import glob # Unix style pathname pattern expansion 
 from multiprocessing import Pool, Manager, Lock, Queue, Array
-import datetime as dt 
+from datetime import datetime, timedelta
 from dateutil.tz import gettz
 from astropy.stats import sigma_clipped_stats
 from astropy.coordinates import Angle, SkyCoord, FK5, ICRS, get_moon
@@ -424,7 +424,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
         # create and email obslog
         log.info ('night processing has finished; creating and emailing obslog')
         try:
-            create_obslog (date, email=True, tel=tel)
+            create_obslog (date, email=True, tel=tel, weather_screenshot=True)
         except Exception as e:
             log.exception ('exception was raised in creating obslog: {}'
                            .format(e))
@@ -2794,14 +2794,41 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
     full_path = '{}/{}'.format(red_path, date_dir)
 
     # collect biases, darks, flats and science frames in different lists
-    filenames = []
-    filenames.append(glob.glob('{}/bias/{}*.fits*'.format(full_path, tel)))
-    filenames.append(glob.glob('{}/dark/{}*.fits*'.format(full_path, tel)))
-    filenames.append(glob.glob('{}/flat/{}*.fits*'.format(full_path, tel)))
-    filenames.append(glob.glob('{}/{}*_red.fits*'.format(full_path, tel)))
-
+    bias_list = glob.glob('{}/bias/{}*.fits*'.format(full_path, tel))
+    dark_list = glob.glob('{}/dark/{}*.fits*'.format(full_path, tel))
+    flat_list = glob.glob('{}/flat/{}*.fits*'.format(full_path, tel))
+    object_list = glob.glob('{}/{}*_red.fits*'.format(full_path, tel))
+    filenames = [bias_list, dark_list, flat_list, object_list]
     # clean up [filenames]
     filenames = [f for sublist in filenames for f in sublist]
+
+    # number of different reduced files
+    nred = len(filenames)
+    nbias_red = len(bias_list)
+    ndark_red = len(dark_list)
+    nflat_red = len(flat_list)
+    nobject_red = len(object_list)
+    
+    # collect raw image list
+    raw_path = get_par(set_bb.raw_dir,tel)
+    raw_list = glob.glob('{}/{}/*.fits*'.format(raw_path, date_dir))
+
+    # number of different raw files
+    nraw = len(raw_list)
+    nbias_raw = 0
+    ndark_raw = 0
+    nflat_raw = 0
+    nobject_raw = 0
+    for f in raw_list:
+        if 'bias' in f.lower():
+            nbias_raw += 1
+        elif 'dark' in f.lower():
+            ndark_raw += 1
+        elif 'flat' in f.lower():
+            nflat_raw += 1
+        else:
+            nobject_raw += 1
+
 
     # maximum filename length for column format
     #max_length = max([len(f.strip()) for f in filenames])
@@ -2872,16 +2899,10 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
                      delimiter_pad=' ', position_char=' ',
                      formats=formats, overwrite=True)
 
-    # additional info:
-    # - any raw files that were not reduced?
-    # - list any observing gaps, in fractional UT hours
-    # - using above gaps, list fraction of night that telescope was observing
-    # - list average exposure overhead in seconds
-    
+
     # for MeerLICHT, save the Sutherland weather page as a screen
     # shot, and add it as attachment to the mail
-    png_name = '{}/{}/{}_SAAOweather.png'.format(red_path, date_dir,
-                                                 date_eve)
+    png_name = '{}/{}/{}_SAAOweather.png'.format(red_path, date_dir, date_eve)
     if tel=='ML1' and weather_screenshot:
         try:
             cmd = ['firefox', '--screenshot', png_name,
@@ -2897,15 +2918,36 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
             png_name = None
 
 
+    # additional info that could be added to body of email
+    # - any raw files that were not reduced?
+    # - list any observing gaps, in fractional UT hours
+    # - using above gaps, list fraction of night that telescope was observing
+    # - list average exposure overhead in seconds
+
+    body  = 'Summary of {} observations:\n'.format(date_dir.replace('/','-'))
+    body += '-----------------------------------\n'
+
+    body += ('# raw images:       {} ({} biases, {} darks, {} flats, {} objects)\n'
+             .format(nraw, nbias_raw, ndark_raw, nflat_raw, nobject_raw))
+    body += ('# reduced images:   {} ({} biases, {} darks, {} flats, {} objects)\n'
+             .format(nred, nbias_red, ndark_red, nflat_red, nobject_red))
+    cat_list = glob.glob('{}/{}*_red_cat.fits'.format(full_path, tel))
+    body += ('# full-source cats: {}\n'.format(len(cat_list)))
+    trans_list = glob.glob('{}/{}*_red_trans.fits'.format(full_path, tel))
+    body += ('# transient cats:   {}\n'.format(len(trans_list)))
+    body += '\n'
+    
+            
     if email:
         # email the obslog (with the weather page for MeerLICHT as
         # attachment) to a list of interested people
         
         # subject
+        recipients = get_par(set_bb.recipients,tel)
         subject = '{} night report {}'.format(tel, date_dir.replace('/','-'))
         
         try:
-            send_email (get_par(set_bb.recipients,tel), subject, None,
+            send_email (recipients, subject, body,
                         attachments='{},{}'.format(obslog_name, png_name),
                         sender=get_par(set_bb.sender,tel),
                         reply_to=get_par(set_bb.reply_to,tel),
@@ -5533,9 +5575,14 @@ def get_path (date, dir_type):
     #
     if 'T' in date:
 
-        # this line replaces block below, but with UT noon rather than
-        # local noon.
-        # date = Time(int(Time(date).jd), format='jd').strftime('%Y%m%d')
+        # these two lines replace the block below
+
+        # get offset with UTC
+        #UTC_offset = (datetime.now().replace(
+        #    tzinfo=gettz(get_par(set_zogy.obs_timezone,tel)))
+        #              .utcoffset().total_seconds()/3600)
+        #date = (Time(int(Time(date).jd+UTC_offset/24), format='jd')
+        #        .strftime('%Y%m%d'))
 
         # rounds date to microseconds as more digits cannot be
         # defined in the format (next line)
@@ -5553,14 +5600,14 @@ def get_path (date, dir_type):
             date_format = '%Y-%m-%dT%H:%M:%S'
             high_noon = 'T12:00:00'
 
-        date_ut = dt.datetime.strptime(date, date_format).replace(
+        date_ut = datetime.strptime(date, date_format).replace(
             tzinfo=gettz('UTC'))
         date_noon = date.split('T')[0]+high_noon
-        date_local_noon = dt.datetime.strptime(date_noon,date_format).replace(
+        date_local_noon = datetime.strptime(date_noon,date_format).replace(
             tzinfo=gettz(get_par(set_zogy.obs_timezone,tel)))
         if date_ut < date_local_noon: 
             # subtract day from date_only
-            date = (date_ut - dt.timedelta(1)).strftime('%Y-%m-%d')
+            date = (date_ut - timedelta(1)).strftime('%Y-%m-%d')
         else:
             date = date_ut.strftime('%Y-%m-%d')
 
