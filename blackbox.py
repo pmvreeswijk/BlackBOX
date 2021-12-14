@@ -2908,7 +2908,7 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
             cmd = ['firefox', '--screenshot', png_name,
                    'https://suthweather.saao.ac.za']
             result = subprocess.run(cmd, capture_output=True, timeout=180)
-            log.info (result.stdout.decode('UTF-8'))
+            log.info('stdout: {}'.format(result.stdout.decode('UTF-8')))
         except Exception as e:
             log.exception ('exception occurred while making screenshot of '
                            'SAAO weather page '
@@ -2941,14 +2941,13 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
     if email:
         # email the obslog (with the weather page for MeerLICHT as
         # attachment) to a list of interested people
-        
-        # subject
-        recipients = get_par(set_bb.recipients,tel)
-        subject = '{} night report {}'.format(tel, date_dir.replace('/','-'))
-        smtp_server = get_par(set_bb.smtp_server,tel)
-        port = get_par(set_bb.port,tel)
-
         try:
+            # subject
+            recipients = get_par(set_bb.recipients,tel)
+            subject = '{} night report {}'.format(tel, date_dir.replace('/','-'))
+            smtp_server = get_par(set_bb.smtp_server,tel)
+            port = get_par(set_bb.port,tel)
+            
             log.info ('sending email with subject {} to {} using smtp server {} '
                       'on port {}'
                       .format(subject, recipients, smtp_server, port))
@@ -2958,6 +2957,7 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
                         reply_to=get_par(set_bb.reply_to,tel),
                         smtp_server=smtp_server, port=port,
                         use_SSL=get_par(set_bb.use_SSL,tel))
+
         except Exception as e:
             log.exception('exception occurred during sending of email: {}'
                           .format(e))
