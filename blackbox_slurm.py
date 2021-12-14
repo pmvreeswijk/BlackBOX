@@ -20,7 +20,7 @@ import numpy as np
 import astropy.io.fits as fits
 from astropy.io import ascii
 from astropy.time import Time
-from astropy.table import Table
+from astropy.table import Table, vstack
 
 from multiprocessing import Queue
 
@@ -37,7 +37,7 @@ from email.utils import formatdate
 from email import encoders
 
 
-__version__ = '0.5'
+__version__ = '0.6'
 
 
 # hardcode the settings below, because they are not accessible on the
@@ -213,19 +213,6 @@ def run_blackbox_slurm (date=None, nthreads=4, runtime='3:00:00'):
     time.sleep(600)
     
 
-    # now that night has finished, collect individual logfiles
-    # produced by Slurm and append them to the logging for this night
-    try:
-        for jobname in jobnames:
-            logfile_slurm = '{}/{}.err'.format(jobnight, jobname)
-            if os.path.isfile(logfile_slurm):
-                with open(logfile_slurm, 'r') as f:
-                    log.info (f.read())
-    except Exception as e:
-        log.exception('exception occurred during appending of individual '
-                      'logfiles to the general logfile: {}'.format(e))
-
-
     # create night report and weather screenshot; this needs to be done
     # inside the container because firefox is not available outside;
     # this requires create_obslog to be runable from the command line,
@@ -244,9 +231,10 @@ def run_blackbox_slurm (date=None, nthreads=4, runtime='3:00:00'):
                      'tel=\'{}\', weather_screenshot={})\"'
                      .format(date, tel, screenshot))
 
+    jobname = 'obslog_{}'.format(date_eve)
     slurm_process (python_cmdstr, nthreads=1, runtime='0:10:00',
-                   jobname='obslog_{}'.format(date_eve), jobnight=jobnight,
-                   date_begin=date_begin)
+                   jobname=jobname, jobnight=jobnight, date_begin=date_begin)
+    jobnames.append(jobname)
 
 
     # email the night report and weather screenshot from the Slurm
@@ -277,6 +265,52 @@ def run_blackbox_slurm (date=None, nthreads=4, runtime='3:00:00'):
     except Exception as e:
         log.exception('exception occurred during sending of email: {}'
                       .format(e))
+
+
+    try:
+
+        # add night's headers to full_source fits header file
+        data_dir = os.environ['DATAHOME']
+        fits_header_cat = '{}/Headers/{}_headers_cat.fits'.format(data_dir, tel)
+        python_cmdstr = ('python -c \"from blackbox_slurm import add_headkeys; '
+                         'add_headkeys (\'{}\', \'{}\', tel=\'{}\')\"'
+                         .format(date_dir, fits_header_cat, tel))
+
+        jobname = 'add_headkeys_cat_{}'.format(date_eve)
+        slurm_process (python_cmdstr, nthreads=1, runtime='0:30:00',
+                       jobname=jobname, jobnight=jobnight, date_begin=date_begin)
+        jobnames.append(jobname)
+        
+
+        # add night's headers to transient fits header file
+        fits_header_trans = ('{}/Headers/{}_headers_trans.fits'
+                             .format(data_dir, tel))
+        python_cmdstr = ('python -c \"from blackbox_slurm import add_headkeys; '
+                         'add_headkeys (\'{}\', \'{}\', trans=True, tel=\'{}\')'
+                         '\"'.format(date_dir, fits_header_cat, tel))
+
+        jobname = 'add_headkeys_trans_{}'.format(date_eve)
+        slurm_process (python_cmdstr, nthreads=1, runtime='0:30:00',
+                       jobname=jobname, jobnight=jobnight, date_begin=date_begin)
+        jobnames.append(jobname)
+        
+
+    except Exception as e:
+        log.exception('exception occurred during adding header keys: {}'
+                      .format(e))
+
+
+    # now that night has finished, collect individual logfiles
+    # produced by Slurm and append them to the logging for this night
+    try:
+        for jobname in jobnames:
+            logfile_slurm = '{}/{}.err'.format(jobnight, jobname)
+            if os.path.isfile(logfile_slurm):
+                with open(logfile_slurm, 'r') as f:
+                    log.info (f.read())
+    except Exception as e:
+        log.exception('exception occurred during appending of individual '
+                      'logfiles to the general logfile: {}'.format(e))
 
 
     return
@@ -680,6 +714,98 @@ def send_email (recipients, subject, body,
     smtpObj.close()
 
     
+################################################################################
+
+def add_headkeys (path, fits_headers, trans=False, tel='ML1'):
+
+    # read [fits_headers]
+    table_headers = Table.read(fits_headers)
+
+    # determine its column names and dtypes
+    colnames = table_headers.colnames
+    dtypes = [str(table_headers.dtype[n]) for n in colnames]
+    log.info ('number of columns: {}'.format(len(colnames)))
+
+    # determine filenames whose headers to add
+    if trans:
+        file_str = '_trans.fits'        
+    else:
+        file_str = '_cat.fits'
+
+    data_dir = os.environ['DATAHOME']
+    red_dir = '{}/{}'.format(data_dir, tel)
+    filenames = sorted(glob.glob('{}/{}/**/*{}*'.format(red_dir, path, file_str),
+                                 recursive=True))
+
+    # use pool_func and function [get_row] to multi-process list of
+    # basenames
+    rows = pool_func (get_head_row, filenames, colnames, nproc=nproc)
+
+    # convert rows to table
+    table = Table(rows=rows, names=colnames, masked=True, dtype=dtypes)
+    
+    # add table to input table
+    table_headers = vstack([table_headers, table])
+        
+    # overwrite fits_headers
+    table_headers.write(fits_headers, overwrite=True)
+
+    return
+
+
+################################################################################
+
+def pool_func (func, filelist, *args, nproc=1):
+
+    try:
+        results = []
+        pool = Pool(nproc)
+        for filename in filelist:
+            args_temp = [filename]
+            for arg in args:
+                args_temp.append(arg)
+
+            results.append(pool.apply_async(func, args_temp))
+
+        pool.close()
+        pool.join()
+        results = [r.get() for r in results]
+        #log.info ('result from pool.apply_async: {}'.format(results))
+    except Exception as e:
+        #log.exception (traceback.format_exc())
+        log.exception ('exception was raised during [pool.apply_async({})]: '
+                       '{}'.format(func, e))
+
+        #logging.shutdown()
+        #raise SystemExit
+
+    return results
+
+
+################################################################################
+
+def get_head_row (filename, colnames):
+
+    # read filename header
+    with fits.open(filename) as hdulist:
+        header = hdulist[-1].header
+
+    # loop columns to add
+    row = []
+    for i, colname in enumerate(colnames):
+        if colname in header:
+            row += [header[colname]]
+        elif colname.lower() == 'filename':
+            row += [filename.split('/red/')[-1]]
+        else:
+            row += [np.ma.masked]
+
+        if row[i] == 'None':
+            row[i] = np.ma.masked
+
+    return
+
+
 ################################################################################
 
 def main ():
