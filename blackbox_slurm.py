@@ -44,27 +44,18 @@ __version__ = '0.6'
 # Slurm login node through the usual set_zogy and set_blackbox
 # settings files
 tel = 'ML1'
-raw_dir = '/idia/projects/meerlicht/ML1/raw'
-red_dir = '/idia/projects/meerlicht/ML1/red'
-genlog_dir = '/idia/projects/meerlicht/ML1/log'
+data_dir = '/idia/projects/meerlicht'
+raw_dir = '{}/{}/raw'.format(data_dir, tel)
+red_dir = '{}/{}/red'.format(data_dir, tel)
+genlog_dir = '{}/{}/log'.format(data_dir, tel)
 # folder in which to run/save jobs and logs for the nightly processing
-job_dir = '/idia/projects/meerlicht/ML1/log/Slurm'
+job_dir = '{}/Slurm'.format(genlog_dir)
 
 # MeerLICHT observatory settings
 obs_lat = -32.3799
 obs_lon = 20.8112           
 obs_timezone = 'Africa/Johannesburg'
 
-# email settings
-recipients = 'ml-nightreports@blackgem.org'
-# for testing:
-#recipients = 'p.vreeswijk@astro.ru.nl'
-sender = 'MeerLICHT night report <paul.vreeswijk@blackgem.org>'
-reply_to = 'paul.vreeswijk@blackgem.org'
-smtp_server = 'smtp-relay.gmail.com'
-port = 465
-use_SSL = True
-    
 
 def run_blackbox_slurm (date=None, nthreads=4, runtime='3:00:00'):
     
@@ -237,40 +228,11 @@ def run_blackbox_slurm (date=None, nthreads=4, runtime='3:00:00'):
     jobnames.append(jobname)
 
 
-    # email the night report and weather screenshot from the Slurm
-    # login node, rather than a compute node inside the container
-    # which leads to the email not arriving, even when email=True
-    # above
-    subject = '{} night report {}'.format(tel, date_dir.replace('/','-'))
-    obslog_name = '{}/{}/{}_obslog.txt'.format(red_dir, date_dir, date_eve)
-    png_name = '{}/{}/{}_SAAOweather.png'.format(red_dir, date_dir, date_eve)
-    attachments='{},{}'.format(obslog_name, png_name)
-    body = None
-
-    # wait for obslog and weather screenshot to be saved, but not
-    # longer than 10 minutes - note that screenshot may not arrive at
-    # all if the webpage is down
-    t0 = time.time()
-    while time.time()-t0 <= 600:
-        time.sleep(10)
-        if os.path.isfile(obslog_name) and os.path.isfile(png_name):
-            # both files exist; no need to wait any longer
-            break
-
-    # send the email
-    try:
-        send_email (recipients, subject, body, attachments=attachments,
-                    sender=sender, reply_to=reply_to, smtp_server=smtp_server,
-                    port=port, use_SSL=use_SSL)
-    except Exception as e:
-        log.exception('exception occurred during sending of email: {}'
-                      .format(e))
-
-
+    # add number of header keywords of newly reduced images to big
+    # header fits tables
     try:
 
         # add night's headers to full_source fits header file
-        data_dir = os.environ['DATAHOME']
         fits_header_cat = '{}/Headers/{}_headers_cat.fits'.format(data_dir, tel)
         python_cmdstr = ('python -c \"from blackbox_slurm import add_headkeys; '
                          'add_headkeys (\'{}\', \'{}\', tel=\'{}\')\"'
@@ -667,55 +629,6 @@ def read_hdulist (fits_file, get_data=True, get_header=False,
 
 ################################################################################
 
-def send_email (recipients, subject, body,
-                attachments=None,
-                sender='Radboud GW Alert <scheduler@blackgem.org>',
-                reply_to='p.vreeswijk@astro.ru.nl',
-                smtp_server='smtp-relay.gmail.com',
-                port=465, use_SSL=True):
-
-    if use_SSL:
-        smtpObj = smtplib.SMTP_SSL(smtp_server, port)
-    else:
-        smtpObj = smtplib.SMTP(smtp_server, port)
-        
-    smtpObj.ehlo()
-    send_from = sender
-    send_to = recipients.split(',')
-    msg = MIMEMultipart()
-    msg['from'] = send_from
-    msg['to'] = recipients
-    msg['reply-to'] = reply_to
-    msg['date'] = formatdate(localtime=True)
-    msg['subject'] = subject
-
-    if body is None:
-        text = ''
-    elif os.path.isfile(body):
-        with open(body, 'r') as f:
-            text = f.read()
-    else:
-        text = body
-        
-    msg.attach( MIMEText(text) )
-
-    if attachments is not None:
-        att_list = attachments.split(',')
-        for attachment in att_list:
-            if os.path.isfile(attachment):
-                part = MIMEBase('application', "octet-stream")
-                part.set_payload( open(attachment,"rb").read() )
-                encoders.encode_base64(part)
-                part.add_header('Content-Disposition', 'attachment; filename={}'
-                                .format(os.path.basename(attachment)))
-                msg.attach(part)
-	
-    smtpObj.sendmail(send_from, send_to, msg.as_string())
-    smtpObj.close()
-
-    
-################################################################################
-
 def add_headkeys (path, fits_headers, trans=False, tel='ML1'):
 
     # read [fits_headers]
@@ -733,7 +646,7 @@ def add_headkeys (path, fits_headers, trans=False, tel='ML1'):
         file_str = '_cat.fits'
 
     data_dir = os.environ['DATAHOME']
-    red_dir = '{}/{}'.format(data_dir, tel)
+    red_dir = '{}/{}/red'.format(data_dir, tel)
     filenames = sorted(glob.glob('{}/{}/**/*{}*'.format(red_dir, path, file_str),
                                  recursive=True))
 
