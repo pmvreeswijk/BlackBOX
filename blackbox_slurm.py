@@ -22,7 +22,7 @@ from astropy.io import ascii
 from astropy.time import Time
 from astropy.table import Table, vstack, unique
 
-from multiprocessing import Queue
+from multiprocessing import Queue, Pool
 
 import ephem
 from watchdog.observers.polling import PollingObserver
