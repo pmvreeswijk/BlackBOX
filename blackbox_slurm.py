@@ -20,7 +20,7 @@ import numpy as np
 import astropy.io.fits as fits
 from astropy.io import ascii
 from astropy.time import Time
-from astropy.table import Table, vstack
+from astropy.table import Table, vstack, unique
 
 from multiprocessing import Queue
 
@@ -629,7 +629,7 @@ def read_hdulist (fits_file, get_data=True, get_header=False,
 
 ################################################################################
 
-def add_headkeys (path, fits_headers, trans=False, tel='ML1'):
+def add_headkeys (path, fits_headers, trans=False, tel='ML1', nproc=1):
 
     # read [fits_headers]
     table_headers = Table.read(fits_headers)
@@ -656,7 +656,10 @@ def add_headkeys (path, fits_headers, trans=False, tel='ML1'):
 
     # convert rows to table
     table = Table(rows=rows, names=colnames, masked=True, dtype=dtypes)
-    
+
+    # unique entries, sorted in MJD-OBS
+    table = unique(table, keys='FILENAME')
+
     # add table to input table
     table_headers = vstack([table_headers, table])
         
