@@ -719,7 +719,7 @@ def get_head_row (filename, colnames):
         if row[i] == 'None':
             row[i] = np.ma.masked
 
-    return
+    return row
 
 
 ################################################################################
