@@ -3198,29 +3198,6 @@ def check_ref (queue_ref, obj_filt, method=None, put_lock=True):
                 
 ################################################################################
 
-def try_func (func, args_in, args_out):
-
-    """Helper function to avoid duplication when executing the different
-       functions."""
-
-    func_name = func.__name__
-
-    try:
-        log.info('executing [{}]'.format(func_name))
-        proc_ok = False
-        args[0] = func (args[1:])
-    except Exception as e:
-        #log.exception(traceback.format_exc())
-        log.exception('exception was raised during [{}]: {}'
-                      .format(func_name, e))
-    else:
-        proc_ok = True
-
-    return proc_ok
-
-    
-################################################################################
-
 def close_log (log, logfile):
 
     handlers = log.handlers[:]
@@ -5702,6 +5679,72 @@ def sort_files(read_path, search_str, recursive=False):
                 others.append(filename)
     
     return biases, darks, flats, objects, others
+
+
+################################################################################
+
+def add_headkeys (path, fits_headers, trans=False, tel=None, nproc=1):
+
+    # read [fits_headers]
+    table_headers = Table.read(fits_headers)
+
+    # determine its column names and dtypes
+    colnames = table_headers.colnames
+    dtypes = [str(table_headers.dtype[n]) for n in colnames]
+    log.info ('number of columns: {}'.format(len(colnames)))
+
+    # determine filenames whose headers to add
+    if trans:
+        file_str = '_trans.fits'        
+    else:
+        file_str = '_cat.fits'
+
+
+    red_dir = get_par(set_bb.red_dir,tel)
+    filenames = sorted(glob.glob('{}/{}/**/*{}*'.format(red_dir, path, file_str),
+                                 recursive=True))
+
+    # use pool_func and function [get_row] to multi-process list of
+    # basenames
+    rows = pool_func (get_head_row, filenames, colnames, nproc=nproc)
+
+    # convert rows to table
+    table = Table(rows=rows, names=colnames, masked=True, dtype=dtypes)
+
+    # unique entries, sorted in MJD-OBS
+    table = unique(table, keys='FILENAME')
+
+    # add table to input table
+    table_headers = vstack([table_headers, table])
+        
+    # overwrite fits_headers
+    table_headers.write(fits_headers, overwrite=True)
+
+    return
+
+
+################################################################################
+
+def get_head_row (filename, colnames):
+
+    # read filename header
+    with fits.open(filename) as hdulist:
+        header = hdulist[-1].header
+
+    # loop columns to add
+    row = []
+    for i, colname in enumerate(colnames):
+        if colname in header:
+            row += [header[colname]]
+        elif colname.lower() == 'filename':
+            row += [filename.split('/red/')[-1]]
+        else:
+            row += [np.ma.masked]
+
+        if row[i] == 'None':
+            row[i] = np.ma.masked
+
+    return row
 
 
 ################################################################################

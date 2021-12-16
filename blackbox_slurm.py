@@ -234,7 +234,8 @@ def run_blackbox_slurm (date=None, nthreads=4, runtime='3:00:00'):
 
         # add night's headers to full_source fits header file
         fits_header_cat = '{}/Headers/{}_headers_cat.fits'.format(data_dir, tel)
-        python_cmdstr = ('python -c \"from blackbox_slurm import add_headkeys; '
+        python_cmdstr = ('python -c \"import set_blackbox as set_bb; '
+                         'from blackbox import add_headkeys; '
                          'add_headkeys (\'{}\', \'{}\', tel=\'{}\')\"'
                          .format(date_dir, fits_header_cat, tel))
 
@@ -247,7 +248,8 @@ def run_blackbox_slurm (date=None, nthreads=4, runtime='3:00:00'):
         # add night's headers to transient fits header file
         fits_header_trans = ('{}/Headers/{}_headers_trans.fits'
                              .format(data_dir, tel))
-        python_cmdstr = ('python -c \"from blackbox_slurm import add_headkeys; '
+        python_cmdstr = ('python -c \"import set_blackbox as set_bb; '
+                         'from blackbox import add_headkeys; '
                          'add_headkeys (\'{}\', \'{}\', trans=True, tel=\'{}\')'
                          '\"'.format(date_dir, fits_header_cat, tel))
 
@@ -625,101 +627,6 @@ def read_hdulist (fits_file, get_data=True, get_header=False,
                 return header
             else:
                 return
-
-
-################################################################################
-
-def add_headkeys (path, fits_headers, trans=False, tel='ML1', nproc=1):
-
-    # read [fits_headers]
-    table_headers = Table.read(fits_headers)
-
-    # determine its column names and dtypes
-    colnames = table_headers.colnames
-    dtypes = [str(table_headers.dtype[n]) for n in colnames]
-    log.info ('number of columns: {}'.format(len(colnames)))
-
-    # determine filenames whose headers to add
-    if trans:
-        file_str = '_trans.fits'        
-    else:
-        file_str = '_cat.fits'
-
-    data_dir = os.environ['DATAHOME']
-    red_dir = '{}/{}/red'.format(data_dir, tel)
-    filenames = sorted(glob.glob('{}/{}/**/*{}*'.format(red_dir, path, file_str),
-                                 recursive=True))
-
-    # use pool_func and function [get_row] to multi-process list of
-    # basenames
-    rows = pool_func (get_head_row, filenames, colnames, nproc=nproc)
-
-    # convert rows to table
-    table = Table(rows=rows, names=colnames, masked=True, dtype=dtypes)
-
-    # unique entries, sorted in MJD-OBS
-    table = unique(table, keys='FILENAME')
-
-    # add table to input table
-    table_headers = vstack([table_headers, table])
-        
-    # overwrite fits_headers
-    table_headers.write(fits_headers, overwrite=True)
-
-    return
-
-
-################################################################################
-
-def pool_func (func, filelist, *args, nproc=1):
-
-    try:
-        results = []
-        pool = Pool(nproc)
-        for filename in filelist:
-            args_temp = [filename]
-            for arg in args:
-                args_temp.append(arg)
-
-            results.append(pool.apply_async(func, args_temp))
-
-        pool.close()
-        pool.join()
-        results = [r.get() for r in results]
-        #log.info ('result from pool.apply_async: {}'.format(results))
-    except Exception as e:
-        #log.exception (traceback.format_exc())
-        log.exception ('exception was raised during [pool.apply_async({})]: '
-                       '{}'.format(func, e))
-
-        #logging.shutdown()
-        #raise SystemExit
-
-    return results
-
-
-################################################################################
-
-def get_head_row (filename, colnames):
-
-    # read filename header
-    with fits.open(filename) as hdulist:
-        header = hdulist[-1].header
-
-    # loop columns to add
-    row = []
-    for i, colname in enumerate(colnames):
-        if colname in header:
-            row += [header[colname]]
-        elif colname.lower() == 'filename':
-            row += [filename.split('/red/')[-1]]
-        else:
-            row += [np.ma.masked]
-
-        if row[i] == 'None':
-            row[i] = np.ma.masked
-
-    return row
 
 
 ################################################################################
