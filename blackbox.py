@@ -5704,22 +5704,31 @@ def add_headkeys (path, fits_headers, trans=False, tel=None, nproc=1):
     filenames = sorted(glob.glob('{}/{}/**/*{}*'.format(red_dir, path, file_str),
                                  recursive=True))
 
-    # use pool_func and function [get_row] to multi-process list of
-    # basenames
-    rows = pool_func (get_head_row, filenames, colnames, nproc=nproc)
 
-    # convert rows to table
-    table = Table(rows=rows, names=colnames, masked=True, dtype=dtypes)
+    if len(filenames) > 0:
+    
+        # use pool_func and function [get_row] to multi-process list of
+        # basenames
+        rows = pool_func (get_head_row, filenames, colnames, nproc=nproc)
 
-    # unique entries, sorted in MJD-OBS
-    table = unique(table, keys='FILENAME')
+        # convert rows to table
+        table = Table(rows=rows, names=colnames, masked=True, dtype=dtypes)
 
-    # add table to input table
-    table_headers = vstack([table_headers, table])
+        # unique entries, sorted in MJD-OBS
+        table = unique(table, keys='FILENAME')
+
+        # add table to input table
+        table_headers = vstack([table_headers, table])
+
+        # overwrite fits_headers
+        table_headers.write(fits_headers, overwrite=True)
+
+    else:
+
+        log.warning ('no *{} files available in folder {}/{} for which to add '
+                     'header keys'.format(file_str, red_dir, path))
+
         
-    # overwrite fits_headers
-    table_headers.write(fits_headers, overwrite=True)
-
     return
 
 
