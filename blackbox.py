@@ -2886,6 +2886,7 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
     index_sort = np.argsort(table['DATE-OBS'])
     table = table[index_sort]
 
+
     # write table to ASCII file
     obslog_name = '{}/{}/{}_obslog.txt'.format(red_path, date_dir, date_eve)
     if len(rows) == 0:
@@ -2932,12 +2933,14 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
     body += ('# reduced images:   {} ({} biases, {} darks, {} flats, {} objects)\n'
              .format(nred, nbias_red, ndark_red, nflat_red, nobject_red))
     cat_list = glob.glob('{}/{}*_red_cat.fits'.format(full_path, tel))
-    body += ('# full-source cats: {}\n'.format(len(cat_list)))
+    body += ('# full-source cats: {} ({})\n'.format(
+        len(cat_list), count_redflags(cat_list)))
     trans_list = glob.glob('{}/{}*_red_trans.fits'.format(full_path, tel))
-    body += ('# transient cats:   {}\n'.format(len(trans_list)))
+    body += ('# transient cats:   {} ({})\n'.format(
+        len(trans_list), count_redflags(trans_list, key='TQC-FLAG')))
     body += '\n'
-    
-            
+
+
     if email:
         # email the obslog (with the weather page for MeerLICHT as
         # attachment) to a list of interested people
@@ -2964,6 +2967,24 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
 
 
     return
+
+
+################################################################################
+
+def count_redflags(catlist, key='QC-FLAG'):
+
+    nredflags = 0
+
+    for catname in catlist:
+
+        # read file header
+        header = read_hdulist (catname, get_data=False, get_header=True)
+
+        if key in header and 'red' in header[key]:
+            nredflags += 1
+
+
+    return nredflags
 
 
 ################################################################################
