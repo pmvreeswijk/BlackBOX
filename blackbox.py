@@ -5635,45 +5635,6 @@ def get_date_time (header):
     date_obs_split = re.split('-|:|T|\.', date_obs) #split date into date and time
     return "".join(date_obs_split[0:3]), "".join(date_obs_split[3:6])
 
-    
-################################################################################
-
-def file2fullpath (filenames, set_zogy=None, set_bb=None):
-    
-    """add the full path to the base filename [tel]_yyyymmdd_hhmmss"""
-
-    # get offsets for the different telecopes with UTC
-    UTC_offset = {}
-    for tel_tmp in ['ML1', 'BG2', 'BG3', 'BG4']:
-        UTC_offset[tel_tmp] = (datetime.now().replace(
-            tzinfo=gettz(get_par(set_zogy.obs_timezone,tel_tmp)))
-                               .utcoffset().total_seconds()/3600)
-        
-    # define basename of filename, including full path, i.e.  /[path
-    # to reduced folder]/[tel]_yyyymmdd_hhmmss_red, without fits or
-    # fits.fz extension
-    fullnames = []
-    for filename in filenames:
-        
-        # infer date of observation in isot format from filename
-        basename = '_'.join(filename.split('/')[-1].split('_')[0:3])
-        [tel_tmp, date_tmp, time_tmp] = basename.split('_')
-        date_obs = '{}-{}-{}T{}:{}:{}'.format(
-            date_tmp[0:4], date_tmp[4:6], date_tmp[6:8],
-            time_tmp[0:2], time_tmp[2:4], time_tmp[4:6])
-
-        # path to the reduced folder
-        red_dir = get_par(set_bb.red_dir,tel_tmp)
-    
-        date_eve = (Time(int(Time(date_obs).jd+UTC_offset[tel_tmp]/24),
-                         format='jd').strftime('%Y%m%d'))
-        date_dir = '{}/{}/{}'.format(date_eve[0:4], date_eve[4:6],
-                                     date_eve[6:8])
-        fullnames.append('{}/{}/{}'.format(red_dir, date_dir, filename))
-
-
-    return fullnames
-
 
 ################################################################################
 
