@@ -2921,10 +2921,10 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
     body += ('# reduced images:   {} ({} biases, {} darks, {} flats, {} objects)\n'
              .format(nred, nbias_red, ndark_red, nflat_red, nobject_red))
     cat_list = glob.glob('{}/{}*_red_cat.fits'.format(full_path, tel))
-    body += ('# full-source cats: {} ({})\n'.format(
+    body += ('# full-source cats: {} ({} red-flagged)\n'.format(
         len(cat_list), count_redflags(cat_list)))
     trans_list = glob.glob('{}/{}*_red_trans.fits'.format(full_path, tel))
-    body += ('# transient cats:   {} ({})\n'.format(
+    body += ('# transient cats:   {} ({} red-flagged)\n'.format(
         len(trans_list), count_redflags(trans_list, key='TQC-FLAG')))
     body += '\n'
 
