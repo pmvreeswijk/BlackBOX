@@ -1547,7 +1547,7 @@ if __name__ == "__main__":
     # to BlackGEM in the future, e.g. by letting the filename in the
     # header tables to start with [tel]/red/yyyy/etc
     tel = 'ML1'
-    red_dir = get_par(set_bb.red_dir,args.tel)
+    red_dir = get_par(set_bb.red_dir,tel)
 
 
     # check if path ok for the last file
