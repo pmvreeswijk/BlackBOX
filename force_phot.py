@@ -77,7 +77,7 @@ __version__ = '0.7'
 def force_phot (radec_images_dict, trans=True, fullsource=False, nsigma=5,
                 use_catalog_mags=False, sep_max=3, catcols2add=None,
                 catcols2add_dtypes=None, keys2add=None, keys2add_dtypes=None,
-                bkg_global=True, nproc=1):
+                bkg_global=True, ncpus=1):
 
     """Forced photometry on MeerLICHT/BlackGEM images at the input
        coordinates provided, or alternatively, the extraction of
@@ -117,7 +117,7 @@ def force_phot (radec_images_dict, trans=True, fullsource=False, nsigma=5,
        output column, where the values are searched for in the input
        image headers.
 
-       To speed up the processing, [nproc] can be increased to the
+       To speed up the processing, [ncpus] can be increased to the
        number of CPUs available.
 
    
@@ -170,7 +170,7 @@ def force_phot (radec_images_dict, trans=True, fullsource=False, nsigma=5,
                      dtypes of the header keywords provided in
                      [keys2add]
                      
-    nproc: int (default=1); number of processes/tasks to use
+    ncpus: int (default=1); number of processes/tasks to use
 
     """
     
@@ -301,7 +301,7 @@ def force_phot (radec_images_dict, trans=True, fullsource=False, nsigma=5,
     # basenames
     rows = pool_func (get_rows, image_radecs_list, trans, fullsource, nsigma,
                       use_catalog_mags, sep_max, catcols2add, keys2add, add_keys,
-                      names, dtypes, bkg_global, nproc=nproc)
+                      names, dtypes, bkg_global, nproc=ncpus)
     rows = list(itertools.chain.from_iterable(rows))
 
 
@@ -404,7 +404,7 @@ def get_rows (image_radecs, trans, fullsource, nsigma, use_catalog_mags, sep_max
     # and that at least one them is on the image
     dpix_edge = 10
     mask_on = ((xcoords > dpix_edge) & (xcoords < xsize-dpix_edge) &
-                    (ycoords > dpix_edge) & (ycoords < ysize-dpix_edge))
+               (ycoords > dpix_edge) & (ycoords < ysize-dpix_edge))
     if np.sum(mask_on)==0:
         log.warning ('inferred pixel coordinates are off the image for {}; '
                      'skipping its extraction'.format(basename))
@@ -1187,7 +1187,7 @@ if __name__ == "__main__":
     parser.add_argument('--fullsource', type=str2bool, default=False,
                         help='extract full-source magnitudes?; default=False')
 
-    parser.add_argument('--bkg_global', type=str2bool, default=True,
+    parser.add_argument('--bkg_global', type=str2bool, default=False,
                         help='for full-source case only: use global background '
                         'estimate (T) or estimate local background from annulus '
                         'around the coordinates (F); default=True')
@@ -1250,8 +1250,11 @@ if __name__ == "__main__":
                         help='corresponding header keyword dtypes; default: {}'
                         .format(par_default))
 
-    parser.add_argument('--nproc', type=int, default=1,
-                        help='number of CPUs to use; default=1')
+    parser.add_argument('--ncpus', type=int, default=None,
+                        help='number of CPUs to use; if None, the number of '
+                        'CPUs available as defined by environment variables '
+                        'SLURM_CPUS_PER_TASK or OMP_NUM_THREADS will be used; '
+                        'default=None')
     
     parser.add_argument('--logfile', type=str, default=None,
                         help='if name is provided, an output logfile is created; '
@@ -1280,17 +1283,35 @@ if __name__ == "__main__":
         log.info ('logfile created: {}'.format(args.logfile))
 
 
-    
-    # define number of processes or tasks [nproc]; when running on the
-    # ilifu cluster the environment variable SLURM_NTASKS should be
-    # set through --ntasks-per-node in the sbatch script; otherwise
-    # use the local value of [nproc]
-    slurm_ntasks = os.environ.get('SLURM_NTASKS')
-    if slurm_ntasks is not None:
-        nproc = int(slurm_ntasks)
+    # define number of CPUs to use [ncpus]; if input parameter [npcus]
+    # is defined, that value is used. If not and if the ilifu cluster
+    # environment variable SLURM_CPUS_PER_TASK is set, either through
+    # the --cpus-per-task option in the sbatch script, or when opening
+    # an interactive node with multiple processors, that value is
+    # adopted. If not, the environment variable OMP_NUM_THREADS is
+    # looked for and used if defined.  If none of the above are
+    # defined, npcus=1 is used.
+    slurm_ncpus = os.environ.get('SLURM_CPUS_PER_TASK')
+    omp_num_threads = os.environ.get('OMP_NUM_THREADS')
+    if args.ncpus is not None:
+        ncpus = args.ncpus
+        if slurm_ncpus is not None and ncpus > int(slurm_ncpus):
+            log.warning ('number of CPUs defined ({}) is larger than the number '
+                         'available ({})'.format(ncpus, slurm_ncpus))
+        elif omp_num_threads is not None and ncpus > int(omp_num_threads):
+            log.warning ('number of CPUs defined ({}) is larger than the number '
+                         'available ({})'.format(ncpus, omp_num_threads))
     else:
-        nproc = args.nproc
+        if slurm_ncpus is not None:
+            ncpus = int(slurm_ncpus)
+        elif omp_num_threads is not None:
+            ncpus = int(omp_num_threads)
+        else:
+            ncpus = 1
 
+
+    log.info ('number of CPUs used: {}'.format(ncpus))
+        
 
     # infer RAs and DECs to go through from [args.radecs]
     # ---------------------------------------------------
@@ -1309,8 +1330,8 @@ if __name__ == "__main__":
                          'the input parameter [radecs_file_format] is correct')
             raise SystemExit
         else:
-            log.info ('{} lines in input file [radecs]'
-                      .format(len(table_radecs)))
+            log.info ('{} lines in input file {}'
+                      .format(len(table_radecs), args.radecs))
 
 
         # convert column [date_col] to list mjds_in
@@ -1325,8 +1346,9 @@ if __name__ == "__main__":
                                        args.date_format)
             table_radecs = table_radecs[mask_dtime]
 
-            log.info ('{} lines in input file [radecs] after filtering on input '
-                      '[date_start] and [date_end]'.format(len(table_radecs)))
+            log.info ('{} lines in input file {} after filtering on input '
+                      '[date_start] and [date_end]'
+                      .format(args.radecs, len(table_radecs)))
 
         else:
             # if not provided, set mjds_in to None
@@ -1439,8 +1461,8 @@ if __name__ == "__main__":
         # format [args.filenames_file_format]
         table_filenames = Table.read(args.filenames,
                                      format=args.filenames_file_format)
-        log.info ('{} line(s) in input file [filenames]'
-                  .format(len(table_filenames)))
+        log.info ('{} line(s) in input file {}'
+                  .format(len(table_filenames), args.filenames))
 
 
         # get central coordinates of filenames
@@ -1606,17 +1628,17 @@ if __name__ == "__main__":
     # [radec_images], depending on whether it contains a list of
     # tuples with 2 or 3 elements.
 
-    # to optimize the multiprocessing, split [radecs_in] into [nproc]
+    # to optimize the multiprocessing, split [radecs_in] into [ncpus]
     # lists so that each worker processes a number of radecs at a
     # time, rather than a single one
     radecs_in_lists = []
-    index = np.linspace(0,len(radecs_in),num=nproc+1).astype(int)
-    for i in range(nproc):
+    index = np.linspace(0,len(radecs_in),num=ncpus+1).astype(int)
+    for i in range(ncpus):
         radecs_in_lists.append(radecs_in[index[i]:index[i+1]])
 
     # run multiprocessing
     results = pool_func (radec_images, radecs_in_lists, mjds_obs, args.dtime_max,
-                         basenames, radecs_cntr, nproc=nproc)
+                         basenames, radecs_cntr, nproc=ncpus)
 
     # get rid of lists in lists
     results = list(itertools.chain.from_iterable(results))
@@ -1680,7 +1702,7 @@ if __name__ == "__main__":
         sep_max=args.sep_max, catcols2add=catcols2add,
         catcols2add_dtypes=catcols2add_dtypes, keys2add=keys2add,
         keys2add_dtypes=keys2add_dtypes, bkg_global=args.bkg_global,
-        nproc=nproc)
+        ncpus=ncpus)
 
 
     # copy columns from the input to the output table; even if
