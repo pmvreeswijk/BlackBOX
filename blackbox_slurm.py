@@ -251,7 +251,7 @@ def run_blackbox_slurm (date=None, nthreads=4, runtime='3:00:00'):
         python_cmdstr = ('python -c \"import set_blackbox as set_bb; '
                          'from blackbox import add_headkeys; '
                          'add_headkeys (\'{}\', \'{}\', trans=True, tel=\'{}\')'
-                         '\"'.format(date_dir, fits_header_cat, tel))
+                         '\"'.format(date_dir, fits_header_trans, tel))
 
         jobname = 'add_headkeys_trans_{}'.format(date_eve)
         slurm_process (python_cmdstr, nthreads=1, runtime='0:30:00',
