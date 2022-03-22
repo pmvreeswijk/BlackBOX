@@ -21,9 +21,7 @@ import set_blackbox as set_bb
 
 # setting environment variable OMP_NUM_THREADS to number of threads,
 # (used by e.g. astroscrappy); needs to be done before numpy is
-# imported in [zogy]. However, do not set it when running a job on the
-# ilifu cluster as it is set in the job script and that value would
-# get overwritten here
+# imported in [zogy]. 
 cpus_per_task = os.environ.get('SLURM_CPUS_PER_TASK')
 if cpus_per_task is None:
     os.environ['OMP_NUM_THREADS'] = str(set_bb.nthreads)
@@ -2902,6 +2900,7 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
             log.exception ('exception occurred while making screenshot of '
                            'SAAO weather page '
                            '(https://suthweather.saao.ac.za): {}'.format(e))
+            png_name = None
     else:
         if not os.path.isfile(png_name):
             png_name = None
