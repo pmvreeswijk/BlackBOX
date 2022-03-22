@@ -276,12 +276,12 @@ qc_range = {
                                                                             'z': [ (0.03, 0.03) ]},             'key_type': 'full', 'pos': True , 'comment': '[mag] sigma (STD) zeropoint sigma'},
 
         # updated PC-MZPD values and also ZPSTD above to estimates based on uqi data set from Simon on GW190814; increased because of variation in crowded fields such as SMC (16000)
-        'PC-MZPD' : {'default':'None', 'val_type': 'sigma',   'val_range': {'u': [ (0.07, 0.09) ],
-                                                                            'g': [ (0.03, 0.09) ],
-                                                                            'q': [ (0.02, 0.09) ],
-                                                                            'r': [ (0.02, 0.09) ],
-                                                                            'i': [ (0.02, 0.09) ],
-                                                                            'z': [ (0.03, 0.09) ]},             'key_type': 'full', 'pos': True , 'comment': '[mag] maximum zeropoint difference between subimages'},
+        'PC-MZPD' : {'default':'None', 'val_type': 'sigma',   'val_range': {'u': [ (0.07, 0.05) ],
+                                                                            'g': [ (0.03, 0.05) ],
+                                                                            'q': [ (0.02, 0.05) ],
+                                                                            'r': [ (0.02, 0.05) ],
+                                                                            'i': [ (0.02, 0.05) ],
+                                                                            'z': [ (0.03, 0.05) ]},             'key_type': 'full', 'pos': True , 'comment': '[mag] maximum zeropoint difference between subimages'},
 
         'PC-MZPS' : {'default':'None', 'val_type': 'skip',    'val_range': {'u': [ (0.01, 0.02) ],
                                                                             'g': [ (0.01, 0.02) ],
