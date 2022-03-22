@@ -324,7 +324,7 @@ def buildref (telescope=None, fits_table=None, table_only=None, date_start=None,
     # will be used to fill [radec_list] in the loop below
     center_type = get_par(set_br.center_type,tel)
     if center_type == 'grid':
-        # read from grid definition file located in ${ZOGYHOME}/CalFiles
+        # read from grid definition file located in ${BBHOME}/CalFiles
         mlbg_fieldIDs = get_par(set_bb.mlbg_fieldIDs,tel)
         #table_grid = ascii.read(mlbg_fieldIDs, names=['ID', 'RA', 'DEC'],
         #                        data_start=0)
@@ -1895,8 +1895,15 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
     header_out.set('DATE-OBS', date_obs, 'average date of observation',
                    after='EXPTIME')
     header_out.set('MJD-OBS', mjd_obs_eff, '[days] average MJD', after='DATE-OBS')
-    
-    
+
+    # this line below could be added to allow a combined image to
+    # serve as input to the new image in zogy.py, but this is only
+    # valid in case set_br.pixscale_type is set to "manual" - need to
+    # infer the pixelscale in case it is not manual.
+    #header_out.set('A-PSCALE', pixscale_out, '[arcsec/pix] pixel scale WCS '
+    #               'solution')
+
+
     # buildref version
     header_out['R-V'] = (__version__, 'reference building module version used')
 
