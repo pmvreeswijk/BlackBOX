@@ -67,9 +67,10 @@ import aplpy
 # is working fine at the moment, so do not define the urls below.
 from astropy.utils import iers
 iers.conf.iers_auto_url = (
-    'https://storage.googleapis.com/blackbox-auxdata/timing/finals2000A.all')
+    'https://maia.usno.navy.mil/ser7/finals2000A.all')
 iers.conf.iers_auto_url_mirror = (
-    'ftp://cddis.gsfc.nasa.gov/pub/products/iers/finals2000A.all')
+    'https://storage.googleapis.com/blackbox-auxdata/timing/finals2000A.all')
+    #'ftp://cddis.gsfc.nasa.gov/pub/products/iers/finals2000A.all')
 
 from astroplan import moon
 
