@@ -88,8 +88,12 @@ from email import encoders
 
 # commands to force the downloading of above IERS bulletin file in
 # case a recent one (younger than 30 days) is not present in the cache
-tnow = Time.now()
-tnow.ut1  
+try:
+    tnow = Time.now()
+    tnow.ut1  
+except Exception as e:
+    log.warning ('exception was raised while testing \'tnow.ut1\' at start of '
+                 'blackbox; issue with IERS file?: {}'.format(e))
 
 
 __version__ = '1.0.13'
