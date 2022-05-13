@@ -1000,7 +1000,11 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
     make_dir (ref_path)
     
     # name of output file, including full path
-    ref_fits_out = '{}/{}_{}_red.fits'.format(ref_path, tel, filt)
+    if not deep:
+        ref_fits_out = '{}/{}_{}_red.fits'.format(ref_path, tel, filt)
+    else:
+        ref_fits_out = '{}/{}_{}_{}_red.fits'.format(ref_path, tel, field_ID,
+                                                     filt)
 
     # if reference image already exists, check if images used are the
     # same as the input [imagelist]
