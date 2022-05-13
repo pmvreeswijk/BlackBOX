@@ -2817,7 +2817,7 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
             ndark_raw += 1
         elif 'flat' in f.lower():
             nflat_raw += 1
-        else:
+        elif 'singleobservation' not in f.lower():
             nobject_raw += 1
 
 
@@ -4303,7 +4303,7 @@ def check_header1 (header, filename):
             # return right away as otherwise [obj] not defined, which
             # is used below
             return header_ok
-            
+
 
     if imgtype=='object':
 
@@ -5759,7 +5759,10 @@ def get_head_row (filename, colnames):
         if colname in header:
             row += [header[colname]]
         elif colname.lower() == 'filename':
-            row += [filename.split('/red/')[-1]]
+            # add filename with full path
+            row += filename
+            # add filename part starting with yyyy/mm/dd/..
+            #row += [filename.split('/red/')[-1]]
         else:
             row += [np.ma.masked]
 
@@ -5826,7 +5829,7 @@ if __name__ == "__main__":
     parser.add_argument('--date', type=str, default=None,
                         help='Date to process (yyyymmdd, yyyy-mm-dd, yyyy/mm/dd '
                         'or yyyy.mm.dd); default=None')
-
+rq
     parser.add_argument('--read_path', type=str, default=None,
                         help='Full path to the input raw data directory; if not '
                         'defined it is determined from [set_blackbox.raw_dir], '
