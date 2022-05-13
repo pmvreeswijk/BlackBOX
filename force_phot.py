@@ -64,18 +64,37 @@ cols_trans = ['NUMBER', 'X_PEAK', 'Y_PEAK',
               'FWHM_GAUSS_D', 'ELONG_GAUSS_D', 'CHI2_GAUSS_D', 'CLASS_REAL',
               'THUMBNAIL_RED', 'THUMBNAIL_REF', 'THUMBNAIL_D', 'THUMBNAIL_SCORR']
 
+cols_ref = ['NUMBER', 'X_POS', 'Y_POS',
+            'XVAR_POS', 'YVAR_POS', 'XYCOV_POS', 
+            'RA', 'DEC',
+            'CXX', 'CYY', 'CXY', 'A', 'B', 'THETA',
+            'ELONGATION', 'FWHM', 'CLASS_STAR',
+            'FLAGS', 'FLAGS_MASK',
+            'BACKGROUND',
+            'MAG_APER', 'MAGERR_APER',  
+            'MAG_AUTO', 'MAGERR_AUTO', 'KRON_RADIUS',
+            'MAG_ISO', 'MAGERR_ISO', 'ISOAREA',
+            'MU_MAX', 'FLUX_RADIUS',
+            'MAG_PETRO', 'MAGERR_PETRO', 'PETRO_RADIUS',
+            'E_FLUX_OPT', 'E_FLUXERR_OPT', 'MAG_OPT', 'MAGERR_OPT']
+# add _REF to the [cols_ref] column names to avoid duplicating
+# full-source columns
+for i in range(len(cols_ref)):
+    cols_ref[i] = '{}_REF'.format(cols_ref[i])
+
+
 #try:
 #    from fitsio import FITS
 #except:
 #    log.info ('import of fitsio.FITS failed; using astropy.io.fits instead')
 
-__version__ = '0.7'
+__version__ = '0.8'
 
 
 ################################################################################
 
-def force_phot (radec_images_dict, trans=True, fullsource=False, nsigma=5,
-                use_catalog_mags=False, sep_max=3, catcols2add=None,
+def force_phot (radec_images_dict, trans=True, ref=True, fullsource=False,
+                nsigma=5, use_catalog_mags=False, sep_max=3, catcols2add=None,
                 catcols2add_dtypes=None, keys2add=None, keys2add_dtypes=None,
                 bkg_global=True, ncpus=1):
 
@@ -135,9 +154,12 @@ def force_phot (radec_images_dict, trans=True, fullsource=False, nsigma=5,
 
     trans: boolean (default=True), if True the transient magnitudes
            and limits will be extracted
+    
+    ref: boolean (default=True), if True the reference magnitudes and
+         limits will be extracted
 
     fullsource: boolean (default=False), if True the full-source
-                magnitudes/limits will be extracted
+                magnitudes and limits will be extracted
 
     nsigma: float (default=5), the significance level at which the
             limiting magnitudes will be determined; this values will
@@ -156,8 +178,10 @@ def force_phot (radec_images_dict, trans=True, fullsource=False, nsigma=5,
              arcseconds between the input RA,DEC and a catalog source
 
     catcols2add: list of strings (default=None); additional
-                 full-source or transient catalog columns to add to
-                 the output table
+                 full-source, transient and/or reference catalog columns 
+                 to add to the output table; add \'_REF\' to any reference 
+                 column name, to separate them from the often-identical
+                 full-source column names
 
     catcols2add_dtypes: list of dtypes (default=None); corresponding
                         dtypes of the catalog columns provided in
@@ -223,6 +247,7 @@ def force_phot (radec_images_dict, trans=True, fullsource=False, nsigma=5,
         
     # initialize columns to be determined below
     if fullsource:
+
         names_fullsource = ['MAG_OPT', 'MAGERR_OPT', 'SNR_OPT',
                             'LIMMAG_{}SIGMA'.format(nsigma)]
         names += names_fullsource
@@ -235,7 +260,7 @@ def force_phot (radec_images_dict, trans=True, fullsource=False, nsigma=5,
             dtypes += [float]
 
         # add additional full-source catalog columns specified in
-        # [args.catcols2add]; transient ones will be added below
+        # [args.catcols2add]
         if use_catalog_mags and catcols2add is not None:
             for icol, col in enumerate(catcols2add):
                 if col in cols_fullsource and col not in names:
@@ -244,6 +269,7 @@ def force_phot (radec_images_dict, trans=True, fullsource=False, nsigma=5,
 
 
     if trans:
+
         names_trans = ['MAG_ZOGY', 'MAGERR_ZOGY', 'SNR_ZOGY',
                        'TRANS_LIMMAG_{}SIGMA'.format(nsigma)]
         names += names_trans
@@ -256,7 +282,7 @@ def force_phot (radec_images_dict, trans=True, fullsource=False, nsigma=5,
             dtypes += [float]
 
         # add additional transient catalog columns specified in
-        # [args.catcols2add]; full-source ones have been added above
+        # [args.catcols2add]
         if use_catalog_mags and catcols2add is not None:
             for icol, col in enumerate(catcols2add):
                 if col in cols_trans and col not in names:
@@ -264,6 +290,43 @@ def force_phot (radec_images_dict, trans=True, fullsource=False, nsigma=5,
                     dtypes += [catcols2add_dtypes[icol]]
 
 
+    if ref:
+
+        # add pixelcoordinates corresponding to input RA/DEC to table
+        names += ['X_POS_IN_REF', 'Y_POS_IN_REF']
+        dtypes += [float, float]
+        
+
+        # add FLAGS_MASK for the reference image
+        if 'FLAGS_MASK_REF' not in names:
+            names += ['FLAGS_MASK_REF']
+            dtypes += ['uint8']
+
+
+        # magnitude, snr and limiting magnitude columns
+        names_ref = ['MAG_OPT_REF', 'MAGERR_OPT_REF', 'SNR_OPT_REF',
+                     'LIMMAG_{}SIGMA_REF'.format(nsigma),
+                     'MAG_ZOGY_PLUSREF']
+        names += names_ref
+        dtypes += [float, float, float, float, float]
+
+
+        # add separation between input coordinates and potential
+        # matching source in full-source catalog
+        if use_catalog_mags:
+            names += ['SEP_REF']
+            dtypes += [float]
+
+
+        # add additional full-source catalog columns specified in
+        # [args.catcols2add]
+        if use_catalog_mags and catcols2add is not None:
+            for icol, col in enumerate(catcols2add):
+                if col in cols_ref and col not in names:
+                    names += [col]
+                    dtypes += [catcols2add_dtypes[icol]]
+
+                    
     # convert input dictionary {(RA1,DEC1): imagelist1, (RA1,DEC1):
     # imagelist2, ...}  to {image1: RADEClist, image2: RADEClist2,
     # ...}, so that if there are multiple sources in the same image,
@@ -299,9 +362,9 @@ def force_phot (radec_images_dict, trans=True, fullsource=False, nsigma=5,
 
     # use pool_func and function [get_rows] to multi-process list of
     # basenames
-    rows = pool_func (get_rows, image_radecs_list, trans, fullsource, nsigma,
-                      use_catalog_mags, sep_max, catcols2add, keys2add, add_keys,
-                      names, dtypes, bkg_global, nproc=ncpus)
+    rows = pool_func (get_rows, image_radecs_list, trans, ref, fullsource,
+                      nsigma, use_catalog_mags, sep_max, catcols2add, keys2add,
+                      add_keys, names, dtypes, bkg_global, nproc=ncpus)
     rows = list(itertools.chain.from_iterable(rows))
 
 
@@ -331,8 +394,22 @@ def force_phot (radec_images_dict, trans=True, fullsource=False, nsigma=5,
 
 ################################################################################
 
-def get_rows (image_radecs, trans, fullsource, nsigma, use_catalog_mags, sep_max,
-              catcols2add, keys2add, add_keys, names, dtypes, bkg_global):
+def remove_empty (list_in):
+
+    while True:
+        try:
+            i = list_in.index('')
+            log.warning ('removing empty string from list')
+            list_in.pop(i)
+        except:
+            break
+
+
+################################################################################
+
+def get_rows (image_radecs, trans, ref, fullsource, nsigma, use_catalog_mags,
+              sep_max, catcols2add, keys2add, add_keys, names, dtypes,
+              bkg_global):
 
 
     # extract basenames and coordinates from input tuple [image_radecs]
@@ -390,6 +467,10 @@ def get_rows (image_radecs, trans, fullsource, nsigma, use_catalog_mags, sep_max
     # convert input [ras_deg] and [decs_deg] to pixel coordinates
     xcoords, ycoords = WCS(header).all_world2pix(ras_deg, decs_deg, 1)
     
+    # indices of pixel coordinates
+    x_indices = (xcoords-0.5).astype(int)
+    y_indices = (ycoords-0.5).astype(int)
+
 
     # make sure xcoords and ycoords are valid numbers and on the image
     mask_finite = (np.isfinite(xcoords) & np.isfinite(ycoords))
@@ -456,12 +537,6 @@ def get_rows (image_radecs, trans, fullsource, nsigma, use_catalog_mags, sep_max
                                  .format(basename))
 
 
-
-    # indices of pixel coordinates
-    x_indices = (xcoords-0.5).astype(int)
-    y_indices = (ycoords-0.5).astype(int)
-
-
     # read data mask here; is needed in case of fullsource and/or trans
     fits_mask = '{}_mask.fits.fz'.format(basename)
     #data_mask = read_hdulist (fits_mask, dtype='uint8')
@@ -503,6 +578,7 @@ def get_rows (image_radecs, trans, fullsource, nsigma, use_catalog_mags, sep_max
 
     # full-source; determining optimal flux
     # -------------------------------------
+    nsigma_orig = 5
     if fullsource:              
 
         # define PSFEx binary fits table to use
@@ -567,10 +643,11 @@ def get_rows (image_radecs, trans, fullsource, nsigma, use_catalog_mags, sep_max
             objmask = np.zeros (data_shape, dtype=bool)
 
 
-        # read reduced image
+        # read reduced image; need to use astropy method, as otherwise
+        # this will lead to an exception in [get_psfoptflux] as
+        # (probably) the shape attribute is not available when data is
+        # read through fitsio.FITS
         data = read_hdulist (fits_red)
-        #data = FITS(fits_red)[-1]
-        #data_mask = data_mask[:,:]
         
         try:
             # determine optimal fluxes at pixel coordinates
@@ -602,10 +679,10 @@ def get_rows (image_radecs, trans, fullsource, nsigma, use_catalog_mags, sep_max
 
             # convert limmag from number of sigma listed
             # in the image header to input [nsigma]
-            if 'NSIGMA' in header:
+            if ('NSIGMA' in header and
+                isinstance(header['NSIGMA'], (float, int)) and
+                header['NSIGMA'] != 0):
                 nsigma_orig = header['NSIGMA']
-            else:
-                nsigma_orig = 5
                     
             if nsigma_orig != nsigma:
                 limmags += -2.5*np.log10(nsigma/nsigma_orig)
@@ -715,7 +792,8 @@ def get_rows (image_radecs, trans, fullsource, nsigma, use_catalog_mags, sep_max
             header_trans = FITS(fits_trans)[-1].read_header()
 
             if ('NSIGMA' in header_trans and
-                isinstance(header_trans['NSIGMA'], (float, int))):
+                isinstance(header_trans['NSIGMA'], (float, int)) and 
+                header_trans['NSIGMA'] != 0):
                 nsigma_trans_orig = header_trans['NSIGMA']
 
             if nsigma_trans_orig != nsigma:
@@ -802,6 +880,271 @@ def get_rows (image_radecs, trans, fullsource, nsigma, use_catalog_mags, sep_max
         table['SNR_ZOGY'] = snr_zogy
         table['TRANS_LIMMAG_{}SIGMA'.format(nsigma)] = tlimmags
 
+
+
+    # reference; determine optimal fluxes
+    # -----------------------------------
+    if ref:
+
+        # infer path to ref folder
+        ref_dir = get_par(set_bb.ref_dir,tel)
+        # read field ID from header
+        obj, filt = header['OBJECT'], header['FILTER']
+        # reference image and catalog names including full path
+        basename_ref = '{}/{}/{}_{}'.format(ref_dir, obj, tel, filt)
+        fits_red_ref = '{}_red.fits.fz'.format(basename_ref)
+        fits_cat_ref = '{}_red_cat.fits'.format(basename_ref)
+        
+
+        # read reference image header
+        header_ref = FITS(fits_red_ref)[-1].read_header()
+        
+
+        # read FWHM from the header
+        if 'PSF-FWHM' in header_ref:
+            fwhm_ref = header_ref['PSF-FWHM']
+        elif 'S-FWHM' in header_ref:
+            fwhm_ref = header_ref['S-FWHM']
+        else:
+            fwhm_ref = 5
+            log.warning ('keywords PSF-FWHM nor S-FWHM present in the header '
+                         'for {}; assuming fwhm_ref=5 pix'.format(basename_ref))
+
+
+        # data_shape from header
+        data_shape_ref = (header_ref['ZNAXIS2'], header_ref['ZNAXIS1'])
+        ysize_ref, xsize_ref = data_shape_ref
+
+        
+        # convert input [ras_deg] and [decs_deg] to pixel coordinates
+        # on the reference image
+        xcoords_ref, ycoords_ref = (WCS(header_ref).
+                                    all_world2pix(ras_deg, decs_deg, 1))
+
+        
+        # indices of pixel coordinates
+        x_indices_ref = (xcoords_ref-0.5).astype(int)
+        y_indices_ref = (ycoords_ref-0.5).astype(int)
+
+
+        # define PSFEx binary fits table to use
+        psfex_bintable = '{}_red_psf.fits'.format(basename_ref)
+
+        if not os.path.exists(psfex_bintable):
+            log.warning ('{} not found; skipping extraction of reference '
+                         'magnitudes on {}'.format(psfex_bintable,
+                                                   basename_ref))
+            return [list(table[i]) for i in range(len(table))]
+
+        
+        # background STD
+        fits_bkg_std = '{}_red_bkg_std.fits.fz'.format(basename_ref)
+        if os.path.exists(fits_bkg_std):
+            #data_bkg_std = read_hdulist (fits_bkg_std, dtype='float32')
+            data_bkg_std = FITS(fits_bkg_std)[-1]
+        else:
+            # if it does not exist, create it from the background mesh
+            fits_bkg_std_mini = '{}_red_bkg_std_mini.fits'.format(basename_ref)
+            data_bkg_std_mini, header_mini = read_hdulist (
+                fits_bkg_std_mini, get_header=True, dtype='float32')
+
+            if 'BKG-SIZE' in header_mini:
+                bkg_size = header_mini['BKG-SIZE']
+            else:
+                bkg_size = get_par(set_zogy.bkg_boxsize,tel)
+
+
+            if ncoords == 1:
+                # determine scalar bkg_std value from mini image at
+                # xcoord, ycoord
+                x_indices_mini = (((xcoords_ref-0.5).astype(int)/bkg_size)
+                                  .astype(int))
+                y_indices_mini = (((ycoords_ref-0.5).astype(int)/bkg_size)
+                                  .astype(int))
+                [data_bkg_std] = data_bkg_std_mini[y_indices_mini,
+                                                   x_indices_mini]
+
+            else:
+                # determine full bkg_std image from mini image
+                
+                # determine whether interpolation is allowed across different
+                # channels in [mini2back] using function get_Xchan_bool
+                chancorr = get_par(set_zogy.MLBG_chancorr,tel)
+                interp_Xchan_std = get_Xchan_bool (tel, chancorr, 'ref',
+                                                   std=True)
+                data_bkg_std = mini2back (
+                    data_bkg_std_mini, data_shape_ref, order_interp=1,
+                    bkg_boxsize=bkg_size, interp_Xchan=interp_Xchan_std,
+                    timing=get_par(set_zogy.timing,tel))
+
+
+
+        # object mask - not part of the standard zogy products at the
+        # moment, so not available (yet); for the time being, let this
+        # depend on input parameter [bkg_global]
+        if bkg_global:
+            # if True, global background is used, i.e. any local flux
+            # due to nearby sources or galaxy is not taken into
+            # account
+            objmask = np.ones (data_shape_ref, dtype=bool)
+        else:
+            # if False, a circular annulus around each object is used
+            # to estimate the sky background
+            objmask = np.zeros (data_shape_ref, dtype=bool)
+
+
+        # read reduced image
+        data = read_hdulist (fits_red_ref)
+
+        # read mask image
+        fits_mask_ref = '{}_mask.fits.fz'.format(basename_ref)
+        #data_mask = read_hdulist (fits_mask_ref, dtype='uint8')
+        data_mask = FITS(fits_mask_ref)[-1]
+
+
+        # add combined FLAGS_MASK_REF column to output table using
+        # [get_flags_mask_comb]
+        table['FLAGS_MASK_REF'] = get_flags_mask_comb (
+            data_mask, xcoords_ref, ycoords_ref, fwhm_ref, xsize_ref, ysize_ref)
+        
+        
+        try:
+            # determine optimal fluxes at pixel coordinates
+            flux_opt, fluxerr_opt = get_psfoptflux (
+                psfex_bintable, data, data_bkg_std**2, data_mask,
+                xcoords_ref, ycoords_ref, imtype='ref', fwhm=fwhm_ref,
+                D_objmask=objmask, set_zogy=set_zogy, tel=tel)
+
+        except Exception as e:
+            log.error ('exception was raised while executing [get_psfoptflux]; '
+                       'skipping extraction of magnitudes from {}: {}'
+                       .format(basename_ref, e))
+            return [list(table[i]) for i in range(len(table))]
+
+
+        # infer some reference image header keywords
+        keys = ['EXPTIME', 'PC-ZP', 'AIRMASS']
+        exptime, zp, airmass = [header_ref[key] for key in keys]
+
+        # infer calibrated magnitudes using the zeropoint
+        mag_opt, magerr_opt = apply_zp (np.abs(flux_opt), zp, airmass, exptime,
+                                        filt, ext_coeff, fluxerr=fluxerr_opt)
+
+
+        # read limiting magnitude at pixel coordinates
+        fits_limmag = '{}_red_limmag.fits.fz'.format(basename_ref)
+        if os.path.exists(fits_limmag):
+
+            #data_limmag = read_hdulist(fits_limmag)
+            #limmags = data_limmag[y_indices_ref, x_indices_ref]
+            data_limmag = FITS(fits_limmag)[-1]
+            limmags = get_fitsio_values (data_limmag,
+                                         y_indices_ref, x_indices_ref)
+
+            # convert limmag from number of sigma listed
+            # in the image header to input [nsigma]
+            if ('NSIGMA' in header and
+                isinstance(header['NSIGMA'], (float, int)) and
+                header['NSIGMA'] != 0):
+                nsigma_orig = header['NSIGMA']
+
+            if nsigma_orig != nsigma:
+                limmags += -2.5*np.log10(nsigma/nsigma_orig)
+
+        else:
+            log.warning ('{} not found; no limiting magnitudes available'
+                         .format(fits_limmag))
+            limmags = None
+
+
+        # check if [use_catalog_mags] is True
+        if use_catalog_mags:
+
+            # look for nearby source in full-source catalog
+            table_cat = Table.read(fits_cat_ref)
+            colnames_cat = table_cat.colnames
+
+            if len(table_cat) > 0:
+
+                # find matches between pixel coordinates (xcoords,
+                # ycoords) and sources in full-source catalog;
+                # return their respective indices and separation
+                i_coords, i_cat, sep, __, __ = get_matches (
+                    table['RA_IN'].quantity.value,
+                    table['DEC_IN'].quantity.value,
+                    table_cat['RA'].quantity.value,
+                    table_cat['DEC'].quantity.value,
+                    dist_max=sep_max, return_offsets=True)
+
+
+                mag_opt[i_coords] = np.array(table_cat['MAG_OPT'][i_cat])
+                magerr_opt[i_coords] = np.array(table_cat['MAGERR_OPT'][i_cat])
+                flux_opt[i_coords] = np.array(table_cat['E_FLUX_OPT'][i_cat])
+                fluxerr_opt[i_coords] = np.array(table_cat['E_FLUXERR_OPT'][i_cat])
+
+
+                if False:
+                    # update existing FLAGS_MASK column
+                    table['FLAGS_MASK'][i_coords] = np.array(
+                        table_cat['FLAGS_MASK'][i_cat])
+
+
+                # add separation
+                table['SEP_REF'][i_coords] = sep
+
+
+                # add additional catalog columns if present
+                for col in catcols2add:
+                    if col in colnames_cat and col in colnames:
+                        table[col][i_coords] = table_cat[col][i_cat]
+
+
+
+        # calculate signal-to-noise ratio; applies to either the SNR
+        # of the limit or the matched source in the catalog
+        snr_opt = np.zeros(flux_opt.shape)
+        mask_nonzero = (fluxerr_opt != 0)
+        snr_opt[mask_nonzero] = flux_opt[mask_nonzero] / fluxerr_opt[mask_nonzero]
+
+
+        # update table
+        # add these to table
+        table['X_POS_IN_REF'] = xcoords_ref
+        table['Y_POS_IN_REF'] = ycoords_ref
+        table['MAG_OPT_REF'] = mag_opt
+        table['MAGERR_OPT_REF'] = magerr_opt
+        table['SNR_OPT_REF'] = snr_opt
+        table['LIMMAG_{}SIGMA_REF'.format(nsigma)] = limmags
+
+
+        # if there is a significant source in the reference image with
+        # positive flux, correct MAG_ZOGY for it and add the result in
+        # the column MAG_ZOGY_PLUSREF
+        if 'mag_zogy' in locals() and 'snr_zogy' in locals():
+
+            # start off with MAG_ZOGY
+            table['MAG_ZOGY_PLUSREF'] = mag_zogy
+
+            # transient flux in arbitrary flux units; mag_zogy is
+            # always positive, even in case of a negative transient,
+            # i.e. when the flux in the reference image was higher, so
+            # include sign of [snr_zogy]
+            flux_zogy = np.sign(snr_zogy) * 10**(-0.4*mag_zogy)
+
+            # reference flux in arbitrary units; [snr_opt] is required
+            # to be positive, so [flux_ref] will be positive
+            flux_ref = 10**(-0.4*mag_opt)
+
+            # corrected flux and magnitude
+            flux_corr = (flux_zogy + flux_ref)
+            mag_corr = -2.5 * np.log10(np.abs(flux_corr))
+
+            # add to table only for signficant detections in the
+            # reference image
+            mask_sign = (snr_opt >= nsigma)
+            table['MAG_ZOGY_PLUSREF'][mask_sign] = mag_corr[mask_sign]
+                
+            
 
 
     mem_use('at end of [get_rows]')
@@ -1021,7 +1364,7 @@ def file2fullpath (filenames, set_zogy=None, set_bb=None):
     # fits.fz extension
     fullnames = []
     for filename in filenames:
-
+        
         # infer basename [tel]_yyyymmdd_hhmmss
         basename = filename.split('/')[-1][0:19]
 
@@ -1184,6 +1527,9 @@ if __name__ == "__main__":
     parser.add_argument('--trans', type=str2bool, default=True,
                         help='extract transient magnitudes?; default=True')
 
+    parser.add_argument('--ref', type=str2bool, default=True,
+                        help='extract reference magnitudes?; default=True')
+
     parser.add_argument('--fullsource', type=str2bool, default=False,
                         help='extract full-source magnitudes?; default=False')
 
@@ -1226,10 +1572,12 @@ if __name__ == "__main__":
 
     parser.add_argument('--catcols2add', type=str, default=par_default,
                         help='additional columns from the full-source and/or '
-                        'transient catalogs to add to output table for the '
-                        'entries with catalog matches; only relevant if '
-                        '[use_catalog_mags] is set to True; default: {}'
-                        .format(par_default))
+                        'transient and/or reference catalogs to add to output '
+                        'table for the entries with catalog matches; only '
+                        'relevant if [use_catalog_mags] is set to True. For any '
+                        'reference column add \'_REF\' to the name, to separate '
+                        'them from the often-identical full-source column names; '
+                        'default: {}'.format(par_default))
 
     par_default = ('float,float,float,float,float,float,float,uint8,float,float,'
                    'float,float,float,float,float,float,float,float,float,float,'
@@ -1367,7 +1715,7 @@ if __name__ == "__main__":
                 ras_in = Angle(ras_in, unit=u.hour).degree
                 table_radecs[args.ra_col] = ras_in
         else:
-            log.error ('column {} not present in {}; stopping'
+            log.error ('column {} not present in {}; exiting'
                        .format(args.ra_col, args.radecs))
             raise SystemExit
             
@@ -1378,7 +1726,7 @@ if __name__ == "__main__":
                 decs_in = Angle(decs_in, unit=u.deg).degree
                 table_radecs[args.dec_col] = decs_in
         else:
-            log.error ('column {} not present in {}; stopping'
+            log.error ('column {} not present in {}; exiting'
                        .format(args.dec_col, args.radecs))
             raise SystemExit
 
@@ -1388,6 +1736,14 @@ if __name__ == "__main__":
         # split input [radecs] into list of strings ['ra1', 'dec1', ...]
         radecs_list0 = re.sub('\(|\)|\[|\]|\{|\}', '', args.radecs)
         radecs_list = re.sub(';', ',', radecs_list0).split(',')
+
+        # remove potential empty entries and check for an even number
+        remove_empty (radecs_list)
+        if len(radecs_list) % 2 != 0:
+            log.exception ('number of coordinates in [radecs] is not even; '
+                           'exiting')
+            raise SystemExit
+
         ras_in = []
         decs_in = []
         mjds_in = None
@@ -1406,6 +1762,7 @@ if __name__ == "__main__":
                     decs_in.append(Angle(s, unit=u.deg).degree)
                 else:
                     decs_in.append(float(s))
+
 
 
         # create table as if input file was provided with only RAs and DECs
@@ -1449,58 +1806,73 @@ if __name__ == "__main__":
     # infer list of filenames to consider from [args.filenames]
     # ---------------------------------------------------------
     radecs_cntr = None
-    if not os.path.isfile(args.filenames):
 
-        # filenames were provided as a comma-separated list; convert
-        # it to a list
-        filenames = args.filenames.split(',')
+    if os.path.isfile(args.filenames):
 
+        # if the input is a single file, it could be a single image or
+        # a fits table/file containing multiple files; to test between
+        # the two, try to read the file as a table, which will cause
+        # an exception if it is an image
+        try:
+            # read it into a table using the format
+            # [args.filenames_file_format]
+            table_filenames = Table.read(args.filenames,
+                                         format=args.filenames_file_format)
+            log.info ('{} line(s) in input file {}'
+                      .format(len(table_filenames), args.filenames))
+
+
+            # get central coordinates of filenames
+            colnames = table_filenames.colnames
+            if 'RA-CNTR' in colnames and 'DEC-CNTR' in colnames:
+
+                # mask with files with a WCS solution
+                mask_WCS = (np.isfinite(table_filenames['RA-CNTR']) &
+                            np.isfinite(table_filenames['DEC-CNTR']) &
+                            (table_filenames['RA-CNTR'] > 0) &
+                            (table_filenames['RA-CNTR'] < 360) &
+                            (np.abs(table_filenames['DEC-CNTR']) < 90))
+
+                log.info ('{} filename(s) with valid CNTR coordinates'
+                          .format(np.sum(mask_WCS)))
+                table_filenames = table_filenames[mask_WCS]
+
+
+                # define list of (ra_cntr,dec_cntr) tuples to be used in
+                # function [radec_images]
+                radecs_cntr = np.array(list(zip(table_filenames['RA-CNTR'],
+                                                table_filenames['DEC-CNTR'])))
+
+
+            # define list of filenames
+            filenames = list(table_filenames[args.filenames_col])
+
+
+            # define objects and mjds_obs arrays
+            if 'OBJECT' in colnames and 'MJD-OBS' in colnames:
+                objects = np.array(table_filenames['OBJECT']).astype(int)
+                mjds_obs = np.array(table_filenames['MJD-OBS'])
+
+
+            # and filter array if needed
+            if not filts_all:
+                if 'FILTER' in colnames:
+                    filts = np.array(table_filenames['FILTER']).astype(str)
+
+
+        except:
+            # apparently the input is not a fits table, so assume it
+            # is a single image and put it into a list
+            filenames = args.filenames.split(',')
+            remove_empty (filenames)
+            
     else:
 
-        # [args.filenames] is a file, read it into a table using the
-        # format [args.filenames_file_format]
-        table_filenames = Table.read(args.filenames,
-                                     format=args.filenames_file_format)
-        log.info ('{} line(s) in input file {}'
-                  .format(len(table_filenames), args.filenames))
+        # filenames were provided as a comma-separated list; put them
+        # into a list
+        filenames = args.filenames.split(',')
+        remove_empty (filenames)
 
-
-        # get central coordinates of filenames
-        colnames = table_filenames.colnames
-        if 'RA-CNTR' in colnames and 'DEC-CNTR' in colnames:
-
-            # mask with files with a WCS solution
-            mask_WCS = (np.isfinite(table_filenames['RA-CNTR']) &
-                        np.isfinite(table_filenames['DEC-CNTR']) &
-                        (table_filenames['RA-CNTR'] > 0) &
-                        (table_filenames['RA-CNTR'] < 360) &
-                        (np.abs(table_filenames['DEC-CNTR']) < 90))
-
-            log.info ('{} filename(s) with valid CNTR coordinates'
-                      .format(np.sum(mask_WCS)))
-            table_filenames = table_filenames[mask_WCS]
-
-
-            # define list of (ra_cntr,dec_cntr) tuples to be used in
-            # function [radec_images]
-            radecs_cntr = np.array(list(zip(table_filenames['RA-CNTR'],
-                                            table_filenames['DEC-CNTR'])))
-
-
-        # define list of filenames
-        filenames = list(table_filenames[args.filenames_col])
-
-
-        # define objects and mjds_obs arrays
-        if 'OBJECT' in colnames and 'MJD-OBS' in colnames:
-            objects = np.array(table_filenames['OBJECT']).astype(int)
-            mjds_obs = np.array(table_filenames['MJD-OBS'])
-
-
-        # and filter array if needed
-        if not filts_all:
-            if 'FILTER' in colnames:
-                filts = np.array(table_filenames['FILTER']).astype(str)
 
 
     # in case the dates of observation [mjds_obs] or field IDs
@@ -1508,7 +1880,7 @@ if __name__ == "__main__":
     # headers
     if ('mjds_obs' not in locals() or 'objects' not in locals() or
         (not filts_all and 'filts' not in locals())): 
-        basenames = file2fullpath (filenames, set_zogy=set_zogy, set_bb=set_bb)
+        basenames = [fn.split('_red')[0] for fn in filenames]
         objects, mjds_obs, filts = get_headkeys (basenames)
 
 
@@ -1558,37 +1930,43 @@ if __name__ == "__main__":
 
 
 
-    # determine full paths to filenames
-    # ---------------------------------
-    t1 = time.time()
-
-
-    # define basename of filename, including full path, i.e.  /[path
-    # to reduced folder]/[tel]_yyyymmdd_hhmmss, without any extensions;
-    # for the moment, set tel=ML1, but this needs to be generalized
-    # to BlackGEM in the future, e.g. by letting the filename in the
-    # header tables to start with [tel]/red/yyyy/etc
-    tel = 'ML1'
-    red_dir = get_par(set_bb.red_dir,tel)
-
-
-    # check if path ok for the last file
-    path_ok = (len (glob.glob('{}/{}*'.format(red_dir, filenames[-1]))) > 0)
-
-
-    if path_ok:
-        # this assumes that the filename already starts with the
-        # yyyy/mm/dd/ subfolders in the filename, like it does in the
-        # default full-source and transient catalog header tables
-        basenames = ['{}/{}'.format(red_dir, fn.split('_red_')[0])
-                     for fn in filenames]
+    # determine basenames    
+    if True:
+        
+        basenames = [fn.split('_red')[0] for fn in filenames]
 
     else:
-        # use function [file2fullpath]
-        basenames = file2fullpath (filenames, set_zogy=set_zogy, set_bb=set_bb)
+        # previously filenames were not required to include the full
+        # paths and the latter were inferred from the filename itself
+        # using the block below
+
+        # define basename of filename, including full path, i.e.  /[path
+        # to reduced folder]/[tel]_yyyymmdd_hhmmss, without any extensions;
+        # for the moment, set tel=ML1, but this needs to be generalized
+        # to BlackGEM in the future, e.g. by letting the filename in the
+        # header tables to start with [tel]/red/yyyy/etc
+        tel = 'ML1'
+        red_dir = get_par(set_bb.red_dir,tel)
+
+        # check if path ok for the last file
+        path_ok = (len (glob.glob('{}/{}*'.format(red_dir, filenames[-1]))) > 0)
+
+        t1 = time.time()
+        if path_ok:
+            # this assumes that the filename already starts with the
+            # yyyy/mm/dd/ subfolders in the filename, like it does in the
+            # default full-source and transient catalog header tables
+            basenames = ['{}/{}'.format(red_dir, fn.split('_red')[0])
+                         for fn in filenames]
+
+        else:
+            # use function [file2fullpath]
+            basenames = file2fullpath (filenames, set_zogy=set_zogy,
+                                       set_bb=set_bb)
 
 
-    log.info ('time to determine basenames: {:.2f}'.format(time.time()-t1))
+        log.info ('time to determine basenames: {:.2f}'.format(time.time()-t1))
+
 
 
     # if [radecs_cntr] is not defined yet because the default fits
@@ -1697,7 +2075,8 @@ if __name__ == "__main__":
     
     # call [force_phot]
     table_out = force_phot (
-        radec_images_dict, trans=args.trans, fullsource=args.fullsource,
+        radec_images_dict, trans=args.trans, ref=args.ref,
+        fullsource=args.fullsource,
         nsigma=args.nsigma, use_catalog_mags=args.use_catalog_mags,
         sep_max=args.sep_max, catcols2add=catcols2add,
         catcols2add_dtypes=catcols2add_dtypes, keys2add=keys2add,

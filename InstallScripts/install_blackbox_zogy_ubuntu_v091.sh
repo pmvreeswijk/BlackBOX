@@ -104,12 +104,12 @@ cd ${meercrabhome}/..
 # ================================================================================
 
 echo "installing ZOGY and BlackBOX packages"
-sudo -H ${pip} install git+git://github.com/pmvreeswijk/ZOGY${v_zogy_git}
-sudo -H ${pip} install git+git://github.com/pmvreeswijk/BlackBOX${v_blackbox_git}
+sudo -H ${pip} install git+https://github.com/pmvreeswijk/ZOGY${v_zogy_git}
+sudo -H ${pip} install git+https://github.com/pmvreeswijk/BlackBOX${v_blackbox_git}
 
 echo "installing MeerCRAB packages"
 # for MeerCRAB, not possible to use setup.py on git with latest python:
-#sudo -H ${pip} install git+git://github.com/Zafiirah13/meercrab${v_meercrab_git}
+#sudo -H ${pip} install git+https://github.com/Zafiirah13/meercrab${v_meercrab_git}
 # so install required packages manually:
 sudo -H ${pip} install pandas tensorflow imbalanced-learn matplotlib scipy keras Pillow scikit_learn numpy astropy h5py==2.10.0 testresources
 

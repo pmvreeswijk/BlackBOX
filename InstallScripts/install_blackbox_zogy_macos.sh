@@ -59,7 +59,7 @@ sudo ${packman} install python${v_python/./} py${v_python/./}-pip
 # problem with using pipenv:
 # WARNING: pipenv requires an #egg fragment for version controlled dependencies.
 # Please install remote dependency in the form 
-# git+git://github.com/pmvreeswijk/ZOGY#egg=<package-name>.
+# git+https://github.com/pmvreeswijk/ZOGY#egg=<package-name>.
 #sudo ${packman} install python${v_python/./} pipenv
 
 # for now, use good old pip
@@ -87,8 +87,8 @@ git clone ${blackbox_branch} https://github.com/pmvreeswijk/BlackBOX
 # install ZOGY and BlackBOX repositories
 # ================================================================================
 
-sudo -H ${pip} install git+git://github.com/pmvreeswijk/ZOGY${v_zogy_git}
-sudo -H ${pip} install git+git://github.com/pmvreeswijk/BlackBOX${v_blackbox_git}
+sudo -H ${pip} install git+https://github.com/pmvreeswijk/ZOGY${v_zogy_git}
+sudo -H ${pip} install git+https://github.com/pmvreeswijk/BlackBOX${v_blackbox_git}
 
 
 # packages used by ZOGY
@@ -123,7 +123,7 @@ then
     echo "solve-field executable exists; skipping Astrometry.net installation"
 else
     # first the dependencies:
-    sudo -H ${pip} install git+git://github.com/esheldon/fitsio
+    sudo -H ${pip} install git+https://github.com/esheldon/fitsio
     sudo ${packman} install wget cairo netpbm swig cfitsio pkgconfig
     # following line needed to provide (unusual) path to cfitsio
     export PKG_CONFIG_PATH=/opt/local/lib/pkgconfig/cfitsio.pc
