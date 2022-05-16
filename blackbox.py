@@ -5829,7 +5829,7 @@ if __name__ == "__main__":
     parser.add_argument('--date', type=str, default=None,
                         help='Date to process (yyyymmdd, yyyy-mm-dd, yyyy/mm/dd '
                         'or yyyy.mm.dd); default=None')
-rq
+
     parser.add_argument('--read_path', type=str, default=None,
                         help='Full path to the input raw data directory; if not '
                         'defined it is determined from [set_blackbox.raw_dir], '
