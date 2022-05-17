@@ -5760,7 +5760,7 @@ def get_head_row (filename, colnames):
             row += [header[colname]]
         elif colname.lower() == 'filename':
             # add filename with full path
-            row += filename
+            row += [filename]
             # add filename part starting with yyyy/mm/dd/..
             #row += [filename.split('/red/')[-1]]
         else:
