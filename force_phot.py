@@ -445,7 +445,12 @@ def get_rows (image_radecs, trans, ref, fullsource, nsigma, use_catalog_mags,
     # read header
     #log.info ('reading header of {}'.format(fits_2read))
     #header = read_hdulist (fits_2read, get_data=False, get_header=True)
-    header = FITS(fits_2read)[-1].read_header()
+    try:
+        header = FITS(fits_2read)[-1].read_header()
+    except:
+        log.exception ('trouble reading header of {}; skipping its extraction'
+                       .format(fits_2read))
+        return [None]
 
 
     # read FWHM from the header
