@@ -419,6 +419,9 @@ def get_rows (image_radecs, trans, ref, fullsource, nsigma, use_catalog_mags,
     decs_deg = np.array(decs_deg)
 
 
+    log.info ('processing {}'.format(basename))
+        
+
     # infer telescope name from basename
     tel = basename.split('/')[-1][0:3]
 
@@ -520,7 +523,7 @@ def get_rows (image_radecs, trans, ref, fullsource, nsigma, use_catalog_mags,
     table['X_POS_IN'] = xcoords
     table['Y_POS_IN'] = ycoords
 
-    
+
     # add header keywords to output table
     if add_keys:
         for key in keys2add:
@@ -693,10 +696,11 @@ def get_rows (image_radecs, trans, ref, fullsource, nsigma, use_catalog_mags,
                 limmags += -2.5*np.log10(nsigma/nsigma_orig)
 
         else:
-            log.warning ('{} not found; no limiting magnitudes available'
-                         .format(fits_limmag))
-            limmags = None
+            log.warning ('{} not found; no full-source limiting magnitude(s) '
+                         'available'.format(fits_limmag))
+            limmags = np.zeros(ncoords)
 
+            
 
         # check if [use_catalog_mags] is True
         if use_catalog_mags:
@@ -805,8 +809,8 @@ def get_rows (image_radecs, trans, ref, fullsource, nsigma, use_catalog_mags,
                 tlimmags += -2.5*np.log10(nsigma/nsigma_trans_orig)
 
         else:
-            log.warning ('{} not found; no limiting magnitudes available'
-                         .format(fits_tlimmag))
+            log.warning ('{} not found; no transient limiting magnitude(s) '
+                         'available'.format(fits_tlimmag))
             tlimmags = np.zeros(ncoords)
 
 
@@ -1057,9 +1061,9 @@ def get_rows (image_radecs, trans, ref, fullsource, nsigma, use_catalog_mags,
                 limmags += -2.5*np.log10(nsigma/nsigma_orig)
 
         else:
-            log.warning ('{} not found; no limiting magnitudes available'
-                         .format(fits_limmag))
-            limmags = None
+            log.warning ('{} not found; no reference limiting magnitude(s) '
+                         'available'.format(fits_limmag))
+            limmags = np.zeros(ncoords)
 
 
         # check if [use_catalog_mags] is True
