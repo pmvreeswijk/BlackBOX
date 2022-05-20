@@ -475,10 +475,6 @@ def get_rows (image_radecs, trans, ref, fullsource, nsigma, use_catalog_mags,
     # convert input [ras_deg] and [decs_deg] to pixel coordinates
     xcoords, ycoords = WCS(header).all_world2pix(ras_deg, decs_deg, 1)
     
-    # indices of pixel coordinates
-    x_indices = (xcoords-0.5).astype(int)
-    y_indices = (ycoords-0.5).astype(int)
-
 
     # make sure xcoords and ycoords are valid numbers and on the image
     mask_finite = (np.isfinite(xcoords) & np.isfinite(ycoords))
@@ -509,12 +505,19 @@ def get_rows (image_radecs, trans, ref, fullsource, nsigma, use_catalog_mags,
         decs_deg = decs_deg[mask_finite_on]
 
 
+    # indices of pixel coordinates; need to be defined after
+    # discarding coordinates off the image
+    x_indices = (xcoords-0.5).astype(int)
+    y_indices = (ycoords-0.5).astype(int)
+
+
     # create a zero-valued table with shape ncoords x number of column
     # names, with the names and dtypes set by the corresponding input
     # parameters
     ncoords = len(xcoords)
     table = Table(np.zeros((ncoords,len(names))), names=names, dtype=dtypes)
     colnames = table.colnames
+
 
     # start to fill in table
     table['RA_IN'] = ras_deg
@@ -1632,6 +1635,7 @@ if __name__ == "__main__":
         for handler in log.handlers[:]:
             if 'Stream' in str(handler):
                 handler.setLevel(logging.WARNING)
+                #handler.setLevel(logging.INFO)
 
         fileHandler = logging.FileHandler(args.logfile, 'w')
         fileHandler.setFormatter(logFormatter)
