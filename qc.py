@@ -190,6 +190,37 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
                 
 
         val_range = qc_range[key]['val_range']
+
+
+        # if val_type is 'key', then val_range can contain a string
+        # including a reference to another header keyword value that
+        # needs to be evaluated
+        cont = False
+        if val_type=='key':
+            # convert tuple to list, so that it can be modified below
+            val_range = [list(item) for item in val_range]
+            for j in range(len(val_range)):
+                for i, val in enumerate(val_range[j]):
+                    # check if item is a string
+                    if isinstance(val, str):
+                        try:
+                            val_range[j][i] = eval(val)
+                        except:
+                            #if not hide_warnings:
+                            log.warning ('could not evaluate {}; skipping '
+                                         'quality check for {}'
+                                         .format(val, key))
+                            colors_out[nkey] = ''
+                            cont = True
+
+
+
+        # continue with next keyword if exception occurred in inner
+        # loop of above block
+        if cont:
+            continue
+                    
+
         # check if value range is specified per filter (e.g. for zeropoint)
         try:
             filt in val_range.keys()
@@ -253,7 +284,7 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
                             val_range[i][0]*(1.+val_range[i][1])]
 
 
-            elif val_type == 'min_max':
+            elif val_type == 'min_max' or val_type == 'key':
 
                 bool_temp = (header_val >= val_range[i][0] and
                              header_val <= val_range[i][1])
@@ -271,7 +302,7 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
             else:
 
                 log.error ('[val_type] not one of "exp_abs", "exp_frac", '
-                           '"min_max", "bool" or "sigma"')
+                           '"min_max", "bool", "sigma" or "key"')
                 return
 
 
