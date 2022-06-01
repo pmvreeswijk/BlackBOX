@@ -96,8 +96,8 @@ except Exception as e:
                  'blackbox; issue with IERS file?: {}'.format(e))
 
 
-__version__ = '1.0.13'
-keywords_version = '1.0.13'
+__version__ = '1.0.14'
+keywords_version = '1.0.14'
 
 #def init(l):
 #    global lock
@@ -1112,9 +1112,13 @@ def blackbox_reduce (filename):
         # copy relevant files to tmp folder for object images
         if imgtype == 'object':
 
-            copy_files2keep(new_base, tmp_base,
-                            get_par(set_bb.img_reduce_exts,tel),
-                            move=False, do_fpack=False)
+            # copy files to tmp folder, unless both cat_extract and
+            # trans_extract are turned off
+            if (get_par(set_bb.cat_extract,tel) or
+                get_par(set_bb.trans_extract,tel)):
+                copy_files2keep(new_base, tmp_base,
+                                get_par(set_bb.img_reduce_exts,tel),
+                                move=False, do_fpack=False)
 
             do_reduction = False
 
@@ -1578,18 +1582,6 @@ def blackbox_reduce (filename):
 
 
 
-        if False:
-            # if reduction steps were just performed or in the special case
-            # that the image reduction and cat_extract and set_zogy.redo_new
-            # are all three off while trans_extract is on, check for the QC
-            # flag related to the 'full' header keywords
-            if (do_reduction or (not get_par(set_bb.img_reduce,tel) and
-                                 not get_par(set_bb.cat_extract,tel) and
-                                 not get_par(set_zogy.redo_new,tel) and
-                                 get_par(set_bb.trans_extract,tel))):
-                pass
-
-
         # check quality control
         qc_flag = run_qc_check (header, tel, check_key_type='full')
 
@@ -1652,10 +1644,12 @@ def blackbox_reduce (filename):
         log.info('main processing switches cat_extract and trans_extract are off, '
                  'nothing left to do for {}'.format(filename))
 
-        # verify image header
-        verify_header (new_fits, ['raw'])
 
         if do_reduction:
+
+            # verify image header
+            verify_header (new_fits, ['raw'])
+
             # if reduction steps were performed, copy selected output
             # files to new directory and clean up tmp folder if needed
             copy_files2keep(tmp_base, new_base,
@@ -1666,8 +1660,9 @@ def blackbox_reduce (filename):
             return fits_out
 
         else:
-            # if reduction steps were skipped, reduced img products
-            # should still be present
+
+            # even if reduction steps were skipped, tmp folder is
+            # still present
             clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel))
             close_log(log, logfile)
             return None
@@ -1747,7 +1742,6 @@ def blackbox_reduce (filename):
         # switches, remove relevant files from reduced folder and copy
         # files to the tmp folder; this is not needed if basic
         # reduction was performed, i.e. do_reduction=True
-
         new_list = glob.glob('{}*'.format(new_base))
         ext_list = []
 
@@ -2604,7 +2598,7 @@ def verify_header (filename, htypes=None):
         # transient header
         'SWARP-P':  {'htype':'trans', 'dtype':bool,  'DB':True,  'None_OK':False},
         'SWARP-V':  {'htype':'trans', 'dtype':str,   'DB':False, 'None_OK':True},
-        'Z-REF-F':  {'htype':'trans', 'dtype':str,   'DB':False, 'None_OK':True},
+        'Z-REF':    {'htype':'trans', 'dtype':str,   'DB':False, 'None_OK':True},
         'Z-DXYLOC': {'htype':'trans', 'dtype':bool,  'DB':False, 'None_OK':True},
         'Z-DX':     {'htype':'trans', 'dtype':float, 'DB':True,  'None_OK':True},
         'Z-DY':     {'htype':'trans', 'dtype':float, 'DB':True,  'None_OK':True},
@@ -2742,18 +2736,101 @@ def update_cathead (filename, header):
 
 ################################################################################
 
-def update_imhead (filename, header):
+def update_imhead (filename, header, create_hdrfile=True):
 
     # update image header with extended header from ZOGY's
     # optimal_subtraction
+
     header['DATEFILE'] = (Time.now().isot, 'UTC date of writing file')
-    with fits.open(filename, 'update', memmap=True) as hdulist:
-        hdulist[-1].header = header
+
+    if '.fz' not in filename:
         
-    # create separate header file
-    hdulist = fits.HDUList(fits.PrimaryHDU(header=header))
-    hdulist.writeto(filename.replace('.fits', '_hdr.fits'), overwrite=True,
-                    output_verify='ignore')
+        with fits.open(filename, 'update', memmap=True) as hdulist:
+            hdulist[-1].header = header
+
+    else:
+
+        # for an fpacked image, above update is not possible; use
+        # function [copy_header] instead
+        copy_header (filename, header)
+
+
+    if create_hdrfile:
+        # create separate header file
+        hdulist = fits.HDUList(fits.PrimaryHDU(header=header))
+        hdulist.writeto(filename.replace('.fz','').replace('.fits', '_hdr.fits'),
+                        overwrite=True, output_verify='ignore')
+
+    return
+
+
+################################################################################
+
+def copy_header (fits_dest, header_src):
+
+    """function to copy header of [fits_src] to [fits_dest]; all keywords
+       starting from [key_start] are first removed from the header of
+       [fits_dest], and then the corresponding keywords are copied
+       over from the header of [fits_src].
+
+       Mainly meant to replace the header of an fpacked fits image
+       using the header of its funpacked counterpart that was updated,
+       without touching its data - if the data was left
+       unchanged. This is to avoid unnecessary repeated funpacking and
+       fpacking images, leading to loss of precision.
+
+    """
+
+    # open fits_dest for updating
+    with fits.open(fits_dest, mode='update') as hdulist:
+        header_dest = hdulist[-1].header
+
+        # delete hdr_dest keys
+        process_keys (header_dest)
+        
+        # copy keys
+        process_keys (header_dest, header_src)
+
+
+    return
+
+
+################################################################################
+
+def process_keys (hdr_dest, hdr_src=None, key_start='BUNIT'):
+
+    # if hdr_src is not defined, loop through hdr_dest to delete the
+    # keywords; if it is, loop through the hdr_src keys to copy them
+    # to hdr_dest
+    if hdr_src is None:
+        hdr = hdr_dest
+    else:
+        hdr = hdr_src
+
+    process = False
+    for key in list(hdr.keys()):
+
+        if key_start in key:
+            # start deleting/copying
+            process = True
+
+        if process:
+            if hdr_src is None:
+                # delete key; need to check if it exists, as e.g. the
+                # key HISTORY has multiple entries and may have all
+                # been deleted already by a single del command
+                if key in list(hdr.keys()):
+                    del hdr_dest[key]
+            else:
+                # copy from hdr_src to hdr_dest
+                try:
+                    hdr_dest.append((key, hdr_src[key], hdr_src.comments[key]))
+                except Exception as e:
+                    log.error ('failed to copy key {} due to ValueError: {}'
+                               .format(key, e))
+
+
+    return
 
         
 ################################################################################
@@ -3278,8 +3355,7 @@ def clean_tmp (tmp_path, keep_tmp):
 
 ################################################################################
 
-def copy_files2keep (src_base, dest_base, ext2keep, move=True,
-                     do_fpack=True, remove_existing=True):
+def copy_files2keep (src_base, dest_base, ext2keep, move=True, do_fpack=True):
 
     """Function to copy/move files with base name [src_base] and
     extensions [ext2keep] to files with base name [dest_base] with the
@@ -3308,10 +3384,69 @@ def copy_files2keep (src_base, dest_base, ext2keep, move=True,
                 # identical, go ahead and copy
                 if src_file != dest_file:
 
+
+                    # if the data of an unpacked src_file image is the
+                    # same as the data of the fpacked dest_file image,
+                    # then only modify the destination file header
+                    # with that of the src_file to avoid unnecessary
+                    # funpacking and fpacking
+                    skip = False
+                    dest_file_fz = '{}.fz'.format(dest_file)
+                    if (src_file.split('.')[-1] == 'fits'
+                        and '_ldac.fits' not in src_file
+                        and os.path.isfile(dest_file_fz)):
+
+
+                        # read src_file data and header
+                        data_src, header_src = read_hdulist(src_file,
+                                                            get_header=True)
+
+                        # check if src_file is an image
+                        if int(header_src['NAXIS'])==2:
+                            
+                            # read dest_file data
+                            data_dest = read_hdulist(dest_file_fz)
+
+                            # compare data arrays
+                            if np.allclose(data_src, data_dest):
+
+                                # skip copying/moving below
+                                skip = True
+
+                                log.info ('existing image {} contains same data '
+                                          'as {}; skipping copy/move'
+                                          .format(dest_file_fz, src_file))
+
+                                exts_keephead = [
+                                    '_red.fits', '_red_limmag.fits', '_D.fits',
+                                    '_Scorr.fits', '_trans_limmag.fits',
+                                    '_Fpsf.fits']
+
+                                for ext_tmp in exts_keephead:
+                                    
+                                    if ext_tmp in dest_file:
+                                        # for various images, update
+                                        # header of already existing
+                                        # destination file with that
+                                        # of src_file; header file
+                                        # does not need to be updated
+                                        # - already done if properly
+                                        # processed by zogy
+                                        log.info ('updating fits header of {}'
+                                                  .format(dest_file_fz))
+                                        update_imhead (dest_file_fz, header_src,
+                                                       create_hdrfile=False)
+
+                            else:
+                                log.info ('data of existing image {} is '
+                                          'significantly different from that of '
+                                          '{}'.format(dest_file_fz, src_file))
+
+                                        
                     if do_fpack:
                         # fpack src_file if needed
                         src_file = fpack (src_file)
-
+                        
                         # add '.fz' extension to [dest_file] in case
                         # [src_file] was fpacked (not all files are
                         # fpacked)
@@ -3319,26 +3454,29 @@ def copy_files2keep (src_base, dest_base, ext2keep, move=True,
                             dest_file = '{}.fz'.format(dest_file)
 
 
-                    if remove_existing:
-                        # remove the corresponding f/unpacked
-                        # counterparts of [dest_file] already present
-                        # in the destination folder
-                        if '.fz' in dest_file:
-                            file_2remove = dest_file.split('.fz')[0]
-                        else:
-                            file_2remove = '{}.fz'.format(dest_file)
-
-                        if os.path.isfile(file_2remove):
-                            os.remove(file_2remove)
-                            log.info('removing existing {}'.format(file_2remove))
-
-                    # move or copy file
-                    if not move:
-                        log.info('copying {} to {}'.format(src_file, dest_file))
-                        shutil.copy2(src_file, dest_file)
+                    # remove the potentially existing f/unpacked
+                    # counterparts of [dest_file] already present in
+                    # the destination folder for some reason, to avoid
+                    # that both the unpacked and packed file will be
+                    # present in the destination folder
+                    if '.fz' in dest_file:
+                        file_2remove = dest_file.split('.fz')[0]
                     else:
-                        log.info('moving {} to {}'.format(src_file, dest_file))
-                        shutil.move(src_file, dest_file)
+                        file_2remove = '{}.fz'.format(dest_file)
+
+                    if os.path.isfile(file_2remove):
+                        os.remove(file_2remove)
+                        log.info('removing existing {}'.format(file_2remove))
+
+
+                    # move or copy file if it does not need to be skipped
+                    if not skip:
+                        if not move:
+                            log.info('copying {} to {}'.format(src_file, dest_file))
+                            shutil.copy2(src_file, dest_file)
+                        else:
+                            log.info('moving {} to {}'.format(src_file, dest_file))
+                            shutil.move(src_file, dest_file)
 
 
                     # create a jpg image if do_fpack is True,
@@ -5727,7 +5865,10 @@ def add_headkeys (path, fits_headers, trans=False, tel=None, nproc=1):
         # convert rows to table
         table = Table(rows=rows, names=colnames, masked=True, dtype=dtypes)
 
-        # unique entries, sorted in MJD-OBS
+        # unique entries, sorted by FILENAME; this assumes input table
+        # is already clean from duplicates - if that is not
+        # necessarily the case, move this unique command below to work
+        # on the entire table
         table = unique(table, keys='FILENAME')
 
         # add table to input table
