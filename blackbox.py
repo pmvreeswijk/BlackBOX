@@ -2241,15 +2241,19 @@ def blackbox_reduce (filename):
     copy_files2keep(tmp_base, new_base, list_2keep,
                     move=(not get_par(set_bb.keep_tmp,tel)))
 
+
     # if original filename contains ADC, save any *dRADEC* files from
     # tmp to /idia/projects/meerlicht/ADCtests/tel_yyyymmdd folders
     if 'adc' in filename.lower():
         
         dest_dir = ('/idia/projects/meerlicht/ADCtests/{}_{}'
                     .format(tel, date_eve))
+        #dest_dir = ('/idia/projects/meerlicht/ADCtests/LambdaEff')
         make_dir (dest_dir)
-        
+
         adc_files = glob.glob('{}*dRADEC*'.format(tmp_base))
+        # add header file
+        adc_files.append('{}_red_hdr.fits'.format(tmp_base))
         for adc_file in adc_files:
             shutil.copy2(adc_file, dest_dir)
 
@@ -5865,15 +5869,15 @@ def add_headkeys (path, fits_headers, trans=False, tel=None, nproc=1):
         # convert rows to table
         table = Table(rows=rows, names=colnames, masked=True, dtype=dtypes)
 
-        # unique entries, sorted by FILENAME; this assumes input table
-        # is already clean from duplicates - if that is not
-        # necessarily the case, move this unique command below to work
-        # on the entire table
-        table = unique(table, keys='FILENAME')
-
         # add table to input table
         table_headers = vstack([table_headers, table])
 
+        # unique entries, sorted by FILENAME; this works on the entire
+        # table, which is slower than sorting just the table being
+        # added (as was done before), but it allows an entire night to
+        # be added again when some files needed to be re-processed
+        table_headers = unique(table_headers, keys='FILENAME')
+        
         # overwrite fits_headers
         table_headers.write(fits_headers, overwrite=True)
 
