@@ -2251,6 +2251,11 @@ def blackbox_reduce (filename):
         list_2keep += ['_trans_hdr.fits']
         list_2keep += ['_trans_light.fits']
 
+    # solar system products
+    if os.path.exists(fits_for_m2sso):
+        list_2keep += ['_trans_sso.fits']
+        list_2keep += ['_sso_predict.fits']
+
     # copy/move files over
     copy_files2keep(tmp_base, new_base, list_2keep,
                     move=(not get_par(set_bb.keep_tmp,tel)))
