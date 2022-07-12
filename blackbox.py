@@ -2244,16 +2244,18 @@ def blackbox_reduce (filename):
 
     # if original filename contains ADC, save any *dRADEC* files from
     # tmp to /idia/projects/meerlicht/ADCtests/tel_yyyymmdd folders
+    # CHECK!!!
     if 'adc' in filename.lower():
-        
+
         dest_dir = ('/idia/projects/meerlicht/ADCtests/{}_{}'
                     .format(tel, date_eve))
         #dest_dir = ('/idia/projects/meerlicht/ADCtests/LambdaEff')
         make_dir (dest_dir)
 
         adc_files = glob.glob('{}*dRADEC*'.format(tmp_base))
-        # add header file
-        adc_files.append('{}_red_hdr.fits'.format(tmp_base))
+        # add header file - needs to come from new_base as it might
+        # have been moved over
+        adc_files.append('{}_red_hdr.fits'.format(new_base))
         for adc_file in adc_files:
             shutil.copy2(adc_file, dest_dir)
 
@@ -2720,7 +2722,7 @@ def update_cathead (filename, header):
             with fits.open(transcat_light, 'update', memmap=True) as hdulist:
                 # N.B.: cannot simply copy updated header above
                 # (header_update) as that will also define the
-                # thumbnail columns while these are not present in the
+                # thumbnail colmns while these are not present in the
                 # light version
                 #hdulist[-1].header = header_update
                 for key in header:
