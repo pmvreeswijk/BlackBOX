@@ -22,7 +22,7 @@ import set_blackbox as set_bb
 import sys
 sys.path.append("/Software/match2SSO")
 import set_match2SSO as set_m2sso
-import subprocess
+import match2SSO as m2sso
 
 # setting environment variable OMP_NUM_THREADS to number of threads,
 # (used by e.g. astroscrappy); needs to be done before numpy is
@@ -101,7 +101,7 @@ except Exception as e:
                  'blackbox; issue with IERS file?: {}'.format(e))
 
 
-__version__ = '1.0.14'
+__version__ = '1.1.0'
 keywords_version = '1.0.14'
 
 #def init(l):
@@ -2225,10 +2225,9 @@ def blackbox_reduce (filename):
     if not os.path.exists(fits_for_m2sso):
         fits_for_m2sso = fits_tmp_trans
     if os.path.exists(fits_for_m2sso):
-        subprocess.run(['python', set_m2sso.softwareFolder+'match2SSO.py',
-                        '--telescope', tel, '--mode', 'night', '--catalog',
-                        fits_for_m2sso], cwd=set_m2sso.databaseFolder,
-                       check=True)])
+        m2sso.run_match2SSO(tel=tel, mode='night',
+                            cat2process=fits_for_m2sso, date2process=None,
+                            list2process=None, logname=None)
 
     # list of files to copy/move to reduced folder; need to include
     # the img_reduce products in any case because the header will have
@@ -2250,11 +2249,6 @@ def blackbox_reduce (filename):
         list_2keep += ['_trans.fits']
         list_2keep += ['_trans_hdr.fits']
         list_2keep += ['_trans_light.fits']
-
-    # solar system products
-    if os.path.exists(fits_for_m2sso):
-        list_2keep += ['_trans_sso.fits']
-        list_2keep += ['_sso_predict.fits']
 
     # copy/move files over
     copy_files2keep(tmp_base, new_base, list_2keep,
