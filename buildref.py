@@ -141,7 +141,12 @@ def buildref (telescope=None, fits_table=None, table_only=None, date_start=None,
         
         log.info ('reading existing header table: {}'.format(fits_table))
         table = Table.read(fits_table)
-    
+
+        # make sure FILENAME column contains the image name instead of
+        # catalog
+        table['FILENAME'] = ['{}_red.fits.fz'.format(fn.split('_red')[0])
+                             for fn in table['FILENAME']]
+
     else:
 
         red_path = get_par(set_bb.red_dir,tel)
@@ -204,7 +209,7 @@ def buildref (telescope=None, fits_table=None, table_only=None, date_start=None,
         # convert dates and times in filenames to MJDs (accurate to the second)
         mjd_files = np.array([date2mjd (f.split('/')[-1].split('_')[1],
                                         time_str=f.split('/')[-1].split('_')[2])
-                              for f in table['FILE']])
+                              for f in table['FILENAME']])
         # mask of files to include
         if mjd_end >= mjd_start:
             if mjd_start == mjd_end:
@@ -468,7 +473,7 @@ def buildref (telescope=None, fits_table=None, table_only=None, date_start=None,
 
                 # determine A to use to ensure bright stars are not
                 # being clipped
-                imagelist = list(table['FILE'][mask][mask_use])
+                imagelist = list(table['FILENAME'][mask][mask_use])
 
                 # A_range to consider
                 tmplist = get_par(set_br.A_range,tel)
@@ -523,7 +528,7 @@ def buildref (telescope=None, fits_table=None, table_only=None, date_start=None,
             limmags_sort = table[mask]['LIMMAG'][indices_sort]
             seeing_sort = table[mask]['PSF-SEE'][indices_sort]
             bkgstd_sort = table[mask]['S-BKGSTD'][indices_sort]
-            files_sort = table[mask]['FILE'][indices_sort]
+            files_sort = table[mask]['FILENAME'][indices_sort]
 
 
             if False: 
@@ -739,7 +744,7 @@ def set_date (date, start=True):
 ################################################################################
 
 def pool_func_lists (func, list_of_imagelists, *args, nproc=1):
-    
+
     try:
         results = []
         pool = Pool(nproc)
@@ -897,7 +902,7 @@ def header2table (filenames):
 
 
     # create table from rows
-    names = ['FILE']
+    names = ['FILENAME']
     dtypes = ['U100']
     for i_key, key in enumerate(keys):
         names.append(key)
