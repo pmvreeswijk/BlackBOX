@@ -19,6 +19,11 @@ log = logging.getLogger()
 import set_zogy
 import set_blackbox as set_bb
 
+import sys
+sys.path.append("/Software/match2SSO")
+import set_match2SSO as set_m2sso
+import match2SSO as m2sso
+
 # setting environment variable OMP_NUM_THREADS to number of threads,
 # (used by e.g. astroscrappy); needs to be done before numpy is
 # imported in [zogy]. 
@@ -96,7 +101,7 @@ except Exception as e:
                  'blackbox; issue with IERS file?: {}'.format(e))
 
 
-__version__ = '1.0.14'
+__version__ = '1.1.0'
 keywords_version = '1.0.14'
 
 #def init(l):
@@ -2215,6 +2220,14 @@ def blackbox_reduce (filename):
     verify_header (fits_tmp_cat, ['raw','full'])
     verify_header (fits_tmp_trans, ['raw','full','trans'])
 
+    # run match2SSO to find known asteroids in the observation
+    fits_for_m2sso = fits_tmp_trans.replace('.fits', '_light.fits')
+    if not os.path.exists(fits_for_m2sso):
+        fits_for_m2sso = fits_tmp_trans
+    if os.path.exists(fits_for_m2sso):
+        m2sso.run_match2SSO(tel=tel, mode='night',
+                            cat2process=fits_for_m2sso, date2process=None,
+                            list2process=None, logname=None)
 
     # list of files to copy/move to reduced folder; need to include
     # the img_reduce products in any case because the header will have
