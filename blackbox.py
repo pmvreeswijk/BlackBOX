@@ -1618,7 +1618,7 @@ def blackbox_reduce (filename):
             verify_header (fits_tmp_trans, ['raw','full','trans'])
 
             # run match2SSO to find known asteroids in the observation
-            call_match2SSO(fits_tmp_trans)
+            call_match2SSO(fits_tmp_trans, tel)
 
             # copy selected output files to new directory
             list_2keep = get_par(set_bb.all_2keep,tel)
@@ -2224,7 +2224,7 @@ def blackbox_reduce (filename):
     verify_header (fits_tmp_trans, ['raw','full','trans'])
 
     # run match2SSO to find known asteroids in the observation
-    call_match2SSO(fits_tmp_trans)
+    call_match2SSO(fits_tmp_trans, tel)
 
     # list of files to copy/move to reduced folder; need to include
     # the img_reduce products in any case because the header will have
@@ -2703,7 +2703,7 @@ def verify_header (filename, htypes=None):
 
 ################################################################################
 
-def call_match2SSO(filename):
+def call_match2SSO(filename, tel):
     
     """Function to call the match2SSO software in order to find known asteroids
        in the transient catalog specified in [filename].
