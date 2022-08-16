@@ -57,7 +57,7 @@ obs_lon = 20.8112
 obs_timezone = 'Africa/Johannesburg'
 
 
-def run_blackbox_slurm (date=None, nthreads=4, runtime='3:00:00'):
+def run_blackbox_slurm (date=None, nthreads=4, runtime='4:00:00'):
     
     # create general logfile based on date/time
     genlogfile = '{}/{}_{}.log'.format(genlog_dir, tel,
@@ -86,7 +86,7 @@ def run_blackbox_slurm (date=None, nthreads=4, runtime='3:00:00'):
         # have been processed
         if date != date_today:
             mode = 'day'
-
+            
             
     # create list of all fits files already present in [read_path]
     read_path, date_eve = get_path(date, 'read')
@@ -187,6 +187,19 @@ def run_blackbox_slurm (date=None, nthreads=4, runtime='3:00:00'):
     observer.join() #join observer
 
 
+    # in day mode, wait for all processes to stop by just waiting for
+    # the amount of seconds corresponding to [runtime]
+    if mode == 'day':
+        # convert input [runtime] to number of seconds
+        nsec = np.sum(np.array(runtime.split(':')).astype(int)
+                      *np.array([3600, 60, 1]))
+        log.info ('waiting for {:.2f}hr for all processes to finish before '
+                  'continuing with master flats and sending of night report'
+                  .format(nsec/3600))
+        time.sleep(nsec)
+            
+        
+
     # create master frames
     python_cmdstr_master = ('python /Software/BlackBOX/blackbox.py '
                             '--master_date {}'.format(date_eve))
@@ -243,7 +256,7 @@ def run_blackbox_slurm (date=None, nthreads=4, runtime='3:00:00'):
         slurm_process (python_cmdstr, nthreads=1, runtime='0:30:00',
                        jobname=jobname, jobnight=jobnight, date_begin=date_begin)
         jobnames.append(jobname)
-        
+
 
         # add night's headers to transient fits header file
         fits_header_trans = ('{}/Headers/{}_headers_trans.fits'
@@ -257,7 +270,7 @@ def run_blackbox_slurm (date=None, nthreads=4, runtime='3:00:00'):
         slurm_process (python_cmdstr, nthreads=1, runtime='0:30:00',
                        jobname=jobname, jobnight=jobnight, date_begin=date_begin)
         jobnames.append(jobname)
-        
+
 
     except Exception as e:
         log.exception('exception occurred during adding header keys: {}'
@@ -642,8 +655,8 @@ def main ():
                         'or yyyy.mm.dd); default=today (date change is at local noon)')
     parser.add_argument('--nthreads', type=int, default=4,
                         help='number of threads/CPUs to use per image; default=4')
-    parser.add_argument('--runtime', type=str, default='3:00:00',
-                        help='runtime requested per image; default=3:00:00')
+    parser.add_argument('--runtime', type=str, default='4:00:00',
+                        help='runtime requested per image; default=4:00:00')
     args = parser.parse_args()
 
 
