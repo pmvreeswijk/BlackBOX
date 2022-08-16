@@ -1618,13 +1618,7 @@ def blackbox_reduce (filename):
             verify_header (fits_tmp_trans, ['raw','full','trans'])
 
             # run match2SSO to find known asteroids in the observation
-            fits_for_m2sso = fits_tmp_trans.replace('.fits', '_light.fits')
-            if not os.path.exists(fits_for_m2sso):
-                fits_for_m2sso = fits_tmp_trans
-            if os.path.exists(fits_for_m2sso):
-                m2sso.run_match2SSO(tel=tel, mode='night',
-                                    cat2process=fits_for_m2sso, date2process=None,
-                                    list2process=None, logname=None)
+            call_match2SSO(fits_tmp_trans, tel)
 
             # copy selected output files to new directory
             list_2keep = get_par(set_bb.all_2keep,tel)
@@ -2230,13 +2224,7 @@ def blackbox_reduce (filename):
     verify_header (fits_tmp_trans, ['raw','full','trans'])
 
     # run match2SSO to find known asteroids in the observation
-    fits_for_m2sso = fits_tmp_trans.replace('.fits', '_light.fits')
-    if not os.path.exists(fits_for_m2sso):
-        fits_for_m2sso = fits_tmp_trans
-    if os.path.exists(fits_for_m2sso):
-        m2sso.run_match2SSO(tel=tel, mode='night',
-                            cat2process=fits_for_m2sso, date2process=None,
-                            list2process=None, logname=None)
+    call_match2SSO(fits_tmp_trans, tel)
 
     # list of files to copy/move to reduced folder; need to include
     # the img_reduce products in any case because the header will have
@@ -2715,6 +2703,27 @@ def verify_header (filename, htypes=None):
 
 ################################################################################
 
+def call_match2SSO(filename, tel):
+    
+    """Function to call the match2SSO software in order to find known asteroids
+       in the transient catalog specified in [filename].
+    
+    """
+
+    # select light version of catalogue if it exists
+    fits_for_m2sso = filename.replace('.fits', '_light.fits')
+    if not os.path.exists(fits_for_m2sso):
+        fits_for_m2sso = filename
+
+    # run match2SSO on catalogue
+    if os.path.exists(fits_for_m2sso):
+        m2sso.run_match2SSO(tel=tel, mode='night', cat2process=fits_for_m2sso,
+                            date2process=None, list2process=None, logname=None)
+    return
+
+
+################################################################################
+                            
 def update_cathead (filename, header):
     
     with fits.open(filename, 'update', memmap=True) as hdulist:
