@@ -3035,6 +3035,9 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
     trans_list = glob.glob('{}/{}*_red_trans.fits'.format(full_path, tel))
     body += ('# transient cats:   {} ({} red-flagged)\n'.format(
         len(trans_list), count_redflags(trans_list, key='TQC-FLAG')))
+    sso_list = glob.glob('{}/{}*_red_trans_sso.fits'.format(full_path, tel))
+    body += ('# SSO cats:         {} ({} red-flagged)\n'.format(
+        len(sso_list), count_redflags(sso_list, key='SDUMCAT')))
     body += '\n'
 
 
@@ -3077,7 +3080,11 @@ def count_redflags(catlist, key='QC-FLAG'):
         # read file header
         header = read_hdulist (catname, get_data=False, get_header=True)
 
-        if key in header and 'red' in header[key]:
+        # in case of full-source or transient catalog, 'red' should be
+        # in the QC-FLAG keyword, but for SSO cat, SDUMCAT being True
+        # indicates a red flag; "==True" is required because if the
+        # keyword is not a boolean, header[key] will always be True
+        if key in header and ('red' in header[key] or header[key]==True):
             nredflags += 1
 
 
