@@ -1951,7 +1951,10 @@ def blackbox_reduce (filename):
                 copy_files2keep(tmp_base, new_base,
                                 get_par(set_bb.img_reduce_exts,tel),
                                 move=(not get_par(set_bb.keep_tmp,tel)))
-                clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel))
+
+                #clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel))
+                # keeping tmp folder to be able to help understand exception
+                clean_tmp(tmp_path, True)
                 close_log(log, logfile)
                 return None
 
@@ -2042,7 +2045,9 @@ def blackbox_reduce (filename):
                           'the [ref_ID_filt] queue')
                 result = check_ref(ref_ID_filt, (obj, filt), method='remove')
 
-                clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel))
+                #clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel))
+                # keeping tmp folder to be able to help understand exception
+                clean_tmp(tmp_path, True)
                 close_log(log, logfile)
                 return None
 
@@ -2172,7 +2177,9 @@ def blackbox_reduce (filename):
 
                 # remove cat_extract and trans_extract products?
                 
-                clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel))
+                #clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel))
+                # keeping tmp folder to be able to help understand exception
+                clean_tmp(tmp_path, True)
                 close_log(log, logfile)
                 return None
 
@@ -3093,7 +3100,7 @@ def count_redflags(catlist, key='QC-FLAG'):
         # in the QC-FLAG keyword, but for SSO cat, SDUMCAT being True
         # indicates a red flag; "==True" is required because if the
         # keyword is not a boolean, header[key] will always be True
-        if key in header and ('red' in header[key] or header[key]==True):
+        if key in header and ('red' in str(header[key]) or header[key]==True):
             nredflags += 1
 
 
