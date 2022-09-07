@@ -3052,7 +3052,7 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
     body += ('# transient cats:   {} ({} red-flagged)\n'.format(
         len(trans_list), count_redflags(trans_list, key='TQC-FLAG')))
     sso_list = glob.glob('{}/{}*_red_trans_sso.fits'.format(full_path, tel))
-    body += ('# SSO cats:         {} ({} red-flagged)\n'.format(
+    body += ('# SSO cats:         {} ({} empty)\n'.format(
         len(sso_list), count_redflags(sso_list, key='SDUMCAT')))
     body += '\n'
 
