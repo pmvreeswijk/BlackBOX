@@ -88,7 +88,7 @@ cols_ref = ['NUMBER', 'X_POS', 'Y_POS',
 #except:
 #    log.info ('import of fitsio.FITS failed; using astropy.io.fits instead')
 
-__version__ = '0.9.0'
+__version__ = '0.9.1'
 
 
 ################################################################################
@@ -312,7 +312,7 @@ def force_phot (radec_images_dict, trans=True, ref=True, fullsource=False,
         # add pixelcoordinates corresponding to input RA/DEC to table
         names += ['X_POS_IN_REF', 'Y_POS_IN_REF']
         dtypes += [float, float]
-        
+
 
         # add FLAGS_MASK for the reference image
         if 'FLAGS_MASK_REF' not in names:
@@ -322,10 +322,15 @@ def force_phot (radec_images_dict, trans=True, ref=True, fullsource=False,
 
         # magnitude, snr and limiting magnitude columns
         names_ref = ['MAG_OPT_REF', 'MAGERR_OPT_REF', 'SNR_OPT_REF',
-                     'LIMMAG_{}SIGMA_OPT_REF'.format(nsigma),
-                     'MAG_ZOGY_PLUSREF', 'MAGERR_ZOGY_PLUSREF']
+                     'LIMMAG_{}SIGMA_OPT_REF'.format(nsigma)]
         names += names_ref
-        dtypes += [float, float, float, float, float, float]
+        dtypes += [float, float, float, float]
+
+
+        # in case trans==True, add these ZOGY+REF columns
+        if trans:
+            names += ['MAG_ZOGY_PLUSREF', 'MAGERR_ZOGY_PLUSREF']
+            dtypes += [float, float]
 
 
         # add thumbnail if relevant
@@ -654,9 +659,9 @@ def get_rows (image_radecs, trans, ref, fullsource, nsigma, use_catalog_mags,
                             thumbnails, size_tn, imtype='ref', tel=tel)
 
 
-        # if there is a significant source in the reference image with
-        # positive flux, correct MAG_ZOGY for it and add the result in
-        # the column MAG_ZOGY_PLUSREF
+        # for transients, add any potential source in the reference
+        # image to the transient flux and save the result in the
+        # column MAG_ZOGY_PLUSREF
         if trans:
 
             # start off with MAG_ZOGY
@@ -667,18 +672,24 @@ def get_rows (image_radecs, trans, ref, fullsource, nsigma, use_catalog_mags,
             # i.e. when the flux in the reference image was higher, so
             # include sign of [snr_zogy]
             snr_zogy = np.array(table['SNR_ZOGY'])
-            # set insignificant transients to zero
-            mask_snr_trans = (np.abs(snr_zogy) >= nsigma)
-            mag_zogy[~mask_snr_trans] = 100
+
+            # initially: set insignificant transients to zero, but
+            # decided to not do so anymore - just add transient and
+            # reference flux irrespective of whether they are
+            # significant or not
+            # mask_snr_trans = (np.abs(snr_zogy) >= nsigma)
+            # mag_zogy[~mask_snr_trans] = 100
             flux_zogy = np.sign(snr_zogy) * 10**(-0.4*mag_zogy)
 
 
-            # reference flux in arbitrary units; [snr_opt] is required
-            # to be positive below, so [flux_ref] will be positive
+            # reference flux in arbitrary units (but same as flux_zogy
+            # above)
             mag_opt_ref = np.array(table['MAG_OPT_REF'])
-            # set insignificant sources to zero
+            # corresponding S/N
             snr_opt_ref = np.array(table['SNR_OPT_REF'])
-            mask_snr_ref = (snr_opt_ref >= nsigma)
+            # require reference source to be positive
+            mask_snr_ref = (snr_opt_ref > 0)
+            # set magnitudes of negative sources to negligibly faint
             mag_opt_ref[~mask_snr_ref] = 100
             flux_ref = 10**(-0.4*mag_opt_ref)
 
@@ -694,11 +705,15 @@ def get_rows (image_radecs, trans, ref, fullsource, nsigma, use_catalog_mags,
 
 
             # the corresponding error
+            pogson = 2.5 / np.log(10)
             magerr_zogy = np.array(table['MAGERR_ZOGY'])
+            fluxerr_zogy = np.abs(flux_zogy) * magerr_zogy / pogson
             magerr_opt_ref = np.array(table['MAGERR_OPT_REF'])
-            __, magerr_corr = get_magtot (np.array([mag_zogy, mag_opt_ref]),
-                                          magerr=np.array([magerr_zogy,
-                                                           magerr_opt_ref]))
+            fluxerr_opt_ref = np.abs(flux_ref) * magerr_opt_ref / pogson
+            fluxerr_tot = np.sqrt(fluxerr_zogy**2 + fluxerr_opt_ref**2)
+            magerr_corr = np.zeros_like(flux_corr)
+            magerr_corr[mask_pos] = pogson * (fluxerr_tot[mask_pos]
+                                              / flux_corr[mask_pos])
             table['MAGERR_ZOGY_PLUSREF'] = magerr_corr
 
 
@@ -706,26 +721,6 @@ def get_rows (image_radecs, trans, ref, fullsource, nsigma, use_catalog_mags,
     mem_use('at end of [get_rows]')
 
     return table
-
-
-################################################################################
-
-def get_magtot (mag, magerr=None, axis=0):
-
-    flux = 10**(-0.4*mag)
-    flux_tot = np.sum(flux, axis=axis)
-    mag_tot = -2.5*np.log10(flux_tot)
-
-    if magerr is None:
-        return mag_tot
-
-    else:
-        pogson = 2.5 / np.log(10)
-        # average flux error
-        fluxerr = flux*(magerr/pogson)
-        fluxerr_tot = np.sqrt(np.sum(fluxerr**2, axis=axis))
-        magerr_tot = pogson * fluxerr_tot/flux_tot
-        return mag_tot, magerr_tot
 
 
 ################################################################################
@@ -1735,10 +1730,10 @@ if __name__ == "__main__":
     parser.add_argument('--thumbnails', type=str2bool, default=False,
                         help='extract thumbnail images around input coordinates? '
                         'The thumbnail images that are extracted depends on the '
-                        'input parameters [trans], [ref] and [fullsource]: \n\n'
-                        ' [fullsource]=True: reduced image'
-                        ' [ref]=True:        reference image'
-                        ' [trans]=True:      difference and significance images '
+                        'input parameters [trans], [ref] and [fullsource]:'
+                        'reduced image if [fullsource] is True; '
+                        'reference image if [ref] is True; '
+                        'difference and significance images if [trans] is True; '
                         'default=False')
 
     parser.add_argument('--size_thumbnails', type=int, default=100,
