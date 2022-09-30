@@ -4961,7 +4961,8 @@ def set_header(header, filename):
 
             # assuming RA-TEL,DEC-TEL are JNOW, convert them to J2000/ICRS
             equinox = Time(mjd_obs, format='mjd').jyear_str
-            ra_tel_icrs, dec_tel_icrs = jnow2icrs (ra_tel_deg, dec_tel_deg, equinox)
+            ra_tel_icrs, dec_tel_icrs = jnow2icrs (ra_tel_deg, dec_tel_deg,
+                                                   equinox)
             
             edit_head(header, 'RA-TEL', value=ra_tel_icrs,
                       comments='[deg] Telescope right ascension (ICRS)')
@@ -4981,7 +4982,14 @@ def set_header(header, filename):
     # hour angle; this keyword was in the raw image header for a while,
     # but seems to have disappeared during the 2nd half of March 2019
     if 'RA' in header:
-        lha_deg = lst_deg - ra_icrs
+
+        # first convert ra_icrs to ra_jnow
+        equinox = Time(mjd_obs, format='mjd').jyear_str
+        ra_jnow, dec_jnow = jnow2icrs (ra_icrs, dec_icrs, equinox,
+                                       icrs2jnow=True)
+        # local hour angle
+        lha_deg = lst_deg - ra_jnow
+
         # PaulG noticed some lha_deg values are between -340 and -360
         # and between +340 and +360:
         if lha_deg < -180:
@@ -4990,7 +4998,7 @@ def set_header(header, filename):
             lha_deg -= 360
 
         edit_head(header, 'HA', value=lha_deg,
-                  comments='[deg] Local hour angle (=LST-RA)')
+                  comments='[deg] Local hour angle (=LST-RA_Jnow)')
 
 
     # Weather headers required for Database
