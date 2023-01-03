@@ -82,7 +82,7 @@ for tel in ['ML1', 'BG2', 'BG3', 'BG4']:
 
 # name endings of files to keep for the reference and new images
 img_reduce_exts = ['_red.fits', '_mask.fits', '_red_hdr.fits', '_mini.fits',
-                   '_red_limmag.fits', '_red.log']
+                   '_red_limmag.fits', '_red.log', '_red_objmask.fits']
 cat_extract_exts = ['_cat.fits', '_psf.fits', '_psfex.cat', '_cat_hdr.fits']
 trans_extract_exts = ['_D.fits', '_Scorr.fits', '_trans_limmag.fits',
                       '_trans.fits', '_trans_hdr.fits', '_trans_light.fits',
