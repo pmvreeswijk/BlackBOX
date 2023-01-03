@@ -39,7 +39,7 @@ from zogy import *
 
 import re   # Regular expression operations
 import glob # Unix style pathname pattern expansion 
-from multiprocessing import Pool, Manager, Lock, Queue, Array
+from multiprocessing import Pool, Manager, Lock, Queue, Array, set_start_method
 from datetime import datetime, timedelta
 from dateutil.tz import gettz
 from astropy.stats import sigma_clipped_stats
@@ -351,7 +351,8 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
                                            nproc=nproc)
             
 
-        log.info ('filenames_reduced: {}'.format(filenames_reduced))
+        log.info ('{} filenames reduced: {}'.format(len(filenames_reduced),
+                                                    filenames_reduced))
 
         #snapshot2 = tracemalloc.take_snapshot()
         #top_stats = snapshot2.compare_to(snapshot1, 'lineno')
@@ -1308,8 +1309,8 @@ def blackbox_reduce (filename):
                 header['NONLIN-P'] = nonlin_corr_processed
 
 
-        # if IMAGETYP=bias or dark, write [data] to fits and return
-        if imgtype == 'bias' or imgtype == 'dark':
+        # if IMAGETYP=bias, write [data] to fits and return
+        if imgtype == 'bias':
             # call [run_qc_check] to update header with any QC flags
             run_qc_check (header, tel)
             header['DATEFILE'] = (Time.now().isot, 'UTC date of writing file')
@@ -1385,6 +1386,42 @@ def blackbox_reduce (filename):
             ds9_arrays(bias_sub=data)
         
 
+        # if IMAGETYP=dark, write [data] to fits and return
+        if imgtype == 'dark':
+            # call [run_qc_check] to update header with any QC flags
+            run_qc_check (header, tel)
+            header['DATEFILE'] = (Time.now().isot, 'UTC date of writing file')
+            fits.writeto(fits_out, data.astype('float32'), header, overwrite=True)
+            # fpack
+            fits_out = fpack (fits_out)
+            # create jpg
+            create_jpg (fits_out)
+            # close down logging and leave
+            close_log(log, logfile)
+            return fits_out
+
+
+        # master dark creation
+        ######################
+        try:
+            # put an multi-processing lock on this block so that only 1
+            # process at a time can create the master bias
+            lock.acquire()
+
+            # prepare or point to the master dark
+            fits_master = '{}/dark_{}.fits'.format(dark_path, date_eve)
+            fits_mdark = master_prep (fits_master, data.shape,
+                                      get_par(set_bb.create_master,tel))
+
+        except Exception as e:
+            #log.exception(traceback.format_exc())
+            log.exception('exception was raised during dark [master_prep] of '
+                          'master {}: {}'.format(fits_master, e))
+
+        finally:
+            lock.release()
+
+
         # create initial mask array
         ###########################
         if imgtype == 'object' or imgtype == 'flat':
@@ -1452,6 +1489,7 @@ def blackbox_reduce (filename):
         # master flat division
         ######################
         mflat_processed = False
+        header['MFLAT-P'] = (mflat_processed, 'corrected for master flat?')
         header['MFLAT-F'] = ('None', 'name of master flat applied')
 
         if fits_mflat is not None:
@@ -3959,7 +3997,7 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True):
         # time window
         if imtype=='flat':
             nwindow = int(get_par(set_bb.flat_window,tel))
-        elif imtype=='bias':
+        elif imtype=='bias' or imtype=='dark':
             nwindow = int(get_par(set_bb.bias_window,tel))
 
         file_list = []
@@ -4031,7 +4069,7 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True):
         # if number of biases/flats exceed nbias_max/nflat_max, select
         # the nbias_max/nflat_max ones closest in time to midnight of
         # the evening date
-        if imtype=='bias':
+        if imtype=='bias' or imtype=='dark':
             nmax = get_par(set_bb.nbias_max,tel)
         elif imtype=='flat':
             nmax = get_par(set_bb.nflat_max,tel)
@@ -4046,12 +4084,13 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True):
             # select nmax
             file_list = file_list[index_sort][0:nmax]
             nfiles = len(file_list)
-            log.info ('number of available {} frames ({}) exceeds the '
-                      'maximum specified ({}); using these frames closest '
-                      'in time to midnight of the evening date ({}): {}'
-                      .format(imtype, len(index_sort), nmax, mjd_midnight,
-                              file_list))
- 
+            if not (nfiles < 3 or not master_ok or not create_master):
+                log.info ('number of available {} frames ({}) exceeds the '
+                          'maximum specified ({}); using these frames closest '
+                          'in time to midnight of the evening date ({}): {}'
+                          .format(imtype, len(index_sort), nmax, mjd_midnight,
+                                  file_list))
+
 
         # look for a nearby master instead if the master bias/flat
         # present contains a red flag, or there are too few individual
@@ -4062,8 +4101,8 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True):
             if imtype=='flat':
                 msg = 'flat in filter {}'.format(filt)
             else:
-                msg = 'bias'
-
+                msg = imtype
+                
             # if input [pick_alt] is True, look for a nearby master
             # flat, otherwise just return None
             if pick_alt or not create_master:
@@ -4108,7 +4147,7 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True):
             if imtype=='flat':
                 msg = 'flat in filter {}'.format(filt)
             else:
-                msg = 'bias'
+                msg = imtype
 
             log.info ('making master {} for night {}'.format(msg, date_eve))
             if imtype=='bias':
@@ -4140,7 +4179,7 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True):
                         index_flat_norm = get_par(set_bb.flat_norm_sec,tel)
                         median = np.median(master_cube[i_file][index_flat_norm])
 
-                    log.info ('flat name: {}, median: {:.1f}'
+                    log.info ('flat name: {}, median: {:.1f} e-'
                               .format(filename, median))
 
                     if median != 0:
@@ -4163,8 +4202,8 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True):
 
                 if imtype=='flat':
                     comment = 'name reduced flat'
-                elif imtype=='bias':
-                    comment = 'name gain/os-corrected bias frame'
+                else:
+                    comment = 'name gain/os-corrected {} frame'.format(imtype)
 
                 header_master['{}{}'.format(imtype.upper(), i_file+1)] = (
                     filename.split('/')[-1].split('.fits')[0],
@@ -4365,6 +4404,40 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True):
                         std_chan[i_chan], '[e-] channel {} sigma (STD) master '
                         'bias'.format(i_chan+1))
 
+
+            elif imtype=='dark':
+
+                # add some header keywords to the master dark
+                index_stat = get_rand_indices(master_median.shape)
+                mean_master, __, std_master = sigma_clipped_stats(
+                    master_median[index_stat], mask_value=0)
+                header_master['MDMEAN'] = (mean_master, '[e-] mean master dark')
+                header_master['MDRDN'] = (std_master, '[e-] sigma (STD) master '
+                                          'dark')
+
+                # including the means and standard deviations of the master
+                # dark in the separate channels
+                __, __, __, __, data_sec_red = define_sections(data_shape,
+                                                               tel=tel)
+                nchans = np.shape(data_sec_red)[0]
+                mean_chan = np.zeros(nchans)
+                std_chan = np.zeros(nchans)
+
+                for i_chan in range(nchans):
+                    data_chan = master_median[data_sec_red[i_chan]]
+                    index_stat = get_rand_indices(data_chan.shape)
+                    mean_chan[i_chan], __, std_chan[i_chan] = sigma_clipped_stats(
+                        data_chan[index_stat], mask_value=0)
+                for i_chan in range(nchans):
+                    header_master['MDARKM{}'.format(i_chan+1)] = (
+                        mean_chan[i_chan], '[e-] channel {} mean master dark'
+                        .format(i_chan+1))
+                for i_chan in range(nchans):
+                    header_master['MDRDN{}'.format(i_chan+1)] = (
+                        std_chan[i_chan], '[e-] channel {} sigma (STD) master '
+                        'dark'.format(i_chan+1))
+
+                    
             # call [run_qc_check] to update master header with any QC flags
             run_qc_check (header_master, tel)
             # make dir for output file if it doesn't exist yet
@@ -6016,6 +6089,10 @@ def str2bool(v):
 ################################################################################
 
 if __name__ == "__main__":
+
+    # multiprocessing method
+    #set_start_method('spawn')
+
     
     parser = argparse.ArgumentParser(description='User parameters')
 
