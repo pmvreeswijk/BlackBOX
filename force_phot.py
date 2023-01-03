@@ -689,18 +689,17 @@ def get_rows (image_radecs, trans, ref, fullsource, nsigma, use_catalog_mags,
             snr_opt_ref = np.array(table['SNR_OPT_REF'])
             # require reference source to be positive
             mask_snr_ref = (snr_opt_ref > 0)
-            # set magnitudes of negative sources to negligibly faint
+            # set magnitudes of non-positive sources to negligibly faint
             mag_opt_ref[~mask_snr_ref] = 100
             flux_ref = 10**(-0.4*mag_opt_ref)
 
             
-            # corrected flux and magnitude; sources without
-            # significant transient or reference magnitude will
-            # contain zeros for the magnitude
+            # corrected flux and magnitude
             flux_corr = (flux_zogy + flux_ref)
             mag_corr = np.zeros_like(flux_corr)
             mask_pos = (flux_corr > 0)
-            mag_corr[mask_pos] = -2.5 * np.log10(np.abs(flux_corr[mask_pos]))
+            mag_corr[mask_pos] = -2.5 * np.log10(flux_corr[mask_pos])
+            mag_corr[~mask_pos] = 100
             table['MAG_ZOGY_PLUSREF'] = mag_corr
 
 
@@ -1515,7 +1514,7 @@ def file2fullpath (filenames, set_zogy=None, set_bb=None):
     # fits.fz extension
     fullnames = []
     for filename in filenames:
-        
+
         # infer basename [tel]_yyyymmdd_hhmmss
         basename = filename.split('/')[-1][0:19]
 
