@@ -337,8 +337,9 @@ def slurm_process (python_cmdstr, nthreads, runtime, jobname, jobnight,
             f.write ('echo "#task allocated   = $SLURM_NTASKS"\n')
             f.write ('echo "#cores/task       = $SLURM_CPUS_PER_TASK"\n')
             f.write ('\n')
-            f.write ('/usr/local/bin/singularity exec /idia/projects/meerlicht/'
-                     'Containers/ML_latest.sif {}\n'.format(python_cmdstr))
+            f.write ('/software/common/singularity/3.9.1/bin/singularity exec '
+                     '/idia/projects/meerlicht/Containers/ML_latest.sif {}\n'
+                     .format(python_cmdstr))
             f.write ('\n')
 
 
