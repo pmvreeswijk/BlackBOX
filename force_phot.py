@@ -37,8 +37,15 @@ from astropy.table import Table, hstack, vstack
 from astropy.time import Time
 from astropy import units as u
 from astropy.wcs import WCS
+from astropy.stats import SigmaClip
 
 from fitsio import FITS
+
+import sep as SEP
+from photutils.aperture import CircularAperture, aperture_photometry
+from photutils.aperture import CircularAnnulus, ApertureStats
+from photutils.utils import calc_total_error
+
 
 MLBG_fields = Table.read(set_bb.mlbg_fieldIDs)
 
@@ -88,16 +95,18 @@ cols_ref = ['NUMBER', 'X_POS', 'Y_POS',
 #except:
 #    log.info ('import of fitsio.FITS failed; using astropy.io.fits instead')
 
-__version__ = '0.9.1'
+__version__ = '0.9.2'
 
 
 ################################################################################
 
 def force_phot (radec_images_dict, trans=True, ref=True, fullsource=False,
-                nsigma=5, use_catalog_mags=False, sep_max=3, catcols2add=None,
-                catcols2add_dtypes=None, keys2add=None, keys2add_dtypes=None,
-                bkg_global=True, thumbnails=False, size_thumbnails=None,
-                ncpus=1):
+                nsigma=5, apphot_radii=None, apphot_sky_inout=None,
+                apphot_att2add=None, use_catalog_mags=False, sep_max=3,
+                catcols2add=None, catcols2add_dtypes=None, keys2add=None,
+                keys2add_dtypes=None, bkg_global=True, thumbnails=False,
+                size_thumbnails=None, ncpus=1):
+
 
     """Forced photometry on MeerLICHT/BlackGEM images at the input
        coordinates provided, or alternatively, the extraction of
@@ -226,7 +235,10 @@ def force_phot (radec_images_dict, trans=True, ref=True, fullsource=False,
             names.append(key)
             dtype_str = keys2add_dtypes[ikey]
             if dtype_str in ['float', 'int', 'bool']:
-                dtype = eval(dtype_str)
+                if '32' in dtype_str:
+                    dtype = np.float32(dtype_str)
+                else:
+                    dtype = eval(dtype_str)
             else:
                 dtype = dtype_str
 
@@ -245,27 +257,43 @@ def force_phot (radec_images_dict, trans=True, ref=True, fullsource=False,
         names += ['FLAGS_MASK']
         dtypes += ['uint8']
 
-        
+
     # initialize columns to be determined below
     if fullsource:
 
+        # optimal photometry columns
         names_fullsource = ['MAG_OPT', 'MAGERR_OPT', 'SNR_OPT',
                             'LIMMAG_{}SIGMA_OPT'.format(nsigma)]
         names += names_fullsource
-        dtypes += [float, float, float, float]
+        dtypes += ['float32', 'float32', 'float32', 'float32']
+
+
+        # add aperture photometry columns if needed
+        if apphot_radii is not None:       
+            for radius in apphot_radii:
+                names += ['MAG_APER_R{}xFWHM'.format(radius),
+                          'MAGERR_APER_R{}xFWHM'.format(radius),
+                          'SNR_APER_R{}xFWHM'.format(radius)]
+                dtypes += ['float32', 'float32', 'float32']
+
+                # and columns corresponding to the apphot attributes
+                if apphot_att2add is not None:
+                    for att in apphot_att2add:
+                        names += ['{}_APER_R{}xFWHM'.format(att.upper(), radius)]
+                        dtypes += ['float32']
 
 
         # add thumbnail if relevant
         if thumbnails:
             names += ['THUMBNAIL_RED']
-            dtypes += [float]
+            dtypes += ['float32']
 
 
         # add separation between input coordinates and potential
         # matching source in full-source catalog
         if use_catalog_mags:
             names += ['SEP']
-            dtypes += [float]
+            dtypes += ['float32']
 
 
         # add additional full-source catalog columns specified in
@@ -282,20 +310,20 @@ def force_phot (radec_images_dict, trans=True, ref=True, fullsource=False,
         names_trans = ['MAG_ZOGY', 'MAGERR_ZOGY', 'SNR_ZOGY',
                        'LIMMAG_{}SIGMA_ZOGY'.format(nsigma)]
         names += names_trans
-        dtypes += [float, float, float, float]
+        dtypes += ['float32', 'float32', 'float32', 'float32']
 
 
         # add thumbnails if relevant
         if thumbnails:
             names += ['THUMBNAIL_D', 'THUMBNAIL_SCORR']
-            dtypes += [float, float]
+            dtypes += ['float32', 'float32']
 
 
         # add separation between input coordinates and potential
         # matching source in transient catalog
         if use_catalog_mags:
             names += ['SEP_TRANS']
-            dtypes += [float]
+            dtypes += ['float32']
 
 
         # add additional transient catalog columns specified in
@@ -324,26 +352,44 @@ def force_phot (radec_images_dict, trans=True, ref=True, fullsource=False,
         names_ref = ['MAG_OPT_REF', 'MAGERR_OPT_REF', 'SNR_OPT_REF',
                      'LIMMAG_{}SIGMA_OPT_REF'.format(nsigma)]
         names += names_ref
-        dtypes += [float, float, float, float]
+        dtypes += ['float32', 'float32', 'float32', 'float32']
+
+
+        # add aperture photometry columns if needed
+        if apphot_radii is not None:
+            for radius in apphot_radii:
+                names += ['MAG_APER_R{}xFWHM_REF'.format(radius),
+                          'MAGERR_APER_R{}xFWHM_REF'.format(radius),
+                          'SNR_APER_R{}xFWHM_REF'.format(radius)]
+                dtypes += ['float32', 'float32', 'float32']
+
+                # and columns corresponding to the apphot attributes
+                if apphot_att2add is not None:
+                    for att in apphot_att2add:
+                        names += ['{}_APER_R{}xFWHM_REF'.format(att.upper(),
+                                                                radius)]
+                        dtypes += ['float32']
 
 
         # in case trans==True, add these ZOGY+REF columns
         if trans:
-            names += ['MAG_ZOGY_PLUSREF', 'MAGERR_ZOGY_PLUSREF']
-            dtypes += [float, float]
+            names += ['MAG_ZOGY_PLUSREF',
+                      'MAGERR_ZOGY_PLUSREF',
+                      'SNR_ZOGY_PLUSREF']
+            dtypes += ['float32', 'float32', 'float32']
 
 
         # add thumbnail if relevant
         if thumbnails:
             names += ['THUMBNAIL_REF']
-            dtypes += [float]
+            dtypes += ['float32']
 
 
         # add separation between input coordinates and potential
         # matching source in full-source catalog
         if use_catalog_mags:
             names += ['SEP_REF']
-            dtypes += [float]
+            dtypes += ['float32']
 
 
         # add additional reference catalog columns specified in
@@ -380,10 +426,6 @@ def force_phot (radec_images_dict, trans=True, ref=True, fullsource=False,
         image_radecs_list.append([k,v])
 
 
-    # pick maximum number (***CHECK!!!***)
-    #image_radecs_list = image_radecs_list[0:100]
-
-
     # check if there are any images to process at all
     nimages = len(image_radecs_list)
     log.info ('effective number of images from which to extract magnitudes: {}'
@@ -392,58 +434,68 @@ def force_phot (radec_images_dict, trans=True, ref=True, fullsource=False,
         log.critical ('no images could be found matching the input coordinates ')
 
 
-    if False:
-
-        # use pool_func and function [get_rows] to multi-process list of
-        # basenames
-        rows = pool_func (get_rows, image_radecs_list, trans, ref, fullsource,
-                          nsigma, use_catalog_mags, sep_max, catcols2add, keys2add,
-                          add_keys, names, dtypes, bkg_global, thumbnails,
-                          size_thumbnails, nproc=ncpus)
-        rows = list(itertools.chain.from_iterable(rows))
+    # use pool_func and function [get_rows] to multi-process list of
+    # basenames
+    table_list = pool_func (get_rows, image_radecs_list, trans, ref, fullsource,
+                            nsigma, apphot_radii, apphot_sky_inout,
+                            apphot_att2add, use_catalog_mags, sep_max,
+                            catcols2add, keys2add, add_keys, names, dtypes,
+                            bkg_global, thumbnails, size_thumbnails, nproc=ncpus)
 
 
-        # remove None entries, e.g. due to coordinates off the field
-        while True:
-            try:
-                rows.pop(rows.index(None))
-            except:
-                break
-
-        # finished multi-processing basenames
-        if len(rows) > 0:
-            # add rows to table
-            table = Table(rows=rows, names=names, dtype=dtypes)
-        else:
-            return None
-
-        
-    else:
-        
-        # use pool_func and function [get_rows] to multi-process list of
-        # basenames
-        table_list = pool_func (get_rows, image_radecs_list, trans, ref, fullsource,
-                                nsigma, use_catalog_mags, sep_max, catcols2add, keys2add,
-                                add_keys, names, dtypes, bkg_global,
-                                thumbnails, size_thumbnails, nproc=ncpus)
-        table_list = list(itertools.chain.from_iterable(table_list))
+    # remove None entries, e.g. due to coordinates off the field
+    log.info ('removing None entries in [table_list]')
+    while True:
+        try:
+            table_list.pop(table_list.index(None))
+        except:
+            break
 
 
-        # remove None entries, e.g. due to coordinates off the field
-        while True:
-            try:
-                table_list.pop(table_list.index(None))
-            except:
-                break
-
-        # finished multi-processing basenames
-        if len(table_list) > 0:
+    # finished multi-processing basenames
+    log.info ('stacking individual tables into output table')
+    ntables = len(table_list)
+    if ntables > 0:
+        # old simple method
+        if True:
             table = vstack(table_list)
+
         else:
-            return None
+            # new method: keep adding tables in pairs until there is a
+            # single table left
+            while ntables > 1:
+                # number of tables left
+                ntables = len(table_list)
+                log.info ('ntables: {}'.format(ntables))
+                # initialize new table_list
+                table_list_new = []
+                # loop list in steps of 2
+                for i in range(0,ntables,2):
+                    # make sure i is within range of list index
+                    if i+1 <= ntables-1:
+                        # if so, stack the two tables
+                        table_tmp = vstack([table_list[i],
+                                            table_list[i+1]])
+                    else:
+                        # otherwise, table_tmp is the last table
+                        table_tmp = table_list[i]
+
+                    # add table_tmp to new table_list
+                    table_list_new.append(table_tmp)
+
+                # after loop is finished, replace the old table_list
+                # with the new one
+                table_list = table_list_new
+
+            # the single table left is the final table
+            table = table_list[0]
+
+    else:
+        return None
         
 
     # sort in time
+    log.info ('sorting by FILENAME')
     index_sort = np.argsort(table['FILENAME'])
 
     mem_use('at end of [force_phot]')
@@ -521,9 +573,10 @@ def remove_empty (list_in):
 
 ################################################################################
 
-def get_rows (image_radecs, trans, ref, fullsource, nsigma, use_catalog_mags,
-              sep_max, catcols2add, keys2add, add_keys, names, dtypes,
-              bkg_global, thumbnails, size_thumbnails):
+def get_rows (image_radecs, trans, ref, fullsource, nsigma, apphot_radii,
+              apphot_sky_inout, apphot_att2add, use_catalog_mags, sep_max,
+              catcols2add, keys2add, add_keys, names, dtypes, bkg_global,
+              thumbnails, size_thumbnails):
 
 
     # extract basenames and coordinates from input tuple [image_radecs]
@@ -576,6 +629,11 @@ def get_rows (image_radecs, trans, ref, fullsource, nsigma, use_catalog_mags,
     table = Table(np.zeros((ncoords,len(names))), names=names, dtype=dtypes)
     colnames = table.colnames
 
+    # set magnitude columns to +99
+    for colname in colnames:
+        if 'MAG' in colname:
+            table[colname] = 99
+
 
     # need to define proper shapes for thumbnail columns; if
     # [thumbnails] is set, adopt the corresponding input
@@ -625,7 +683,8 @@ def get_rows (image_radecs, trans, ref, fullsource, nsigma, use_catalog_mags,
     if fullsource:              
 
         # infer full-source magnitudes and S/N
-        table = infer_mags (table, basename, sep_max, nsigma, use_catalog_mags,
+        table = infer_mags (table, basename, sep_max, nsigma, apphot_radii,
+                            apphot_sky_inout, apphot_att2add, use_catalog_mags,
                             catcols2add, keys2add, add_keys, bkg_global,
                             thumbnails, size_tn, imtype='new', tel=tel)
 
@@ -636,7 +695,8 @@ def get_rows (image_radecs, trans, ref, fullsource, nsigma, use_catalog_mags,
     if trans:
 
         # infer transient magnitudes and S/N
-        table = infer_mags (table, basename, sep_max, nsigma, use_catalog_mags,
+        table = infer_mags (table, basename, sep_max, nsigma, apphot_radii,
+                            apphot_sky_inout, apphot_att2add, use_catalog_mags,
                             catcols2add, keys2add, add_keys, bkg_global,
                             thumbnails, size_tn, imtype='trans', tel=tel)
 
@@ -654,7 +714,8 @@ def get_rows (image_radecs, trans, ref, fullsource, nsigma, use_catalog_mags,
         basename = '{}/{}/{}_{}'.format(ref_dir, obj, tel, filt)
 
         # infer reference magnitudes and S/N
-        table = infer_mags (table, basename, sep_max, nsigma, use_catalog_mags,
+        table = infer_mags (table, basename, sep_max, nsigma, apphot_radii,
+                            apphot_sky_inout, apphot_att2add, use_catalog_mags,
                             catcols2add, keys2add, add_keys, bkg_global,
                             thumbnails, size_tn, imtype='ref', tel=tel)
 
@@ -690,17 +751,18 @@ def get_rows (image_radecs, trans, ref, fullsource, nsigma, use_catalog_mags,
             # require reference source to be positive
             mask_snr_ref = (snr_opt_ref > 0)
             # set magnitudes of non-positive sources to negligibly faint
-            mag_opt_ref[~mask_snr_ref] = 100
+            mag_opt_ref[~mask_snr_ref] = 99
             flux_ref = 10**(-0.4*mag_opt_ref)
 
             
             # corrected flux and magnitude
             flux_corr = (flux_zogy + flux_ref)
-            mag_corr = np.zeros_like(flux_corr)
+            mag_corr = np.zeros_like(flux_corr, dtype='float32') + 99
             mask_pos = (flux_corr > 0)
             mag_corr[mask_pos] = -2.5 * np.log10(flux_corr[mask_pos])
-            mag_corr[~mask_pos] = 100
-            table['MAG_ZOGY_PLUSREF'] = mag_corr
+            mask_99 = (~mask_pos | (mag_corr >= 99))
+            mag_corr[mask_99] = 99
+            table['MAG_ZOGY_PLUSREF'] = mag_corr.astype('float32')
 
 
             # the corresponding error
@@ -709,11 +771,19 @@ def get_rows (image_radecs, trans, ref, fullsource, nsigma, use_catalog_mags,
             fluxerr_zogy = np.abs(flux_zogy) * magerr_zogy / pogson
             magerr_opt_ref = np.array(table['MAGERR_OPT_REF'])
             fluxerr_opt_ref = np.abs(flux_ref) * magerr_opt_ref / pogson
-            fluxerr_tot = np.sqrt(fluxerr_zogy**2 + fluxerr_opt_ref**2)
-            magerr_corr = np.zeros_like(flux_corr)
-            magerr_corr[mask_pos] = pogson * (fluxerr_tot[mask_pos]
+            fluxerr_corr = np.sqrt(fluxerr_zogy**2 + fluxerr_opt_ref**2)
+            magerr_corr = np.zeros_like(flux_corr, dtype='float32') + 99
+            magerr_corr[mask_pos] = pogson * (fluxerr_corr[mask_pos]
                                               / flux_corr[mask_pos])
-            table['MAGERR_ZOGY_PLUSREF'] = magerr_corr
+            magerr_corr[mask_99] = 99
+            table['MAGERR_ZOGY_PLUSREF'] = magerr_corr.astype('float32')
+
+            # S/N
+            mask_nonzero = (fluxerr_corr != 0)
+            snr_corr = np.zeros_like(flux_corr, dtype='float32')
+            snr_corr[mask_nonzero] = (flux_corr[mask_nonzero] /
+                                      fluxerr_corr[mask_nonzero])            
+            table['SNR_ZOGY_PLUSREF'] = snr_corr
 
 
 
@@ -724,9 +794,10 @@ def get_rows (image_radecs, trans, ref, fullsource, nsigma, use_catalog_mags,
 
 ################################################################################
 
-def infer_mags (table, basename, sep_max, nsigma, use_catalog_mags,
-                catcols2add, keys2add, add_keys, bkg_global,
-                thumbnails, size_tn, imtype='new', tel='ML1'):
+def infer_mags (table, basename, sep_max, nsigma, apphot_radii, apphot_sky_inout,
+                apphot_att2add, use_catalog_mags, catcols2add, keys2add,
+                add_keys, bkg_global, thumbnails, size_tn, imtype='new',
+                tel='ML1'):
 
 
     # label in logging corresponding to 'new', 'ref' and 'trans' imtypes
@@ -737,6 +808,11 @@ def infer_mags (table, basename, sep_max, nsigma, use_catalog_mags,
     s2add_dict = {'new': '', 'ref': '_REF', 'trans': '_TRANS'}
     s2add = s2add_dict[imtype]
 
+    # shorthand
+    new = (imtype == 'new')
+    trans = (imtype == 'trans')
+    ref = (imtype == 'ref')
+
 
     # filenames relevant for magtype 'full-source' and 'reference'
     fits_red = '{}_red.fits.fz'.format(basename)
@@ -744,6 +820,7 @@ def infer_mags (table, basename, sep_max, nsigma, use_catalog_mags,
     fits_cat = '{}_red_cat.fits'.format(basename)
     fits_limmag = '{}_red_limmag.fits.fz'.format(basename)
     psfex_bintable = '{}_red_psf.fits'.format(basename)
+    fits_objmask = '{}_objmask.fits.fz'.format(basename)
 
 
     # filenames relevant for magtypes 'trans'
@@ -752,12 +829,6 @@ def infer_mags (table, basename, sep_max, nsigma, use_catalog_mags,
     fits_tlimmag = '{}_red_trans_limmag.fits.fz'.format(basename)
     fits_Scorr = '{}_red_Scorr.fits.fz'.format(basename)
     fits_D = '{}_red_D.fits.fz'.format(basename)
-
-
-    # shorthand
-    new = (imtype == 'new')
-    trans = (imtype == 'trans')
-    ref = (imtype == 'ref')
 
 
     if trans:
@@ -819,6 +890,7 @@ def infer_mags (table, basename, sep_max, nsigma, use_catalog_mags,
     xcoords, ycoords = WCS(header).all_world2pix(table['RA_IN'],
                                                  table['DEC_IN'], 1)
 
+
     # discard entries that were not finite or off the image NB; this
     # means that any source that is off the reduced image, but present
     # in the reference image will not appear in the reference part of
@@ -846,10 +918,8 @@ def infer_mags (table, basename, sep_max, nsigma, use_catalog_mags,
 
     ncoords_ok = np.sum(mask_ok)
     if np.sum(~mask_ok) != 0:
-        log.info ('invalid coordinates for {} extraction of {}'
-                  .format(label, basename))
-        log.info ('xcoords: {}'.format(xcoords[~mask_ok]))
-        log.info ('ycoords: {}'.format(ycoords[~mask_ok]))
+        log.info ('{} invalid coordinates for {} extraction of {}'
+                  .format(np.sum(~mask_ok), label, basename))
         xcoords = xcoords[mask_ok]
         ycoords = ycoords[mask_ok]
         table = table[mask_ok]
@@ -879,24 +949,28 @@ def infer_mags (table, basename, sep_max, nsigma, use_catalog_mags,
     # split between new/ref and transient extraction
     if not trans:
 
-
         # determine background standard deviation and obtain objmask
         # using [get_bkg_std]
         data_bkg_std = get_bkg_std (basename, xcoords, ycoords, data_shape,
                                     imtype, tel)
 
-        # object mask - not part of the standard zogy products at the
-        # moment, so not available (yet); for the time being, let this
-        # depend on input parameter [bkg_global]
-        if bkg_global:
-            # if True, global background is used, i.e. any local flux
-            # due to nearby sources or galaxy is not taken into
-            # account
-            objmask = np.ones (data_shape, dtype=bool)
+        # object mask - not always available, so first check if it
+        # exists
+        if os.path.exists(fits_mask):
+            objmask = read_hdulist (fits_mask, dtype=bool)
+
         else:
-            # if False, a circular annulus around each object is used
-            # to estimate the sky background
-            objmask = np.zeros (data_shape, dtype=bool)
+            # if it does not exist, create an object masking depending
+            # on input parameter [bkg_global]
+            if bkg_global:
+                # if True, global background is used, i.e. any local flux
+                # due to nearby sources or galaxy is not taken into
+                # account
+                objmask = np.ones (data_shape, dtype=bool)
+            else:
+                # if False, a circular annulus around each object is used
+                # to estimate the sky background
+                objmask = np.zeros (data_shape, dtype=bool)
 
 
         # read reduced image; need to use astropy method, as otherwise
@@ -904,8 +978,10 @@ def infer_mags (table, basename, sep_max, nsigma, use_catalog_mags,
         # (probably) the shape attribute is not available when data is
         # read through fitsio.FITS
         data = read_hdulist (fits_red)
-        # mask can be read using fitsio.FITS
-        data_mask = FITS(fits_mask)[-1]
+        data_mask = read_hdulist (fits_mask)
+        # mask can be read using fitsio.FITS, but only little bit
+        # faster than astropy.io.fits
+        #data_mask = FITS(fits_mask)[-1][:,:]
 
 
         # add combined FLAGS_MASK column to output table using
@@ -930,12 +1006,13 @@ def infer_mags (table, basename, sep_max, nsigma, use_catalog_mags,
 
         if zp is not None:
             # infer calibrated magnitudes using the zeropoint
-            mag_opt, magerr_opt = apply_zp (np.abs(flux_opt), zp, airmass,
-                                            exptime, filt, ext_coeff,
-                                            fluxerr=fluxerr_opt)
+            mag_opt, magerr_opt = apply_zp (flux_opt, zp, airmass, exptime, filt,
+                                            ext_coeff, fluxerr=fluxerr_opt)
+            mask_pos = (flux_opt > 0)
+            mag_opt[~mask_pos] = 99
+            magerr_opt[~mask_pos] = 99
+
         else:
-            mag_opt = np.zeros(ncoords_ok)
-            magerr_opt = np.zeros(ncoords_ok)
             log.warning ('keyword PC-ZP not in header; unable to infer {} '
                          'magnitudes for {}'.format(label, basename))
 
@@ -958,10 +1035,10 @@ def infer_mags (table, basename, sep_max, nsigma, use_catalog_mags,
                 # ycoords) and sources in full-source catalog;
                 # return their respective indices and separation
                 i_coords, i_cat, sep, __, __ = get_matches (
-                    table['RA_IN'].quantity.value,
-                    table['DEC_IN'].quantity.value,
-                    table_cat['RA'].quantity.value,
-                    table_cat['DEC'].quantity.value,
+                    table['RA_IN'].value,
+                    table['DEC_IN'].value,
+                    table_cat['RA'].value,
+                    table_cat['DEC'].value,
                     dist_max=sep_max, return_offsets=True)
 
 
@@ -1004,10 +1081,117 @@ def infer_mags (table, basename, sep_max, nsigma, use_catalog_mags,
 
 
         # update table
-        table['MAG_OPT{}'.format(s2add)] = mag_opt
-        table['MAGERR_OPT{}'.format(s2add)] = magerr_opt
-        table['SNR_OPT{}'.format(s2add)] = snr_opt
-        table['LIMMAG_{}SIGMA_OPT{}'.format(nsigma,s2add)] = limmags
+        table['MAG_OPT{}'.format(s2add)] = mag_opt.astype('float32')
+        table['MAGERR_OPT{}'.format(s2add)] = magerr_opt.astype('float32')
+        table['SNR_OPT{}'.format(s2add)] = snr_opt.astype('float32')
+        table['LIMMAG_{}SIGMA_OPT{}'.format(nsigma,s2add)] = (limmags
+                                                              .astype('float32'))
+
+
+        # add aperture measurements
+        if apphot_radii is not None:
+
+            t_ap = time.time()
+
+            # update type of background annulus
+            if bkg_global or apphot_sky_inout is None:
+                bkgann = None
+            else:
+                bkgann = tuple(apphot_sky_inout.astype(float) * fwhm)
+
+            apphot_radii_xfwhm = apphot_radii.astype(float) * fwhm
+            nrad = len(apphot_radii)
+            #log.info ('apphot_radii.astype(float) * fwhm: {}'
+            #          .format(apphot_radii_xfwhm))
+            #log.info ('bkgann: {}'.format(bkgann))
+
+
+            if False:
+                # use Source Extraction and Photometry
+                flux_ap, fluxerr_ap, flags_ap = SEP.sum_circle (
+                    data, xcoords-1, ycoords-1,
+                    np.expand_dims(apphot_radii_xfwhm, 1),
+                    err=data_bkg_std, gain=1.0, bkgann=bkgann, mask=data_mask)
+
+
+            # use photutils instead, as it has more freedom regarding
+            # background annulus subtraction (SEP only provides the
+            # mean value), and it can also provide Source Extractor
+            # quanities like FWHM and ELONGATION
+
+            xycoords = list(zip(xcoords, ycoords))
+            apertures = [CircularAperture(xycoords, r=rad)
+                         for rad in apphot_radii_xfwhm]
+
+            #data_err = calc_total_error(data, data_bkg_std, 1.0)
+            data_err = np.sqrt(np.abs(data) + data_bkg_std**2)
+
+            if bkgann is not None:
+                r_in, r_out = bkgann 
+                bkg_annuli = CircularAnnulus(xycoords, r_in=r_in, r_out=r_out)
+                sigma_clip = SigmaClip(sigma=3.0, maxiters=10)
+                bkg_stats = ApertureStats(data, bkg_annuli, error=data_err,
+                                          sigma_clip=sigma_clip)
+                local_bkg = bkg_stats.mean
+            else:
+                local_bkg = None
+
+
+            # perform aperture measurements (many attributes
+            # available, e.g. covar_sigx2 and y2, fwhm, elongation);
+            # unfortunately only single aperture can be processed at a
+            # time
+            for i, radius in enumerate(apphot_radii):
+                aper_stats = ApertureStats(data, apertures[i],
+                                           error=data_err,
+                                           mask=data_mask.astype(bool),
+                                           local_bkg=local_bkg)
+
+                # flux sum and corresponding error for this radius
+                flux_ap = aper_stats.sum
+                fluxerr_ap = aper_stats.sum_err
+
+
+                # infer calibrated magnitudes using the zeropoint
+                if zp is not None:
+                    mag_ap, magerr_ap = apply_zp (flux_ap, zp, airmass, exptime,
+                                                  filt, ext_coeff,
+                                                  fluxerr=fluxerr_ap)
+                    mask_pos = (flux_ap > 0)
+                    mag_ap[~mask_pos] = 99
+                    magerr_ap[~mask_pos] = 99
+
+                    # S/N
+                    mask_nonzero = (fluxerr_ap != 0)
+                    snr_ap = np.zeros_like(flux_ap, dtype='float32')
+                    snr_ap[mask_nonzero] = (flux_ap[mask_nonzero] /
+                                            fluxerr_ap[mask_nonzero])
+
+                    col_tmp = 'MAG_APER_R{}xFWHM{}'.format(radius, s2add)
+                    table[col_tmp] = mag_ap
+                    col_tmp = 'MAGERR_APER_R{}xFWHM{}'.format(radius, s2add)
+                    table[col_tmp] = magerr_ap
+                    col_tmp = 'SNR_APER_R{}xFWHM{}'.format(radius, s2add)
+                    table[col_tmp] = snr_ap
+
+
+                # add ApertureStats attribute(s) provided in [[apphot_att2add]
+                if apphot_att2add is not None:
+                    for att in apphot_att2add:
+                        vals_att = eval('aper_stats.{}'.format(att.lower()))
+                        col_tmp = '{}_APER_R{}xFWHM{}'.format(att.upper(),
+                                                              radius, s2add)
+                        table[col_tmp] = vals_att
+
+
+
+            else:
+                log.warning ('keyword PC-ZP not in header; unable to infer {} '
+                             'magnitudes for {}'.format(label, basename))
+
+
+            log.info ('{} source(s), {} aperture(s), apphot time: {:.3f}s'
+                      .format(ncoords_ok, nrad, time.time()-t_ap))
 
 
         # add thumbnail image
@@ -1057,9 +1241,13 @@ def infer_mags (table, basename, sep_max, nsigma, use_catalog_mags,
             # infer calibrated magnitudes using the zeropoint
             mag_zogy, magerr_zogy = apply_zp (np.abs(Fpsf), zp, airmass, exptime,
                                               filt, ext_coeff, fluxerr=Fpsferr)
+            mask_zero = (Fpsf==0)
+            mag_zogy[mask_zero] = 99
+            magerr_zogy[mask_zero] = 99
+
         else:
-            mag_zogy = np.zeros(ncoords_ok)
-            magerr_zogy = np.zeros(ncoords_ok)
+            mag_zogy = np.zeros(ncoords_ok, dtype='float32') + 99
+            magerr_zogy = np.zeros(ncoords_ok, dtype='float32') + 99
             log.warning ('keyword PC-ZP not in header; unable to infer {} '
                          'magnitudes for {}'.format(label, basename))
 
@@ -1076,10 +1264,10 @@ def infer_mags (table, basename, sep_max, nsigma, use_catalog_mags,
                 # ycoords) and sources in transient catalog;
                 # return their respective indices and separation
                 i_coords, i_trans, sep, __, __ = get_matches (
-                    table['RA_IN'].quantity.value,
-                    table['DEC_IN'].quantity.value,
-                    table_trans['RA_PSF_D'].quantity.value,
-                    table_trans['DEC_PSF_D'].quantity.value,
+                    table['RA_IN'].value,
+                    table['DEC_IN'].value,
+                    table_trans['RA_PSF_D'].value,
+                    table_trans['DEC_PSF_D'].value,
                     dist_max=sep_max, return_offsets=True)
 
 
@@ -1117,10 +1305,10 @@ def infer_mags (table, basename, sep_max, nsigma, use_catalog_mags,
 
 
         # update table
-        table['MAG_ZOGY'] = mag_zogy
-        table['MAGERR_ZOGY'] = magerr_zogy
-        table['SNR_ZOGY'] = snr_zogy
-        table['LIMMAG_{}SIGMA_ZOGY'.format(nsigma)] = tlimmags
+        table['MAG_ZOGY'] = mag_zogy.astype('float32')
+        table['MAGERR_ZOGY'] = magerr_zogy.astype('float32')
+        table['SNR_ZOGY'] = snr_zogy.astype('float32')
+        table['LIMMAG_{}SIGMA_ZOGY'.format(nsigma)] = tlimmags.astype('float32')
 
 
         # add transient thumbnail images
@@ -1216,7 +1404,7 @@ def get_limmags (fits_limmag, y_indices, x_indices, header, nsigma,
         log.warning ('{} not found; no {} limiting magnitude(s) '
                      'available'.format(fits_limmag, label))
         ncoords = len(y_indices)
-        limmags = np.zeros(ncoords)
+        limmags = np.zeros(ncoords, dtype='float32')
 
 
     return limmags
@@ -1261,8 +1449,9 @@ def get_bkg_std (basename, xcoords, ycoords, data_shape, imtype, tel):
     # background STD
     fits_bkg_std = '{}_red_bkg_std.fits.fz'.format(basename)
     if os.path.exists(fits_bkg_std):
-        #data_bkg_std = read_hdulist (fits_bkg_std, dtype='float32')
-        data_bkg_std = FITS(fits_bkg_std)[-1]
+        data_bkg_std = read_hdulist (fits_bkg_std, dtype='float32')
+        # only little bit faster with fitsio.FITS
+        #data_bkg_std = FITS(fits_bkg_std)[-1][:,:]
     else:
         # if it does not exist, create it from the background mesh
         fits_bkg_std_mini = '{}_red_bkg_std_mini.fits'.format(basename)
@@ -1307,7 +1496,7 @@ def get_fitsio_values (filename, y_indices=None, x_indices=None):
 
     # infer data values at indices
     if y_indices is None or x_indices is None:
-        values = data[:,:]       
+        values = data[:,:]
     else:
         nvalues = len(y_indices)
         values = np.zeros(nvalues)
@@ -1686,7 +1875,7 @@ if __name__ == "__main__":
 
     parser.add_argument('--filters', type=str, default='ugqriz',
                         help='consider images in these filters only; '
-                        'default=\'ugqriz\'')
+                        'default=ugqriz')
 
     parser.add_argument('--date_start', type=str, default=None,
                         help='starting UTC date of observation in format '
@@ -1708,12 +1897,35 @@ if __name__ == "__main__":
                         help='extract full-source magnitudes?; default=False')
 
     parser.add_argument('--bkg_global', type=str2bool, default=False,
-                        help='for full-source case only: use global background '
-                        'estimate (T) or estimate local background from annulus '
-                        'around the coordinates (F); default=True')
+                        help='for full-source and ref cases: use global '
+                        'background estimate (T) or estimate local background '
+                        'from annulus around the coordinates (F); default=False')
 
     parser.add_argument('--nsigma', type=int, default=3,
                         help='significance threshold for a detection; default=3')
+
+    parser.add_argument('--apphot_radii', type=str, default='0.66,1.5,5',
+                        help='radii in units of the image FWHM at which to '
+                        'extract aperture photometry; default=0.66,1.5,5, '
+                        'if set to None, no aperture photometry is performed')
+
+    parser.add_argument('--apphot_sky_inout', type=str, default='4,5',
+                        help='inner and outer radii in units of the image FWHM '
+                        'of the sky annulus used to determine the aperture '
+                        'photometry local background; default=4,5; if set to '
+                        'None, no local background is subtracted (this also '
+                        'depends on [bkg_global], i.e. if these sky radii are '
+                        'defined but [bkg_global]=True, no background is '
+                        'subtracted either')
+
+    parser.add_argument('--apphot_att2add', type=str, default=None,
+                        help='comma-separated list of any additional float or '
+                        'integer attribute of photutils.aperture.ApertureStats '
+                        'to add to the output table (for a complete list, see '
+                        'https://photutils.readthedocs.io/en/stable/api/'
+                        'photutils.aperture.ApertureStats.html#photutils'
+                        '.aperture.ApertureStats); N.B.: can take several '
+                        'seconds per source!; default=None')
 
     parser.add_argument('--use_catalog_mags', type=str2bool, default=False,
                         help='use magnitudes from nearest catalog source '
@@ -1762,27 +1974,31 @@ if __name__ == "__main__":
                         'transient and/or reference catalogs to add to output '
                         'table for the entries with catalog matches; only '
                         'relevant if [use_catalog_mags] is set to True. For any '
-                        'reference column add \'_REF\' to the name, to separate '
-                        'them from the often-identical full-source column names; '
-                        'default: {}'.format(par_default))
+                        'reference column, \'_REF\' is added to the output '
+                        'column name, to separate them from the often-identical '
+                        'full-source column names; default={}'
+                        .format(par_default))
 
-    par_default = ('float,float,float,float,float,float,float,uint8,float,float,'
-                   'float,float,float,float,float,float,float,float,float,float,'
-                   'float,float,float')
+    par_default = ('float32,float32,float,float,float32,float32,'
+                   'float32,uint8,float32,float32,'
+                   'float32,float32,'
+                   'float32,float32,float,float,float32,'
+                   'float32,float32,float32,float32,'
+                   'float32,float32')
 
     parser.add_argument('--catcols2add_dtypes', type=str, default=par_default,
-                        help='corresponding catalog columns dtypes; default: {}'
+                        help='corresponding catalog columns dtypes; default={}'
                         .format(par_default))
 
     par_default = 'MJD-OBS,OBJECT,FILTER,EXPTIME,S-SEEING,AIRMASS,PC-ZP,' \
         'PC-ZPSTD,QC-FLAG'
     parser.add_argument('--keys2add', type=str, default=par_default,
                         help='header keyword values to add to output '
-                        'table; default: {}'.format(par_default))
+                        'table; default={}'.format(par_default))
 
-    par_default = 'float,U5,U1,float,float,float,float,float,U6'
+    par_default = 'float,U5,U1,float32,float32,float32,float32,float32,U6'
     parser.add_argument('--keys2add_dtypes', type=str, default=par_default,
-                        help='corresponding header keyword dtypes; default: {}'
+                        help='corresponding header keyword dtypes; default={}'
                         .format(par_default))
 
     parser.add_argument('--ncpus', type=int, default=None,
@@ -1953,11 +2169,11 @@ if __name__ == "__main__":
                     decs_in.append(float(s))
 
 
-
         # create table as if input file was provided with only RAs and DECs
         table_radecs = Table()
         table_radecs[args.ra_col] = ras_in
         table_radecs[args.dec_col] = decs_in
+
 
 
 
@@ -2257,17 +2473,45 @@ if __name__ == "__main__":
     verify_lengths (keys2add, keys2add_dtypes)
 
 
+    # change input [apphot_radii] from string to numpy array
+    apphot_radii = args.apphot_radii
+    if str(apphot_radii) != 'None':
+        apphot_radii = np.array(apphot_radii.split(','))
+        log.info ('apphot_radii: {}'.format(apphot_radii))
+    else:
+        # or from 'None' to None
+        apphot_radii = None
+
+    # change input [apphot_sky_inout] from string to numpy array
+    apphot_sky_inout = args.apphot_sky_inout
+    if str(apphot_sky_inout) != 'None':
+        apphot_sky_inout = np.array(apphot_sky_inout.split(','))
+        log.info ('apphot_sky_inout: {}'.format(apphot_sky_inout))
+    else:
+        # or from 'None' to None
+        apphot_sky_inout = None
+
+    # change input [apphot_att2add] from string to list of
+    # attributes
+    apphot_att2add = args.apphot_att2add
+    if str(apphot_att2add) != 'None':
+        apphot_att2add = apphot_att2add.split(',')
+        log.info ('apphot_att2add: {}'.format(apphot_att2add))
+    else:
+        apphot_att2add = None
+        
 
     # call [force_phot]
     table_out = force_phot (
         radec_images_dict, trans=args.trans, ref=args.ref,
-        fullsource=args.fullsource,
-        nsigma=args.nsigma, use_catalog_mags=args.use_catalog_mags,
-        sep_max=args.sep_max, catcols2add=catcols2add,
-        catcols2add_dtypes=catcols2add_dtypes, keys2add=keys2add,
-        keys2add_dtypes=keys2add_dtypes, bkg_global=args.bkg_global,
-        thumbnails=args.thumbnails, size_thumbnails=args.size_thumbnails,
-        ncpus=ncpus)
+        fullsource=args.fullsource, nsigma=args.nsigma,
+        apphot_radii=apphot_radii, apphot_sky_inout=apphot_sky_inout,
+        apphot_att2add=apphot_att2add,
+        use_catalog_mags=args.use_catalog_mags, sep_max=args.sep_max,
+        catcols2add=catcols2add, catcols2add_dtypes=catcols2add_dtypes,
+        keys2add=keys2add, keys2add_dtypes=keys2add_dtypes,
+        bkg_global=args.bkg_global, thumbnails=args.thumbnails,
+        size_thumbnails=args.size_thumbnails, ncpus=ncpus)
 
 
     # copy columns from the input to the output table; even if
@@ -2368,11 +2612,13 @@ if __name__ == "__main__":
     log.info ('time spent in [force_phot]: {:.1f}s'.format(time.time()-t1))
     log.info ('time spent in total:        {:.1f}s'.format(time.time()-t0))
 
-    # list memory used
-    mem_use('at end of [force_phot]')
-    
+
     # write output table to fits
+    log.info ('writing output table {}'.format(args.fits_out))
     if table_out is not None:
         table_out.write(args.fits_out, format='fits', overwrite=True)
 
 
+    # list memory used
+    mem_use('at very end')
+    
