@@ -245,31 +245,21 @@ def run_blackbox_slurm (date=None, nthreads=4, runtime='4:00:00'):
     # header fits tables
     try:
 
-        # add night's headers to full_source fits header file
-        fits_header_cat = '{}/Headers/{}_headers_cat.fits'.format(data_dir, tel)
-        python_cmdstr = ('python -c \"import set_blackbox as set_bb; '
-                         'from blackbox import add_headkeys; '
-                         'add_headkeys (\'{}\', \'{}\', tel=\'{}\')\"'
-                         .format(date_dir, fits_header_cat, tel))
+        # loop different catalogs
+        for cat_type in ['cat', 'trans', 'sso']:
 
-        jobname = 'add_headkeys_cat_{}'.format(date_eve)
-        slurm_process (python_cmdstr, nthreads=1, runtime='0:30:00',
-                       jobname=jobname, jobnight=jobnight, date_begin=date_begin)
-        jobnames.append(jobname)
+            # add night's headers to header file
+            fits_header = ('{}/Headers/{}_headers_{}.fits'
+                           .format(data_dir, tel, cat_type))
+            python_cmdstr = ('python -c \"import set_blackbox as set_bb; '
+                             'from blackbox import add_headkeys; '
+                             'add_headkeys (\'{}\', \'{}\', \'{}\', \'{}\')\"'
+                             .format(date_dir, fits_header, cat_type, tel))
 
-
-        # add night's headers to transient fits header file
-        fits_header_trans = ('{}/Headers/{}_headers_trans.fits'
-                             .format(data_dir, tel))
-        python_cmdstr = ('python -c \"import set_blackbox as set_bb; '
-                         'from blackbox import add_headkeys; '
-                         'add_headkeys (\'{}\', \'{}\', trans=True, tel=\'{}\')'
-                         '\"'.format(date_dir, fits_header_trans, tel))
-
-        jobname = 'add_headkeys_trans_{}'.format(date_eve)
-        slurm_process (python_cmdstr, nthreads=1, runtime='0:30:00',
-                       jobname=jobname, jobnight=jobnight, date_begin=date_begin)
-        jobnames.append(jobname)
+            jobname = 'add_headkeys_{}_{}'.format(cat_type, date_eve)
+            slurm_process (python_cmdstr, nthreads=1, runtime='0:30:00',
+                           jobname=jobname, jobnight=jobnight, date_begin=date_begin)
+            jobnames.append(jobname)
 
 
     except Exception as e:

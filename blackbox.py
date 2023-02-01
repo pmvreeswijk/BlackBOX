@@ -5966,7 +5966,7 @@ def sort_files(read_path, search_str, recursive=False):
 
 ################################################################################
 
-def add_headkeys (path, fits_headers, trans=False, tel=None, nproc=1):
+def add_headkeys (path, fits_headers, cat_type, tel=None, nproc=1):
 
     # read [fits_headers]
     table_headers = Table.read(fits_headers)
@@ -5977,12 +5977,7 @@ def add_headkeys (path, fits_headers, trans=False, tel=None, nproc=1):
     log.info ('number of columns: {}'.format(len(colnames)))
 
     # determine filenames whose headers to add
-    if trans:
-        file_str = '_trans.fits'        
-    else:
-        file_str = '_cat.fits'
-
-
+    file_str = '_{}.fits'.format(cat_type)
     red_dir = get_par(set_bb.red_dir,tel)
     filenames = sorted(glob.glob('{}/{}/**/*{}*'.format(red_dir, path, file_str),
                                  recursive=True))
