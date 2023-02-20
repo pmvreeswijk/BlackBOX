@@ -101,7 +101,7 @@ except Exception as e:
                  'blackbox; issue with IERS file?: {}'.format(e))
 
 
-__version__ = '1.1.0'
+__version__ = '1.1.1'
 keywords_version = '1.0.14'
 
 #def init(l):
@@ -5981,6 +5981,8 @@ def add_headkeys (path, fits_headers, cat_type, tel=None, nproc=1):
     red_dir = get_par(set_bb.red_dir,tel)
     filenames = sorted(glob.glob('{}/{}/**/*{}*'.format(red_dir, path, file_str),
                                  recursive=True))
+    log.info ('number of {} catalogs for which to add headers: {}'
+              .format(cat_type, len(filenames)))
 
 
     if len(filenames) > 0:
