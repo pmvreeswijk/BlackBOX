@@ -37,7 +37,7 @@ from email.utils import formatdate
 from email import encoders
 
 
-__version__ = '0.6'
+__version__ = '0.7'
 
 
 # hardcode the settings below, because they are not accessible on the
@@ -187,18 +187,15 @@ def run_blackbox_slurm (date=None, nthreads=4, runtime='4:00:00'):
     observer.join() #join observer
 
 
-    # in day mode, wait for all processes to stop by just waiting for
-    # the amount of seconds corresponding to [runtime]
-    if mode == 'day':
-        # convert input [runtime] to number of seconds
-        nsec = np.sum(np.array(runtime.split(':')).astype(int)
+    # now waiting until no more running jobs left
+    t0 = time.time()
+    # setting maximum wait time equal to the input [runtime]
+    wait_max = np.sum(np.array(runtime.split(':')).astype(int)
                       *np.array([3600, 60, 1]))
-        log.info ('waiting for {:.2f}hr for all processes to finish before '
-                  'continuing with master flats and sending of night report'
-                  .format(nsec/3600))
-        time.sleep(nsec)
-            
-        
+    nsec_wait = wait4jobs2finish (jobnames, t0, wait_max)
+    log.info ('waited for {:.0f}s for all individual jobs to finish'
+              .format(nsec_wait))
+
 
     # create master frames
     python_cmdstr_master = ('python /Software/BlackBOX/blackbox.py '
@@ -212,10 +209,14 @@ def run_blackbox_slurm (date=None, nthreads=4, runtime='4:00:00'):
                    jobname=jobname, jobnight=jobnight, date_begin=date_begin)
     jobnames.append(jobname)
 
+
     # wait for masters to finish; could possibly avoid this by using a
     # Slurm job that is dependent on the last non-master job finishing
-    time.sleep(600)
-    
+    t0 = time.time()
+    wait_max = 3600
+    nsec_wait = wait4jobs2finish (jobnames, t0, wait_max)
+    log.info ('waited for {:.0f}s for masters to finish'.format(nsec_wait))
+
 
     # create night report and weather screenshot; this needs to be done
     # inside the container because firefox is not available outside;
@@ -281,6 +282,53 @@ def run_blackbox_slurm (date=None, nthreads=4, runtime='4:00:00'):
 
 
     return
+
+
+################################################################################
+
+def wait4jobs2finish (jobnames, t0, wait_max):
+
+    jobnames_run = jobnames.copy()
+    while time.time()-t0 < wait_max:
+
+        # remove jobs that are not running from joblist
+        jobnames_run = list_jobs (jobnames_run, status='RUNNING')
+        njobs = len(jobnames_run)
+
+        # if no more running jobs, break
+        if njobs==0:
+            break
+        else:
+            log.info ('{} job(s) still running'.format(njobs))
+
+        # wait for a while
+        time.sleep(300)
+
+
+    return time.time()-t0
+
+
+################################################################################
+
+def list_jobs (jobnames, status='RUNNING'):
+
+    jobnames_out = []
+    for job in jobnames:
+        if status in get_job_status(job):
+            jobnames_out.append(job)
+
+    return jobnames_out
+
+
+################################################################################
+
+def get_job_status (jobname):
+
+    # submit batch script
+    cmd = ('sacct -o JobName%-70,State -n --name {} | grep {} | tail -1'
+           .format(jobname, jobname))
+    result = subprocess.run(cmd, shell=True, capture_output=True)
+    return result.stdout.decode('UTF-8').replace('\n','').strip().split(' ')[-1]
 
 
 ################################################################################
