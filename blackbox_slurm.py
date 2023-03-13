@@ -291,15 +291,15 @@ def wait4jobs2finish (jobnames, t0, wait_max):
     jobnames_run = jobnames.copy()
     while time.time()-t0 < wait_max:
 
-        # remove jobs that are not running from joblist
-        jobnames_run = list_jobs (jobnames_run, status='RUNNING')
+        # only list jobs that are running or pending
+        jobnames_run = list_jobs (jobnames_run, status=['RUNNING', 'PENDING'])
         njobs = len(jobnames_run)
 
-        # if no more running jobs, break
+        # if no more running or pending jobs, break
         if njobs==0:
             break
         else:
-            log.info ('{} job(s) still running'.format(njobs))
+            log.info ('{} job(s) still running or pending'.format(njobs))
 
         # wait for a while
         time.sleep(300)
@@ -310,11 +310,11 @@ def wait4jobs2finish (jobnames, t0, wait_max):
 
 ################################################################################
 
-def list_jobs (jobnames, status='RUNNING'):
+def list_jobs (jobnames, status=['RUNNING', 'PENDING']):
 
     jobnames_out = []
     for job in jobnames:
-        if status in get_job_status(job):
+        if get_job_status(job) in status:
             jobnames_out.append(job)
 
     return jobnames_out
