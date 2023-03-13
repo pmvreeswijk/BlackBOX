@@ -288,6 +288,10 @@ def run_blackbox_slurm (date=None, nthreads=4, runtime='4:00:00'):
 
 def wait4jobs2finish (jobnames, t0, wait_max):
 
+    # wait for 60s to make sure any recently submitted jobs have made
+    # it to the queue
+    time.sleep(60)
+    
     jobnames_run = jobnames.copy()
     while time.time()-t0 < wait_max:
 
