@@ -1,4 +1,3 @@
-
 # set up log
 import logging
 log = logging.getLogger()
@@ -16,7 +15,7 @@ __version__ = '0.2'
 def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
               cat_dummy=None, cat_type=None, return_range_comment=False,
               hide_greens=True, hide_warnings=True):
-    
+
     """Function to determine whether the value of a given keyword is
        within an acceptable range or not.  The header keywords' values
        are compared to a dictionary 'qc_range' (defined in [set_qc])
@@ -50,11 +49,11 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
 
        hide_greens (bool): if True, only return results for non-green flags
 
-       
+
        The value in the qc_range dictionary is also a dictionary with
        the keys:
          1) 'default': the default value that will be used in case
-            the keyword is not present in the input header and a dummy 
+            the keyword is not present in the input header and a dummy
             catalog is being created
          2) 'val_type': providing the type of range provided
          3) 'val_range': a list of tuples, each containing either one
@@ -62,7 +61,7 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
             The filter-specific ranges can be set by making 'val_range'
             a dictionary with the filters as keys.
          4) 'key_type': makes distinction between the keywords related
-            to the full-source catalog ('full'), the transient 
+            to the full-source catalog ('full'), the transient
             catalog ('trans'), flatfields ('flat'), etc.
          5) 'comment': header comment / brief description of keyword
 
@@ -75,10 +74,10 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
                      corresponding to the accepted ranges.
                      currently: n_std = [2, 4, 7]
          4) 'exp_abs': (E, C) such that abs(value-E) <= C
-         5) 'exp_frac': (E, f) such that abs((value-E)/E) <= f 
+         5) 'exp_frac': (E, f) such that abs((value-E)/E) <= f
          6) 'skip': keyword is not considered
 
-       The value of each keyword is first checked against the 
+       The value of each keyword is first checked against the
        first element of the 'range' key. If the value within this
        range, the key gets a 'green' flag. If it is not within
        this range, it checks the value with the 2nd range provided.
@@ -94,13 +93,13 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
        within n_std * STD, its color flag will be 'green', 'yellow'
        and 'orange', respectively. If outside of this, it will be
        flagged 'red'.
-    
+
        If [cat_dummy] is defined, the function [format_cat] in zogy
        will be used to create a zero entry binary fits table with the
        column definitions determined with [cat_type], which can be
        'new', 'ref' or 'trans'.
 
-       The function returns: 
+       The function returns:
        - the list of keywords that were checked and found to be
          non-green. If [hide_greens] is set to False, all
          keywords that were checked are returned in a list.
@@ -118,7 +117,13 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
     """
 
     # refer to qc_range for [telescope] defined in [set_qc] module
-    qc_range = set_qc.qc_range[telescope]
+    try:
+        qc_range = set_qc.qc_range[telescope]
+    except:
+        # for BlackGEM, all telescopes have the same quality control
+        # (at least for the moment), with key 'BG'
+        qc_range = set_qc.qc_range[telescope[0:2]]
+
 
     # if no keywords are provided, go through all keys in [qc_range]
     if keywords is None:
@@ -126,10 +131,10 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
 
     # number of keywords in input [keywords] list
     nkeys = len(keywords)
-    
+
     # initialize output color array to 'green':
     colors_out = ['green' for _ in range(nkeys)]
-    
+
     # colors corresponding to the different ranges, following the KNMI
     # color codes to indicate the severeness of the weather in the
     # Netherlands
@@ -147,11 +152,11 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
     # determine filter if available
     if 'FILTER' in header.keys():
         filt = header['FILTER']
-        
+
     # dictionary for allowed absolute range for given color
     dict_range_ok = {}
     dict_ranges = {}
-    
+
     # loop input [keywords]
     for nkey, key in enumerate(keywords):
 
@@ -163,7 +168,7 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
             # change color to empty string
             colors_out[nkey] = ''
             continue
-        
+
         # check if keyword is present in the header
         if key.upper() not in header.keys():
             if not hide_warnings:
@@ -172,7 +177,7 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
             # change color to empty string
             colors_out[nkey] = ''
             continue
-        
+
         # if qc_range[key] val_type is set to 'skip' then skip it
         val_type = qc_range[key]['val_type']
         if val_type == 'skip':
@@ -187,7 +192,7 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
                 # change color to empty string
                 colors_out[nkey] = ''
                 continue
-                
+
 
         val_range = qc_range[key]['val_range']
 
@@ -219,7 +224,7 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
         # loop of above block
         if cont:
             continue
-                    
+
 
         # check if value range is specified per filter (e.g. for zeropoint)
         try:
@@ -239,7 +244,7 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
             colors_out[nkey] = ''
             continue
 
-        
+
         # update string keywords that are supposed to be booleans to
         # proper booleans (remnant of BGreduce)
         if val_type == 'bool':
@@ -272,7 +277,7 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
 
             if val_type == 'exp_abs' or val_type=='sigma':
                 bool_temp = np.abs(header_val-val_range[i][0]) <= val_range[i][1]
-                range_ok = [val_range[i][0]-val_range[i][1], 
+                range_ok = [val_range[i][0]-val_range[i][1],
                             val_range[i][0]+val_range[i][1]]
 
 
@@ -280,7 +285,7 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
 
                 bool_temp = (np.abs((header_val-val_range[i][0])/val_range[i][0])
                              <= val_range[i][1])
-                range_ok = [val_range[i][0]*(1.-val_range[i][1]), 
+                range_ok = [val_range[i][0]*(1.-val_range[i][1]),
                             val_range[i][0]*(1.+val_range[i][1])]
 
 
@@ -290,7 +295,7 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
                              header_val <= val_range[i][1])
                 range_ok = [val_range[i][0], val_range[i][1]]
 
-                
+
             elif val_type == 'bool':
 
                 bool_temp = (header_val == val_range[i])
@@ -298,7 +303,7 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
                     range_ok = val_range[i]
                 else:
                     range_ok = [range_ok, val_range[i]]
-                    
+
             else:
 
                 log.error ('[val_type] not one of "exp_abs", "exp_frac", '
@@ -322,7 +327,7 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
                     if type(range_ok) != bool:
                         dict_range_ok[key] = '{:g},{:g}'.format(*range_ok)
                     else:
-                        dict_range_ok[key] = '{}'.format(range_ok)                
+                        dict_range_ok[key] = '{}'.format(range_ok)
                 break
             else:
                 # if False
@@ -348,12 +353,12 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
     if hide_greens:
         mask = ((colors_out != 'green') & mask)
 
-    # determine qc_flag color 
+    # determine qc_flag color
     qc_flag = 'green'
     for col in colors:
         if col in colors_out[mask]:
             qc_flag = col
-    
+
 
     # Note that the science image header is updated with the final
     # new+zogy header just before exiting [blackbox_reduce], so it
@@ -372,7 +377,7 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
     else:
         prefix = ''
         label = ''
-        
+
     # place 'QC-FLAG' at the end of present header, but
     # would be good to place 'TQC-FLAG' right after it;
     # same for 'DUMCAT' and 'TDUMCAT'
@@ -390,7 +395,7 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
     else:
         prev_key = None
         comment = 'dummy catalog without sources?'
-        
+
     #if make_dumcat:
     header.set ('{}DUMCAT'.format(prefix), make_dumcat, 'dummy {} catalog '
                 'without sources?'.format(label), after=prev_key)
@@ -414,12 +419,12 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
     prev_key = '{}QC-FLAG'.format(prefix)
 
     for col in ['red', 'orange', 'yellow']:
-        
+
         # mask of the keywords that are flagged with col
         mask_col = (colors_out == col)
         # the color one up from col is needed for the header comment
         prev_col = colors[colors.index(col)-1]
-        
+
         for ncol, key_col in enumerate(np.array(keywords)[mask_col]):
             comment = '{} range: {}'.format(prev_col, dict_range_ok[key_col])
             key = '{}QC{}{}'.format(prefix, col[0:3].upper(), ncol+1)
@@ -445,13 +450,13 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
         else:
             header_dummy = header.copy()
 
-            
+
         # need to make sure that all keys of [qc_range] are in the
         # header to be added to the dummy catalog; if not provide
         # default value
         for nkey, key in enumerate(qc_range.keys()):
             if key not in header_dummy.keys():
-                if (qc_range[key]['key_type']==cat_type or 
+                if (qc_range[key]['key_type']==cat_type or
                     qc_range[key]['key_type']=='full'):
                     header_dummy[key] = (qc_range[key]['default'],
                                          qc_range[key]['comment'])
@@ -470,7 +475,7 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
             size_thumbnails = get_par(set_zogy.size_thumbnails,telescope)
 
             result = format_cat(None, cat_dummy, cat_type=cat_type,
-                                header_toadd=header_dummy, 
+                                header_toadd=header_dummy,
                                 apphot_radii=get_par(
                                     set_zogy.apphot_radii,telescope),
                                 dict_thumbnails=dict_thumbnails,
@@ -482,7 +487,7 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
 
         else:
             result = format_cat(None, cat_dummy, cat_type=cat_type,
-                                header_toadd=header_dummy, 
+                                header_toadd=header_dummy,
                                 apphot_radii=get_par(
                                     set_zogy.apphot_radii,telescope),
                                 tel=telescope)
@@ -498,20 +503,20 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
         return keywords_out, colors_out, list_range_ok, list_comment
     else:
         return keywords_out, colors_out
-    
+
 
 ################################################################################
 
 def run_qc_check (header, telescope, cat_type=None, cat_dummy=None,
                   check_key_type=None):
-    
+
     """Helper function to execute [qc_check] in BlackBOX and to return a
        single flag color - the most severe color - from the output
        [colors]. If 'red' then also add some info to the [log] if it
        is provided.
 
     """
-    
+
     # check if the header keyword values are within specified range
     keys, colors, ranges, comments = qc_check(header, telescope=telescope,
                                               cat_type=cat_type,
@@ -527,7 +532,7 @@ def run_qc_check (header, telescope, cat_type=None, cat_dummy=None,
     if qc_flag == 'red':
         for nkey, key in enumerate(keys):
             logstr = ('{} flag for keyword: {}, value: {}, allowed range: {}, '
-                      ' comment: {}'.format(colors[nkey], key, header[key], 
+                      ' comment: {}'.format(colors[nkey], key, header[key],
                                             ranges[nkey], comments[nkey]))
             if colors[nkey] == 'red':
                 log.error(logstr)
@@ -545,34 +550,33 @@ if False:
     filename = '/Volumes/SSD-Data/Data/ML1/red/2019/01/13/ML1_20190113_233133_red_trans.fits'
     with fits.open(filename) as hdulist:
         header_test = hdulist[1].header
-    
+
     example = 4
-    
+
     if example==1:
-        
-        # Examples: 1) create dictionary with a few keys, and check    
+
+        # Examples: 1) create dictionary with a few keys, and check
         dict = {'RDNOISE': 10.0, 'S-SEEING': 5.5, 'AIRMASS': 2.7, 'Z-P': True}
         print (qc_check(dict, keywords=['RDNOISE', 'S-SEEING', 'AIRMASS', 'Z-P'],
                         return_range_comment=True, hide_greens=False, hide_warnings=False))
-        
+
     elif example==2:
 
         #2) check header of an image for specific keywords:
         print (qc_check(header_test, keywords=['RDNOISE', 'S-SEEING', 'AIRMASS', 'Z-P'],
                         return_range_comment=True, hide_greens=False, hide_warnings=False))
-        
+
     elif example==3:
-        
+
         # 3) check header of an image for all keywords in QC_range dictionary
         print (qc_check(header_test, hide_greens=False))
-        
+
     elif example==4:
-        
+
         # 4) same as 3 but also create dummy full-source catalog
         print (qc_check(header_test, cat_dummy='test_cat.fits', cat_type='new'))
-        
+
     elif example==5:
-        
+
         # 5) same as 3 but also create dummy transient catalog
         print (qc_check(header_test, cat_dummy='test_trans.fits', cat_type='trans'))
-        
