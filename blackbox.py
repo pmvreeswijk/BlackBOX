@@ -51,7 +51,7 @@ from astropy import units as u
 from astropy.visualization import ZScaleInterval as zscale
 
 import astroscrappy
-from acstools.satdet import detsat, make_mask, update_dq
+from acstools.satdet import detsat, make_mask
 import shutil
 #from slackclient import SlackClient as sc
 import ephem
