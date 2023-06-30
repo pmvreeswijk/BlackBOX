@@ -1,8 +1,8 @@
-
 import os
 import gc
 import pickle
 import copy
+import tempfile
 
 # set up log
 import logging
@@ -26,7 +26,7 @@ import match2SSO as m2sso
 
 # setting environment variable OMP_NUM_THREADS to number of threads,
 # (used by e.g. astroscrappy); needs to be done before numpy is
-# imported in [zogy]. 
+# imported in [zogy].
 cpus_per_task = os.environ.get('SLURM_CPUS_PER_TASK')
 if cpus_per_task is None:
     os.environ['OMP_NUM_THREADS'] = str(set_bb.nthreads)
@@ -38,8 +38,10 @@ else:
 from zogy import *
 
 import re   # Regular expression operations
-import glob # Unix style pathname pattern expansion 
+import glob # Unix style pathname pattern expansion
+
 from multiprocessing import Pool, Manager, Lock, Queue, Array, set_start_method
+
 from datetime import datetime, timedelta
 from dateutil.tz import gettz
 from astropy.stats import sigma_clipped_stats
@@ -95,13 +97,16 @@ from email import encoders
 # case a recent one (younger than 30 days) is not present in the cache
 try:
     tnow = Time.now()
-    tnow.ut1  
+    tnow.ut1
 except Exception as e:
     log.warning ('exception was raised while testing \'tnow.ut1\' at start of '
                  'blackbox; issue with IERS file?: {}'.format(e))
 
+# in case google cloud is being used
+from google.cloud import storage
 
-__version__ = '1.1.1'
+
+__version__ = '1.2.0'
 keywords_version = '1.0.14'
 
 #def init(l):
@@ -112,7 +117,7 @@ keywords_version = '1.0.14'
 ################################################################################
 
 def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
-                  recursive=False, imgtypes=None, filters=None, image=None, 
+                  recursive=False, imgtypes=None, filters=None, image=None,
                   image_list=None, master_date=None,
                   img_reduce=None, cat_extract=None, trans_extract=None,
                   force_reproc_new=None, name_genlog=None, keep_tmp=None):
@@ -122,14 +127,25 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     basic image reduction tasks such as overscan subtraction,
     flat-fielding and cosmic-ray rejection, and the feeds the image to
     zogy.py along with a reference image of the corresponding ML/BG
-    field ID, to detect transients present in the image. If no
-    reference image is present, the image that is being processed is
-    defined to be the reference image.
-
-    """
+    field ID, to detect transients present in the image."""
 
     global tel, filts, types, proc_mode
-    tel = telescope
+
+    # in single-image mode, infer global parameter [tel] from the
+    # starting characters of the image name
+    if image is not None:
+        tel_tmp = image.split('/')[-1][0:3]
+        if tel_tmp in ['BG2', 'BG3', 'BG4']:
+            tel = tel_tmp
+        elif tel_tmp[0:2] == 'ML':
+            tel = 'ML1'
+        else:
+            tel = telescope
+    else:
+        tel = telescope
+
+
+    # filters and imgtypes
     filts = filters
     types = imgtypes
     if imgtypes is not None:
@@ -159,58 +175,66 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
     if cat_extract is not None:
         set_bb.cat_extract = str2bool(cat_extract)
-        
+
     if trans_extract is not None:
         set_bb.trans_extract = str2bool(trans_extract)
-        
+
     if force_reproc_new is not None:
         set_bb.force_reproc_new = str2bool(force_reproc_new)
 
     if keep_tmp is not None:
         set_bb.keep_tmp = str2bool(keep_tmp)
 
-    # in night mode, force create_master to be True
+
+    # in night mode, force create_master to be True; N.B.: using
+    # blackbox_slurm at ilifu and when running in the google cloud,
+    # blackbox will be run in 'day' mode on single images
     if mode == 'night':
         set_bb.create_master = True
-        
 
 
     if get_par(set_zogy.timing,tel):
         t_run_blackbox = time.time()
-        
-        
+
+
     # attach general logfile to logging
     ###################################
 
-    if not os.path.isdir(get_par(set_bb.log_dir,tel)):
-        os.makedirs(get_par(set_bb.log_dir,tel))
-    
-    global genlogfile
-    genlogfile = None
-    
-    if name_genlog is not None:
-        # check if path is provided
-        fdir, fname = os.path.split(name_genlog)
-        if len(fdir)>0 and os.path.isdir(fdir):
-            log_dir = fdir
-        else:
-            log_dir = get_par(set_bb.log_dir,tel)
-            
-        genlogfile = '{}/{}'.format(log_dir, fname)
+    # in google_cloud mode, do not keep general logfile
+    if not get_par(set_bb.google_cloud,tel):
 
-    elif mode == 'night':
+        if not isdir(get_par(set_bb.log_dir,tel)):
+            os.makedirs(get_par(set_bb.log_dir,tel))
 
-        # in night mode, create general logfile based on date/time
-        genlogfile = '{}/{}_{}.log'.format(get_par(set_bb.log_dir,tel), tel,
-                                           Time.now().strftime('%Y%m%d_%H%M%S'))
+        global genlogfile
+        genlogfile = None
 
-    if genlogfile is not None:
+        if name_genlog is not None:
+            # check if path is provided
+            fdir, fname = os.path.split(name_genlog)
+            if len(fdir)>0 and isdir(fdir):
+                log_dir = fdir
+            else:
+                log_dir = get_par(set_bb.log_dir,tel)
 
-        fileHandler = logging.FileHandler(genlogfile, 'a')
-        fileHandler.setFormatter(logFormatter)
-        fileHandler.setLevel('INFO')
-        log.addHandler(fileHandler)
-        log.info ('genlogfile created:     {}'.format(genlogfile))        
+            genlogfile = '{}/{}'.format(log_dir, fname)
+
+
+        elif mode == 'night':
+
+            # in night mode, create general logfile based on date/time
+            genlogfile = '{}/{}_{}.log'.format(
+                get_par(set_bb.log_dir,tel), tel,
+                Time.now().strftime('%Y%m%d_%H%M%S'))
+
+
+        if genlogfile is not None:
+
+            fileHandler = logging.FileHandler(genlogfile, 'a')
+            fileHandler.setFormatter(logFormatter)
+            fileHandler.setLevel('INFO')
+            log.addHandler(fileHandler)
+            log.info ('genlogfile created:     {}'.format(genlogfile))
 
 
 
@@ -221,14 +245,16 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     log.info ('switch cat_extract:     {}'.format(get_par(set_bb.cat_extract,tel)))
     log.info ('switch trans_extract:   {}'.format(get_par(set_bb.trans_extract,tel)))
     log.info ('force reprocessing new: {}'.format(get_par(set_bb.force_reproc_new,tel)))
+    log.info ('keep temporary folders: {}'.format(get_par(set_bb.keep_tmp,tel)))
+
 
 
     mem_use (label='run_blackbox at start')
 
 
-    # create master bias and/or flat if [master_date] is specified
+    # create master bias, dark and/or flat if [master_date] is specified
     if master_date is not None:
-        create_masters (mdate=master_date, nproc=nproc)
+        create_masters (master_date, nproc=nproc)
         logging.shutdown()
         return
 
@@ -237,7 +263,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     if (not get_par(set_bb.img_reduce,tel) and
         not get_par(set_bb.cat_extract,tel) and
         not get_par(set_bb.trans_extract,tel)):
-    
+
         log.info ('main processing switches img_reduce, cat_extract '
                   'and trans_extract all False, nothing left to do')
         logging.shutdown()
@@ -265,7 +291,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     else:
         # if it is provided but does not exist, exit unless in night
         # mode in which case it will be created below
-        if not os.path.isdir(read_path) and mode != 'night':
+        if not isdir(read_path) and mode != 'night':
             log.critical ('[read_path] directory provided does not exist:\n{}'
                           .format(read_path))
             logging.shutdown()
@@ -276,30 +302,18 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
             # input read_path is defined but input date is not
             date = read_path.split('/')[-3:]
 
-    
+
     # create global lock instance that can be used in [blackbox_reduce] for
     # certain blocks/functions to be accessed by one process at a time
     global lock
     lock = Lock()
 
-    
-    # start queue that will contain entries containing the reference
-    # image header OBJECT and FILTER values, so that duplicate
-    # reference building for the same object and filter by different
-    # threads can be avoided
-    global ref_ID_filt
-    ref_ID_filt = Queue()
 
-    
-    # following line shows how shared Array can be initialized
-    #count = Array('i', [0, 0, 0], lock=True)
-
-    
     # for both day and night mode, create list of all
     # files present in [read_path], in image type order:
     # bias, dark, flat, object and other
     if image is None and image_list is None:
-        biases, darks, flats, objects, others = sort_files(read_path, '*fits*', 
+        biases, darks, flats, objects, others = sort_files(read_path, 'fits',
                                                            recursive=recursive)
         lists = [biases, darks, flats, objects, others]
         filenames = [name for sublist in lists for name in sublist]
@@ -309,13 +323,13 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
                           'in night mode')
             logging.shutdown()
             return
-        
+
         elif image is not None:
             # if input parameter [image] is defined, the filenames
             # to process will contain a single image
             filenames = [image]
         elif image_list is not None:
-            # if input parameter [image_list] is defined, 
+            # if input parameter [image_list] is defined,
             # read the ascii files into filenames list
             with open(image_list, 'r') as f:
                 filenames = [name.strip() for name in f if name[0]!='#']
@@ -331,9 +345,9 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
         # see https://docs.python.org/3/library/tracemalloc.html
         #snapshot1 = tracemalloc.take_snapshot()
-            
+
         if nproc==1 or image is not None:
-            
+
             # if only 1 process is requested, or [image] input
             # parameter is not None, run it witout multiprocessing;
             # this will allow images to be shown on the fly if
@@ -344,12 +358,12 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
             filenames_reduced = []
             for filename in filenames:
                 filenames_reduced.append(blackbox_reduce(filename))
- 
+
         else:
             # use [pool_func] to process list of files
             filenames_reduced = pool_func (try_blackbox_reduce, filenames,
                                            nproc=nproc)
-            
+
 
         log.info ('{} filenames reduced: {}'.format(len(filenames_reduced),
                                                     filenames_reduced))
@@ -384,7 +398,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
         # add files that are already present in the read_path
         # directory to the night queue, to reduce these first
-        for filename in filenames: 
+        for filename in filenames:
             queue.put(filename)
 
 
@@ -460,7 +474,7 @@ def get_file (queue):
 
     # get event from queue
     event = queue.get(True)
-    
+
     try:
         # get name of new file
         filename = str(event.src_path)
@@ -481,7 +495,7 @@ def get_file (queue):
 
         log.info ('{} is not a fits file; skipping it'.format(filename))
         filename = None
-            
+
     else:
 
         # if filename is a temporary rsync copy (default
@@ -502,13 +516,13 @@ def get_file (queue):
         t0 = time.time()
         nsleep = 0
         while time.time()-t0 < wait_max:
-                    
+
             try:
                 # read the file
                 data = read_hdulist(filename)
 
             except:
-                
+
                 process = False
                 if nsleep==0:
                     log.warning ('file {} has not completely arrived yet; '
@@ -544,10 +558,10 @@ class FileWatcher(FileSystemEventHandler, object):
 
     :param queue: multiprocessing queue for new files
     :type queue: multiprocessing.Queue'''
-    
+
     def __init__(self, queue):
         self._queue = queue
-        
+
     def on_created(self, event):
         '''Action to take for new files.
 
@@ -558,29 +572,35 @@ class FileWatcher(FileSystemEventHandler, object):
 
 ################################################################################
 
-def create_masters (mdate=None, run_fpack=True, run_create_jpg=True, nproc=1):
+def create_masters (master_date, run_fpack=True, run_create_jpg=True, nproc=1):
 
     if get_par(set_zogy.timing,tel):
         t = time.time()
-    
+
     log.info ('creating master frames')
-    
+
     # prepare list of all red/yyyy/mm/dd/bias and flat directories
     red_dir = get_par(set_bb.red_dir,tel)
+    master_dir = get_par(set_bb.master_dir,tel)
 
 
-    # if [mdate] is a file
+    # [master_date] could be an existing text file, with evening dates
+    # in the first column and optionally the filter in the second
+    # column (only relevant for flats; if not provided, all filters
+    # are considered); such a file can be used to create masters for a
+    # list of specific dates
     list_filt = None
-    if mdate is not None and os.path.isfile(mdate):
+    if master_date is not None and isfile(master_date):
 
         # read ascii table
-        table = Table.read(mdate, format='ascii', data_start=0)
+        table = Table.read(master_date, format='ascii', data_start=0)
         # table can contain 1 or 2 columns and can therefore not
         # pre-define column names, while with data_start=0 the entries
         # on the first line are taken as the column names
         cols = table.colnames
-        
-        # lists with evening dates and paths
+
+        # lists with evening dates and path including the yyyy/mm/dd
+        # folders, but not further
         list_date_eve = []
         list_path = []
         for i in range(len(table)):
@@ -595,25 +615,59 @@ def create_masters (mdate=None, run_fpack=True, run_create_jpg=True, nproc=1):
             list_filt = list(table[cols[1]])
 
 
+    elif master_date is not None:
+
+        # prepare master at [master_date]
+        date_tmp = master_date
+        list_date_eve = [master_date]
+        list_path = ['{}/{}/{}/{}'.format(red_dir, date_tmp[0:4],
+                                          date_tmp[4:6], date_tmp[6:8])]
+
     else:
 
-        # if mdate is not specified or equal to '*', loop all available
-        # [imtype] folders in the reduced path
-        year, month, day = '*', '*', '*'
-        if mdate is not None and mdate != '*':
-            mdate = ''.join(e for e in mdate if e.isdigit())
-            # if [mdate] is specified, only loop [imtype] folders in
-            # the reduced path of specific year, month and/or day
-            if len(mdate) >= 4:
-                year = mdate[0:4]
-                if len(mdate) >= 6:
-                    month = mdate[4:6]
-                    if len(mdate) >= 8:
-                        day = mdate[6:8]
+        # if master_date is not specified, loop all
+        # available [imgtype] folders in the reduced path
+        year, month, day = None, None, None
 
-        # list with all paths to process
-        list_path = glob.glob('{}/{}/{}/{}'
-                              .format(red_dir, year, month, day))
+        # master_date can be specified as yyyy, yyyymm or yyyymmdd (possibly
+        # with any connecting character like '/' or '-'), so all
+        # masters for specific day, month or year can be created
+        if master_date is not None and master_date != '*':
+            master_date = ''.join(e for e in master_date if e.isdigit())
+            # only loop folders with specific year, month and/or day
+            if len(master_date) >= 4:
+                year = master_date[0:4]
+                if len(master_date) >= 6:
+                    month = master_date[4:6]
+                    if len(master_date) >= 8:
+                        day = master_date[6:8]
+
+
+        # define search path
+        search_path = '{}'.format(red_dir)
+        if year is not None:
+            search_path = '{}/{}'.format(search_path, year)
+            if month is not None:
+                search_path = '{}/{}'.format(search_path, month)
+                if day is not None:
+                    search_path = '{}/{}'.format(search_path, day)
+
+
+        # infer folder depth to use
+        if 'gs://' in red_dir:
+            bucket_name, __ = get_bucket_name (red_dir)
+            folder_tmp = red_dir.split(bucket_name)[-1]
+            depth = folder_tmp.count('/')
+        else:
+            depth = red_dir.count('/')
+
+        # add 3 to the depth for the yyyy/mm/dd folders
+        depth += 3
+
+        # use function [list_folders] to list all existing folders to
+        # depth [depth]
+        list_path = list_folders(search_path, depth=depth)
+
         # corresponding list of evening dates
         list_date_eve = [''.join(l.split('/')[-3:]) for l in list_path]
 
@@ -635,11 +689,17 @@ def create_masters (mdate=None, run_fpack=True, run_create_jpg=True, nproc=1):
     for i in range(nfiles):
         # biases
         if types is None or 'bias' in types:
-            list_masters.append('{}/bias/bias_{}.fits'
-                                .format(list_path[i], list_date_eve[i]))
+            list_masters.append('{}/bias/{}_bias_{}.fits'
+                                .format(list_path[i], tel, list_date_eve[i]))
+
+        # darks
+        if types is None or 'dark' in types:
+            list_masters.append('{}/dark/{}_dark_{}.fits'
+                                .format(list_path[i], tel, list_date_eve[i]))
+
         # flats
         if types is None or 'flat' in types:
-            # if input mdate is a file and 2nd column is defined, use
+            # if input master_date is a file and 2nd column is defined, use
             # it for the filter(s)
             if list_filt is not None:
                 filts_2loop = [f for f in list_filt[i] if f in filts_temp]
@@ -648,14 +708,23 @@ def create_masters (mdate=None, run_fpack=True, run_create_jpg=True, nproc=1):
 
             # loop filters and create list of masters to multiprocess
             for filt in filts_2loop:
-                list_masters.append('{}/flat/flat_{}_{}.fits'
-                                    .format(list_path[i], list_date_eve[i],
-                                            filt))
+                list_masters.append('{}/flat/{}_flat_{}_{}.fits'
+                                    .format(list_path[i], tel,
+                                            list_date_eve[i], filt))
+
+
+    # for google cloud, the masters have their separate bucket
+    if master_dir[0:5] == 'gs://':
+        list_masters = [l.replace(red_dir, master_dir) for l in list_masters]
+
+
+    log.info ('list_masters: {}'.format(list_masters))
 
 
     # data shape is needed as input for [master_prep]
-    data_shape = (get_par(set_bb.ny,tel) * get_par(set_bb.ysize_chan,tel), 
+    data_shape = (get_par(set_bb.ny,tel) * get_par(set_bb.ysize_chan,tel),
                   get_par(set_bb.nx,tel) * get_par(set_bb.xsize_chan,tel))
+
 
     # use [pool_func] to process list of masters; pick_alt is set to
     # False as there is no need to look for an alternative master flat
@@ -663,30 +732,30 @@ def create_masters (mdate=None, run_fpack=True, run_create_jpg=True, nproc=1):
                                   False, nproc=nproc)
 
 
-    if get_par(set_zogy.timing,tel):
-        log_timing_memory (t0=t, label='create_masters before fpacking')
 
+    # N.B.: fpacking and jpegging is already done inside master_prep
+    if False:
 
-    # use [pool_func] to fpack masters just created
-    list_masters_existing = [f for f in list_masters if os.path.isfile(f)]
-    if run_fpack:
-        log.info ('fpacking master frames')
-        results = pool_func (fpack, list_masters_existing, nproc=nproc)
-
-
-    # use [pool_func] to create jpegs
-    if run_create_jpg:
-        log.info ('creating jpg images')
+        # use [pool_func] to fpack masters just created
+        list_masters_existing = [f for f in list_masters if isfile(f)]
         if run_fpack:
-            list_masters_existing = ['{}.fz'.format(f)
-                                     for f in list_masters_existing]
+            log.info ('fpacking master frames')
+            results = pool_func (fpack, list_masters_existing, nproc=nproc)
 
-        results = pool_func (create_jpg, list_masters_existing, nproc=nproc)
 
-        
+        # use [pool_func] to create jpgs
+        if run_create_jpg:
+            log.info ('creating jpg images')
+            if run_fpack:
+                list_masters_existing = ['{}.fz'.format(f)
+                                         for f in list_masters_existing]
+
+            results = pool_func (create_jpg, list_masters_existing, nproc=nproc)
+
+
     if get_par(set_zogy.timing,tel):
-        log_timing_memory (t0=t, label='create_masters after fpacking and '
-                           'creating jpgs')
+        log_timing_memory (t0=t, label='create_masters')
+
 
     return
 
@@ -694,15 +763,18 @@ def create_masters (mdate=None, run_fpack=True, run_create_jpg=True, nproc=1):
 ################################################################################
 
 def already_exists (filename, get_filename=False):
-    
+
     file_list = [filename, '{}.fz'.format(filename), '{}.gz'.format(filename),
                  filename.replace('.fz',''), filename.replace('.gz','')]
-    
+
+    # unique entries:
+    file_list = list(set(file_list))
+
     exists = False
     existing_file = filename
-    
+
     for file_temp in file_list:
-        if os.path.isfile(file_temp):
+        if isfile(file_temp):
             exists = True
             existing_file = file_temp
             break
@@ -711,7 +783,7 @@ def already_exists (filename, get_filename=False):
         return exists, existing_file
     else:
         return exists
-    
+
 
 ################################################################################
 
@@ -721,11 +793,12 @@ def pool_func (func, filelist, *args, nproc=1):
         results = []
         pool = Pool(nproc)
         for filename in filelist:
-            args_temp = [filename]
+            args_tmp = [filename]
             for arg in args:
-                args_temp.append(arg)
+                args_tmp.append(arg)
 
-            results.append(pool.apply_async(func, args_temp))
+            #log.info ('args_tmp: {}'.format(args_tmp))
+            results.append(pool.apply_async(func, args_tmp))
 
         pool.close()
         pool.join()
@@ -773,8 +846,9 @@ def fpack (filename):
 
                 # if output fpacked file already exists, delete it
                 filename_packed = '{}.fz'.format(filename)
-                if os.path.exists(filename_packed):
-                    os.remove(filename_packed)
+                if isfile(filename_packed):
+                    #os.remove(filename_packed)
+                    remove_files([filename_packed])
                     log.warning ('fpacking over already existing file {}'
                                  .format(filename_packed))
 
@@ -787,6 +861,7 @@ def fpack (filename):
         log.exception ('exception was raised in fpacking of image {}: {}'
                        .format(filename,e))
 
+
     return filename
 
 
@@ -797,25 +872,27 @@ def create_jpg (filename):
     """Create jpg image from fits"""
 
     try:
-        
+
         image_jpg = '{}.jpg'.format(filename.split('.fits')[0])
 
-        if not os.path.isfile(image_jpg):
+        if not isfile(image_jpg):
 
             log.info ('saving {} to {}'.format(filename, image_jpg))
-              
+
             # read input image
             data, header = read_hdulist(filename, get_header=True)
 
             imgtype = header['IMAGETYP'].lower()
             file_str = image_jpg.split('/')[-1].split('.jpg')[0]
             if imgtype == 'object':
-                title = ('file:{}   object:{}   filter:{}   exptime:{:.1f}s'
-                         .format(file_str, header['OBJECT'],
-                                 header['FILTER'], header['EXPTIME']))
+                title = ('file:{}   object:{}   filter:{}   exptime:{:.1f}s   '
+                         'QC flag:{}'.format(file_str, header['OBJECT'],
+                                             header['FILTER'], header['EXPTIME'],
+                                             header['QC-FLAG']))
             else:
-                title = ('file:{}   imgtype:{}   filter:{}'
-                         .format(file_str, header['IMAGETYP'], header['FILTER']))
+                title = ('file:{}   imgtype:{}   filter:{}   QC flag:{}'
+                         .format(file_str, header['IMAGETYP'], header['FILTER'],
+                                 header['QC-FLAG']))
 
             pixelcoords = True
             if pixelcoords:
@@ -839,6 +916,9 @@ def create_jpg (filename):
                        .format(filename,e))
 
 
+    return image_jpg
+
+
 ################################################################################
 
 class WrapException(Exception):
@@ -852,7 +932,7 @@ class WrapException(Exception):
     def __str__(self):
         return '{}\nOriginal traceback:\n{}'.format(Exception.__str__(self),
                                                     self.formatted)
-        
+
 
 ################################################################################
 
@@ -876,9 +956,9 @@ def try_blackbox_reduce (filename):
 
     return filename_reduced
 
-    
+
 ################################################################################
-    
+
 def blackbox_reduce (filename):
 
     """Function that takes as input a single raw fits image and works to
@@ -913,30 +993,13 @@ def blackbox_reduce (filename):
     raw_path, __ = get_path(header['DATE-OBS'], 'read')
 
 
-    # move or copy the image over to [raw_path] if it does not already exist
-    src = filename
-    dest = '{}/{}'.format(raw_path, filename.split('/')[-1])
-    if already_exists (dest):
-        log.info ('{} already exists; not copying/moving file'.format(dest))
-    else:
-        make_dir (raw_path)
-        # moving:
-        #shutil.move(src, dest)
-        # copying:
-        shutil.copy2(src, dest)
-
-
-    # and let [filename] refer to the image in [raw_path]
-    filename = dest
-
-    
     # check quality control
     qc_flag = run_qc_check (header, tel)
     if qc_flag=='red':
         log.error ('red QC flag in image {}; returning without making '
                    'dummy catalogs'.format(filename))
         return None
-    
+
 
     # if 'IMAGETYP' keyword not one of those specified in input parameter
     # [imgtypes] or complete set: ['bias', 'dark', 'flat', 'object']
@@ -953,7 +1016,7 @@ def blackbox_reduce (filename):
 
 
     # extend the header with some useful/required keywords
-    try: 
+    try:
         header = set_header(header, filename)
     except Exception as e:
         #log.exception (traceback.format_exc())
@@ -961,8 +1024,8 @@ def blackbox_reduce (filename):
                        '{}; returning without making dummy catalogs'
                        .format(filename, e))
         return None
-    
-    
+
+
     # 2nd header check following [set_header] using function [check_header2]
     header_ok = check_header2 (header, filename)
     if not header_ok:
@@ -975,10 +1038,10 @@ def blackbox_reduce (filename):
     header['KW-V'] = (keywords_version, 'header keywords version used')
     header['BB-START'] = (Time.now().isot, 'start UTC date of BlackBOX image run')
 
-    
+
     # defining various paths and output file names
     ##############################################
-    
+
     # define [write_path] using the header DATE-OBS
     write_path, date_eve = get_path(header['DATE-OBS'], 'write')
     make_dir (write_path)
@@ -986,13 +1049,18 @@ def blackbox_reduce (filename):
     dark_path = '{}/dark'.format(write_path)
     flat_path = '{}/flat'.format(write_path)
 
+    # master path is different for ilifu/Slurm and google cloud
+    red_dir = get_par(set_bb.red_dir,tel)
+    master_dir = get_par(set_bb.master_dir,tel)
+    master_path = write_path.replace(red_dir, master_dir)
+
     # UT date (yyyymmdd) and time (hhmmss)
     utdate, uttime = get_date_time(header)
 
     # define paths of different image types
-    path = {'bias': bias_path, 
-            'dark': dark_path, 
-            'flat': flat_path, 
+    path = {'bias': bias_path,
+            'dark': dark_path,
+            'flat': flat_path,
             'object': write_path}
     filt = header['FILTER']
 
@@ -1019,13 +1087,13 @@ def blackbox_reduce (filename):
             return None
 
     fits_out = '{}/{}_{}_{}.fits'.format(path[imgtype], tel, utdate, uttime)
-    
+
     if imgtype == 'bias':
         make_dir (bias_path)
 
     elif imgtype == 'dark':
         make_dir (dark_path)
-        
+
     elif imgtype == 'flat':
         make_dir (flat_path)
         fits_out = fits_out.replace('.fits', '_{}.fits'.format(filt))
@@ -1035,44 +1103,68 @@ def blackbox_reduce (filename):
         # OBJECT is ML/BG field number padded with zeros (checked in
         # set_header)
         obj = header['OBJECT']
-                
+
         fits_out = fits_out.replace('.fits', '_red.fits')
         fits_out_mask = fits_out.replace('_red.fits', '_mask.fits')
-        
+
         # and reference image
         ref_path = '{}/{}'.format(get_par(set_bb.ref_dir,tel), obj)
-        ref_fits_out = '{}/{}_{}_red.fits'.format(ref_path, tel, filt)
-        
-        ref_present, ref_fits_temp = already_exists (ref_fits_out,
-                                                     get_filename=True)
+
+        # previously:
+        #ref_fits_out = '{}/{}_{}_red.fits'.format(ref_path, tel, filt)
+
+        # can use list_files to find [ref_fits_out] for both
+        # ilifu/Slurm and google cloud, despite different names:
+        # [ref_path]/[tel]_[filt]_red.fits.fz - ilifu/Slurm
+        # [ref_path]/[tel]_[obj]_[filt]_[date]_red.fits.fz - google
+        list_ref = list_files('{}/{}_'.format(ref_path, tel),
+                              search_str='_{}_'.format(filt),
+                              end_str='_red.fits.fz')
+
+        # depending on length of [list_ref]:
+        if len(list_ref)==1:
+            ref_present = True
+            # [ref_fits_out] should not contain .fz extension
+            ref_fits_out = list_ref[0].replace('.fz','')
+        elif len(list_ref)==0:
+            ref_present = False
+            ref_fits_out = None
+        else:
+            log.error ('more than a single reference image found for {}'
+                       .format(fits_out))
+
+        # check if the image being processed is not used as the
+        # only image for the current referent image
         if ref_present:
-            header_ref = read_hdulist(ref_fits_temp, get_data=False,
+            header_ref = read_hdulist(ref_fits_out, get_data=False,
                                       get_header=True)
-            # old reference image always consisted of single image;
-            # check was done on DATE-OBS being equal
-            #utdate_ref, uttime_ref = get_date_time(header_ref)
-            #if utdate_ref==utdate and uttime_ref==uttime:
-            # new check:
             if header_ref['R-NUSED']==1 and header_ref['R-IM1'] in fits_out:
                 log.warning ('this image {} is the current reference image '
-                             'of field {}; not processing it'
-                             .format(fits_out.split('/')[-1], obj))
+                             'of field {} in filter {}; not processing it'
+                             .format(fits_out.split('/')[-1], obj, filt))
                 return None
 
 
-            
+
+    # prepare directory to store temporary files, which is set to the
+    # tmp directory defined by [set_bb.tmp_dir] with subdirectory the
+    # name of the reduced image without the .fits extension.
+    tmp_path = '{}/{}'.format(get_par(set_bb.tmp_dir,tel),
+                              fits_out.split('/')[-1].replace('.fits',''))
+    make_dir (tmp_path, empty=True)
+
+
+    # prepare the logfile in [tmp_path]
+    logfile = '{}/{}'.format(tmp_path, fits_out.split('/')[-1]
+                             .replace('.fits','.log'))
+    # attach logfile to logging
+    fileHandler = logging.FileHandler(logfile, 'a')
+    fileHandler.setFormatter(logFormatter)
+    fileHandler.setLevel('INFO')
+    log.addHandler(fileHandler)
+
+
     if imgtype == 'object':
-        # prepare directory to store temporary files related to this
-        # OBJECT image.  This is set to the tmp directory defined by
-        # [set_bb.tmp_dir] with subdirectory the name of the reduced
-        # image without the .fits extension.
-        tmp_path = '{}/{}'.format(get_par(set_bb.tmp_dir,tel),
-                                  fits_out.split('/')[-1].replace('.fits',''))
-        make_dir (tmp_path, empty=True)
-        
-        # for object files, prepare the logfile in [tmp_path]
-        logfile = '{}/{}'.format(tmp_path, fits_out.split('/')[-1]
-                                 .replace('.fits','.log'))
 
         # output images and catalogs to refer to [tmp] directory
         new_fits = '{}/{}'.format(tmp_path, fits_out.split('/')[-1])
@@ -1083,16 +1175,6 @@ def blackbox_reduce (filename):
         tmp_base = new_fits.split('_red.fits')[0]
         new_base = fits_out.split('_red.fits')[0]
 
-    else:
-        # for biases, darks and flats
-        logfile = fits_out.replace('.fits','.log')
-
-
-    # attach logfile to logging
-    fileHandler = logging.FileHandler(logfile, 'a')
-    fileHandler.setFormatter(logFormatter)
-    fileHandler.setLevel('INFO')
-    log.addHandler(fileHandler)
 
 
     # check if reduction steps could be skipped
@@ -1110,13 +1192,14 @@ def blackbox_reduce (filename):
         not (get_par(set_bb.img_reduce,tel) and
              get_par(set_bb.force_reproc_new,tel))):
 
-        text_tmp = ('corresponding reduced {} image {} already exists; skipping '
-                    'its reduction; for object images copying existing products '
-                    'to tmp folder')
-        log.warning (text_tmp.format(imgtype, fits_out_present.split('/')[-1]))
+        log.warning ('corresponding reduced {} image {} already exists; '
+                     'skipping its reduction'
+                     .format(imgtype, fits_out_present.split('/')[-1]))
 
         # copy relevant files to tmp folder for object images
         if imgtype == 'object':
+
+            log.info ('copying existing products to tmp folder')
 
             # copy files to tmp folder, unless both cat_extract and
             # trans_extract are turned off
@@ -1124,7 +1207,7 @@ def blackbox_reduce (filename):
                 get_par(set_bb.trans_extract,tel)):
                 copy_files2keep(new_base, tmp_base,
                                 get_par(set_bb.img_reduce_exts,tel),
-                                move=False, do_fpack=False)
+                                move=False, run_fpack=False)
 
             do_reduction = False
 
@@ -1133,14 +1216,14 @@ def blackbox_reduce (filename):
             # not have been skipped, this would have happened before
             close_log(log, logfile)
             return fits_out
-            
+
     else:
-        
+
         # go through various reduction steps
         do_reduction = True
-        
+
         if file_present:
-            
+
             log.info ('forced reprocessing: removing all existing products '
                       'in reduced folder for {}'.format(filename))
 
@@ -1148,17 +1231,23 @@ def blackbox_reduce (filename):
             # files in reduced folder as they will become obsolete
             # with this re-reduction
             if imgtype == 'object':
-                files_2remove = glob.glob('{}*'.format(new_base))
+                #files_2remove = glob.glob('{}*'.format(new_base))
+                files_2remove = list_files(new_base)
             else:
                 # for biases and flats, just the reduced file itself,
                 # its log and jpg
-                jpgfile = '{}.jpg'.format(fits_out_present.split('.fits')[0])
-                files_2remove = [fits_out_present, logfile, jpgfile]
-                # master bias and/or flat are removed inside [master_prep]
-                
-            for file_2remove in files_2remove:
-                log.info ('removing existing {}'.format(file_2remove))
-                os.remove(file_2remove)
+                file_jpg = '{}.jpg'.format(fits_out_present.split('.fits')[0])
+                # logfile is defined to be in the tmp folder, so need
+                # to define the output logfile here
+                file_log = '{}.log'.format(fits_out_present.split('.fits')[0])
+                files_2remove = [fits_out_present, file_log, file_jpg]
+
+
+            #for file_2remove in files_2remove:
+            #    log.info ('removing existing {}'.format(file_2remove))
+            #    os.remove(file_2remove)
+            remove_files(files_2remove, verbose=True)
+
 
 
         # write some info to the log
@@ -1171,22 +1260,28 @@ def blackbox_reduce (filename):
         log.info ('image type:  {}, filter: {}, exptime: {:.1f}s'
                   .format(imgtype, filt, exptime))
         if imgtype == 'object':
-            log.info ('OBJECT (field ID): {}'.format(obj))        
+            log.info ('OBJECT (field ID): {}'.format(obj))
 
         log.info ('write_path:  {}'.format(write_path))
         log.info ('bias_path:   {}'.format(bias_path))
         log.info ('dark_path:   {}'.format(dark_path))
         log.info ('flat_path:   {}'.format(flat_path))
+        log.info ('master_path: {}'.format(master_path))
         if imgtype == 'object':
             log.info ('tmp_path:    {}'.format(tmp_path))
             log.info ('ref_path:    {}'.format(ref_path))
 
 
-        # general log file
-        header['LOG'] = (str(genlogfile).split('/')[-1], 'name general logfile')
+        # general log file; not kept in google cloud mode
+        if get_par(set_bb.google_cloud,tel):
+            genlogfile = None
+
+        header['LOG'] = (str(genlogfile).split('/')[-1], 'name general '
+                         'logfile')
+
         # image log file
         header['LOG-IMA'] = (logfile.split('/')[-1], 'name image logfile')
-    
+
         # now also read in the raw image data
         try:
             data = read_hdulist(filename, dtype='float32')
@@ -1197,7 +1292,7 @@ def blackbox_reduce (filename):
             close_log(log, logfile)
             return None
 
-            
+
         # determine number of pixels with infinite/nan values
         mask_infnan = ~np.isfinite(data)
         n_infnan = np.sum(mask_infnan)
@@ -1207,11 +1302,11 @@ def blackbox_reduce (filename):
             log.warning('{} pixels with infinite/nan values; replacing '
                         'with zero'.format(n_infnan))
             data[mask_infnan] = 0
-        
-    
+
+
         #snapshot1 = tracemalloc.take_snapshot()
 
-        
+
         # gain correction
         #################
         try:
@@ -1228,22 +1323,22 @@ def blackbox_reduce (filename):
             header['GAIN'] = (1.0, '[e-/ADU] effective gain all channels')
             header['GAIN-P'] = (gain_processed, 'corrected for gain?')
 
-        
+
         #snapshot2 = tracemalloc.take_snapshot()
         #top_stats = snapshot2.compare_to(snapshot1, 'lineno')
         #print("[ Top 10 differences ]")
         #for stat in top_stats[:10]:
         #    print(stat)
-        
+
         if get_par(set_zogy.display,tel):
             ds9_arrays(gain_cor=data)
 
-    
+
         # crosstalk correction
         ######################
         if imgtype == 'object':
             # not needed for biases, darks or flats
-            try: 
+            try:
                 log.info('correcting for the crosstalk')
                 xtalk_processed = False
                 crosstalk_file = get_par(set_bb.crosstalk_file,tel)
@@ -1258,15 +1353,15 @@ def blackbox_reduce (filename):
                 header['XTALK-P'] = (xtalk_processed, 'corrected for crosstalk?')
                 header['XTALK-F'] = (crosstalk_file.split('/')[-1],
                                      'name crosstalk coefficients file')
-            
+
 
             if get_par(set_zogy.display,tel):
                 ds9_arrays(Xtalk_cor=data)
-            
+
 
         # overscan correction
         #####################
-        try: 
+        try:
             log.info('correcting for the overscan')
             os_processed = False
             data = os_corr(data, header, imgtype, tel=tel)
@@ -1278,8 +1373,8 @@ def blackbox_reduce (filename):
             os_processed = True
         finally:
             header['OS-P'] = (os_processed, 'corrected for overscan?')
-        
-            
+
+
         if get_par(set_zogy.display,tel):
             ds9_arrays(os_cor=data)
 
@@ -1290,7 +1385,7 @@ def blackbox_reduce (filename):
         header['NONLIN-P'] = (nonlin_corr_processed, 'corrected for '
                               'non-linearity?')
         header['NONLIN-F'] = ('None', 'name non-linearity correction file')
-    
+
         if imgtype != 'bias' and get_par(set_bb.correct_nonlin,tel):
 
             try:
@@ -1313,17 +1408,15 @@ def blackbox_reduce (filename):
         if imgtype == 'bias':
             # call [run_qc_check] to update header with any QC flags
             run_qc_check (header, tel)
-            header['DATEFILE'] = (Time.now().isot, 'UTC date of writing file')
-            fits.writeto(fits_out, data.astype('float32'), header, overwrite=True)
-            # fpack
-            fits_out = fpack (fits_out)
-            # create jpg
-            create_jpg (fits_out)
+            # write fits
+            fits_out = write_fits (fits_out, data.astype('float32'), header)
             # close down logging and leave
             close_log(log, logfile)
+
             return fits_out
 
-    
+
+
         # master bias creation
         ######################
         try:
@@ -1332,7 +1425,8 @@ def blackbox_reduce (filename):
             lock.acquire()
 
             # prepare or point to the master bias
-            fits_master = '{}/bias_{}.fits'.format(bias_path, date_eve)
+            fits_master = '{}/bias/{}_bias_{}.fits'.format(master_path, tel,
+                                                           date_eve)
             fits_mbias = master_prep (fits_master, data.shape,
                                       get_par(set_bb.create_master,tel))
 
@@ -1368,7 +1462,7 @@ def blackbox_reduce (filename):
                     mjd_obs = header['MJD-OBS']
                     mjd_obs_mb = header_mbias['MJD-OBS']
                     header['MB-NDAYS'] = (
-                        np.abs(mjd_obs-mjd_obs_mb), 
+                        np.abs(mjd_obs-mjd_obs_mb),
                         '[days] time between image and master bias used')
 
             except Exception as e:
@@ -1384,42 +1478,43 @@ def blackbox_reduce (filename):
         # display
         if get_par(set_zogy.display,tel):
             ds9_arrays(bias_sub=data)
-        
+
 
         # if IMAGETYP=dark, write [data] to fits and return
         if imgtype == 'dark':
             # call [run_qc_check] to update header with any QC flags
             run_qc_check (header, tel)
-            header['DATEFILE'] = (Time.now().isot, 'UTC date of writing file')
-            fits.writeto(fits_out, data.astype('float32'), header, overwrite=True)
-            # fpack
-            fits_out = fpack (fits_out)
-            # create jpg
-            create_jpg (fits_out)
+            # write fits
+            fits_out = write_fits (fits_out, data.astype('float32'), header)
             # close down logging and leave
             close_log(log, logfile)
+
             return fits_out
+
 
 
         # master dark creation
         ######################
-        try:
-            # put an multi-processing lock on this block so that only 1
-            # process at a time can create the master bias
-            lock.acquire()
+        if get_par(set_bb.create_mdark,tel):
 
-            # prepare or point to the master dark
-            fits_master = '{}/dark_{}.fits'.format(dark_path, date_eve)
-            fits_mdark = master_prep (fits_master, data.shape,
-                                      get_par(set_bb.create_master,tel))
+            try:
+                # put an multi-processing lock on this block so that only 1
+                # process at a time can create the master bias
+                lock.acquire()
 
-        except Exception as e:
-            #log.exception(traceback.format_exc())
-            log.exception('exception was raised during dark [master_prep] of '
-                          'master {}: {}'.format(fits_master, e))
+                # prepare or point to the master dark
+                fits_master = '{}/dark/{}_dark_{}.fits'.format(master_path, tel,
+                                                               date_eve)
+                fits_mdark = master_prep (fits_master, data.shape,
+                                          get_par(set_bb.create_master,tel))
 
-        finally:
-            lock.release()
+            except Exception as e:
+                #log.exception(traceback.format_exc())
+                log.exception('exception was raised during dark [master_prep] of '
+                              'master {}: {}'.format(fits_master, e))
+
+            finally:
+                lock.release()
 
 
         # create initial mask array
@@ -1453,16 +1548,13 @@ def blackbox_reduce (filename):
 
             # call [run_qc_check] to update header with any QC flags
             run_qc_check (header, tel)
-            # write to fits
-            header['DATEFILE'] = (Time.now().isot, 'UTC date of writing file')
-            fits.writeto(fits_out, data.astype('float32'), header, overwrite=True)
-            # fpack
-            fits_out = fpack (fits_out)
-            # create jpg
-            create_jpg (fits_out)
+            # write fits
+            fits_out = write_fits (fits_out, data.astype('float32'), header)
             # close down logging and leave
             close_log(log, logfile)
+
             return fits_out
+
 
 
         # master flat creation
@@ -1473,7 +1565,8 @@ def blackbox_reduce (filename):
             lock.acquire()
 
             # prepare or point to the master flat
-            fits_master = '{}/flat_{}_{}.fits'.format(flat_path, date_eve, filt)
+            fits_master = '{}/flat/{}_flat_{}_{}.fits'.format(master_path, tel,
+                                                              date_eve, filt)
             fits_mflat = master_prep (fits_master, data.shape,
                                       get_par(set_bb.create_master,tel))
 
@@ -1481,11 +1574,11 @@ def blackbox_reduce (filename):
             #log.exception(traceback.format_exc())
             log.exception('exception was raised during flat [master_prep] of '
                           'master {}: {}'.format(fits_master, e))
-            
+
         finally:
             lock.release()
 
-        
+
         # master flat division
         ######################
         mflat_processed = False
@@ -1507,7 +1600,7 @@ def blackbox_reduce (filename):
                     mjd_obs = header['MJD-OBS']
                     mjd_obs_mf = header_mflat['MJD-OBS']
                     header['MF-NDAYS'] = (
-                        np.abs(mjd_obs-mjd_obs_mf), 
+                        np.abs(mjd_obs-mjd_obs_mf),
                         '[days] time between image and master flat used')
 
             except Exception as e:
@@ -1549,7 +1642,7 @@ def blackbox_reduce (filename):
         finally:
             header['COSMIC-P'] = (cosmics_processed, 'corrected for cosmic rays?')
 
-    
+
         if get_par(set_zogy.display,tel):
             value_cosmic = get_par(set_zogy.mask_value['cosmic ray'],tel)
             mask_cosmics = (data_mask & value_cosmic == value_cosmic)
@@ -1564,7 +1657,7 @@ def blackbox_reduce (filename):
 
         # satellite trail detection
         ###########################
-        try: 
+        try:
             sat_processed = False
             if get_par(set_bb.detect_sats,tel):
                 log.info('detecting satellite trails')
@@ -1611,7 +1704,7 @@ def blackbox_reduce (filename):
         log.info('writing reduced image and mask to {}'.format(tmp_path))
         redfile = fits_out.split('/')[-1].split('.fits')[0]
         header['REDFILE'] = (redfile, 'BlackBOX reduced image name')
-        header['MASKFILE'] = (redfile.replace('_red', '_mask'), 
+        header['MASKFILE'] = (redfile.replace('_red', '_mask'),
                               'BlackBOX mask image name')
         header['DATEFILE'] = (Time.now().isot, 'UTC date of writing file')
         fits.writeto(new_fits, data.astype('float32'), header, overwrite=True)
@@ -1670,7 +1763,7 @@ def blackbox_reduce (filename):
                 if tel=='ML1' and '_trans.fits' in list_2keep:
                     create_symlinks (new_base, obj, filt)
 
-            # remove tmp folder corresponding to the object image
+            # remove tmp folder
             clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel))
             close_log(log, logfile)
             return fits_out
@@ -1681,7 +1774,7 @@ def blackbox_reduce (filename):
 
     # block dealing with main processing switches
     #############################################
-    
+
     # if both catalog and transient extraction are switched off, then
     # no need to execute [optimal_subtraction]
     if (not get_par(set_bb.cat_extract,tel) and
@@ -1718,12 +1811,13 @@ def blackbox_reduce (filename):
 
         # stop processing here if cat_extract and/or trans_extract
         # products exist in reduced folder
-        new_list = glob.glob('{}*'.format(new_base))
+        #new_list = glob.glob('{}*'.format(new_base))
+        new_list = list_files(new_base)
         ext_list = []
 
         fits_cat = '{}_red_cat.fits'.format(new_base)
         fits_trans = '{}_red_trans.fits'.format(new_base)
-        
+
         if get_par(set_bb.trans_extract,tel):
             # if [trans_extract] is set to True, both the cat_extract
             # and trans_extract products should be present, even when
@@ -1731,7 +1825,7 @@ def blackbox_reduce (filename):
             ext_list += get_par(set_bb.cat_extract_exts,tel)
             ext_list += get_par(set_bb.trans_extract_exts,tel)
             text = 'cat_extract and trans_extract'
-            
+
             # check if transient catalog is a dummy
             dumcat = is_dumcat(fits_trans)
 
@@ -1742,14 +1836,20 @@ def blackbox_reduce (filename):
 
         elif get_par(set_bb.cat_extract,tel):
             ext_list += get_par(set_bb.cat_extract_exts,tel)
-            text = 'cat_extract'            
+            text = 'cat_extract'
 
             # check if full-source catalog is a dummy
             dumcat = is_dumcat(fits_cat)
 
-                
-        present = (np.array([ext in fn for ext in ext_list for fn in new_list])
+
+        # N.B.: note that the presence of sso files are not checked
+        # for, so the reduction will not be redone if they are not
+        # present; they can easily be redone in day mode of match2sso
+        present = (np.array([ext in fn or 'sso' in ext
+                             for ext in ext_list for fn in new_list])
                    .reshape(len(ext_list),-1).sum(axis=1))
+        log.info ('present: {}'.format(present))
+
 
         if np.all(present) or dumcat:
 
@@ -1779,7 +1879,7 @@ def blackbox_reduce (filename):
             # otherwise, copy cat_extract products and trans_extract
             # to tmp folder and continue
             copy_files2keep(new_base, tmp_base, ext_list, move=False,
-                            do_fpack=False)
+                            run_fpack=False)
 
 
     elif get_par(set_bb.force_reproc_new,tel) and not do_reduction:
@@ -1788,7 +1888,8 @@ def blackbox_reduce (filename):
         # switches, remove relevant files from reduced folder and copy
         # files to the tmp folder; this is not needed if basic
         # reduction was performed, i.e. do_reduction=True
-        new_list = glob.glob('{}*'.format(new_base))
+        #new_list = glob.glob('{}*'.format(new_base))
+        new_list = list_files(new_base)
         ext_list = []
 
 
@@ -1796,7 +1897,7 @@ def blackbox_reduce (filename):
         # catalog extraction as this is a forced rereduction
         fits_cat = '{}_red_cat.fits'.format(new_base)
         dumcat = is_dumcat(fits_cat)
-        if not os.path.isfile(fits_cat):
+        if not isfile(fits_cat):
             # if full-source catalog does not exist, force
             # the re-extraction
             dumcat = True
@@ -1808,7 +1909,7 @@ def blackbox_reduce (filename):
         # if cat_extract=True or full-source catalog is a dummy
         # catalog, then remove all cat and trans products
         if get_par(set_bb.cat_extract,tel) or dumcat:
-            
+
             log.info ('forced reprocessing: removing all existing cat_extract '
                       'and trans_extract products in reduced folder for {}'
                       .format(filename))
@@ -1840,7 +1941,7 @@ def blackbox_reduce (filename):
                                 for i in range(1,100)]
                 else:
                     keys2del = [key]
-                    
+
                 for key2del in keys2del:
                     if key2del in header_update:
                         log.info ('deleting keyword {} from header of {}'
@@ -1861,22 +1962,24 @@ def blackbox_reduce (filename):
 
             # only remove trans_extract products
             ext_list += get_par(set_bb.trans_extract_exts,tel)
-            
+
             # but before doing that, copy the cat_extract products to
             # the tmp folder, as the cat_extract can be skipped
             copy_files2keep(new_base, tmp_base,
                             get_par(set_bb.cat_extract_exts,tel),
-                            move=False, do_fpack=False)
+                            move=False, run_fpack=False)
 
 
 
         # now files in reduced folder can be removed
         files_2remove = [fn for fn in new_list for ext in ext_list if ext in fn]
         lock.acquire()
-        for file_2remove in files_2remove:
-            log.info ('removing existing {}'.format(file_2remove))
-            os.remove(file_2remove)
-                
+        #for file_2remove in files_2remove:
+        #    log.info ('removing existing {}'.format(file_2remove))
+        #    os.remove(file_2remove)
+        remove_files(files_2remove, verbose=True)
+
+
         lock.release()
 
 
@@ -1884,14 +1987,18 @@ def blackbox_reduce (filename):
     # previously created, as it may include the background which is
     # removed in cat_extract
     if get_par(set_bb.cat_extract,tel) and not get_par(set_bb.img_reduce,tel):
-        jpgfile = '{}_red.jpg'.format(new_base)
-        if os.path.isfile(jpgfile):
-            os.remove (jpgfile)
+        file_jpg = '{}_red.jpg'.format(new_base)
+        if isfile(file_jpg):
+            #os.remove (file_jpg)
+            remove_files ([file_jpg])
 
 
     # before continuing, zipped files in tmp folder need to be
     # unzipped/funpacked for optimal_subtraction to process them
-    tmp_files = glob.glob('{}*.fz'.format(tmp_base))
+    #tmp_files = glob.glob('{}*.fz'.format(tmp_base))
+    tmp_files = list_files(tmp_base, end_str='.fz')
+
+
     if len(tmp_files) > 0:
         log.info ('unpacking files in tmp folder for {}'.format(filename))
         for tmp_file in tmp_files:
@@ -1903,46 +2010,15 @@ def blackbox_reduce (filename):
     ##################################
     log.info ('running optimal image subtraction')
 
-    # using the function [check_ref], check if the reference image
-    # with the same header OBJECT and FILTER as the currently
-    # processed image happens to be made right now, using a lock
-    lock.acquire()
 
     # change to [tmp_path]; only necessary if making plots as
     # PSFEx is producing its diagnostic output fits and plots in
     # the current directory
     if get_par(set_zogy.make_plots,tel):
         os.chdir(tmp_path)
-        
-    # this extra second is to provide a head start to the process
-    # that is supposed to be making the reference image; that
-    # process needs to add its OBJECT and FILTER to the queue
-    # [ref_ID_filt] before the next process is calling [check_ref]
-    time.sleep(1)
-    ref_being_made = check_ref(ref_ID_filt, (obj, filt), put_lock=False)
-    log.info ('is reference image for same OBJECT: {} and FILTER: {} '
-              'being made now?: {}'.format(obj, filt, ref_being_made))
 
-    # release lock
-    lock.release()
-    
-    if ref_being_made:
-        # if reference in this filter is being made, let the affected
-        # process wait until reference building is done
-        while True:
-            log.info ('waiting for reference image to be made for '
-                      'OBJECT: {}, FILTER: {}'.format(obj, filt))
-            time.sleep(5)
-            if not check_ref(ref_ID_filt, (obj, filt)):
-                break
 
-        log.info ('done waiting for reference image to be made for '
-                  'OBJECT: {}, FILTER: {}'.format(obj, filt))
-        
-
-    # if ref image needs to be created but it has not been processed
-    # yet:
-    ref_present = already_exists (ref_fits_out)
+    # some info on ref image
     log.info ('ref image {} for {} already present?: {}'
               .format(ref_fits_out, filename, ref_present))
     log.info ('input [create_ref] switch set to: {}'
@@ -1964,7 +2040,7 @@ def blackbox_reduce (filename):
         try:
             zogy_processed = False
             header_new = optimal_subtraction(
-                new_fits=new_fits, new_fits_mask=new_fits_mask, 
+                new_fits=new_fits, new_fits_mask=new_fits_mask,
                 set_file='set_zogy', verbose=None, redo_new=None,
                 nthreads=set_bb.nthreads, telescope=tel,
                 keep_tmp=get_par(set_bb.keep_tmp,tel))
@@ -2036,129 +2112,23 @@ def blackbox_reduce (filename):
                 update_imhead (new_fits, header_new)
 
 
-
-    elif get_par(set_bb.create_ref,tel) and not ref_present:
-
-        # update [ref_ID_filt] queue with a tuple with this OBJECT
-        # and FILTER combination
-        ref_ID_filt.put((obj, filt))
-
-        log.info('making reference image: {}'.format(ref_fits_out))
-        log.info('new_fits: {}'.format(new_fits))
-        log.info('new_fits_mask: {}'.format(new_fits_mask))
-
-        
-        try:
-            zogy_processed = False
-            header_ref = optimal_subtraction(
-                ref_fits=new_fits, ref_fits_mask=new_fits_mask, 
-                set_file='set_zogy', verbose=None, redo_ref=None,
-                nthreads=set_bb.nthreads, telescope=tel,
-                keep_tmp=get_par(set_bb.keep_tmp,tel))
-
-            # add offset between RA/DEC-CNTR coords and ML/BG field
-            # definition to the header
-            radec_offset (header_ref, filename)
-
-        except Exception as e:
-            #log.exception(traceback.format_exc())
-            log.exception('exception was raised during [optimal_subtraction] for '
-                          'reference-only image {}: {}'.format(new_fits, e))
-        else:
-            zogy_processed = True
-        finally:
-            if not zogy_processed:
-                # copy selected output files to red directory and
-                # remove tmp folder corresponding to the image
-                log.error ('due to unexpected exception, saving just the image '
-                           'reduction products and returning from '
-                           '[blackbox_reduce] prematurely')
-                copy_files2keep(tmp_base, new_base,
-                                get_par(set_bb.img_reduce_exts,tel),
-                                move=(not get_par(set_bb.keep_tmp,tel)))
-
-                # before leaving, remove this reference ID
-                # and filter combination from the [ref_ID_filt] queue
-                log.info ('removing reference ID and filter combination from '
-                          'the [ref_ID_filt] queue')
-                result = check_ref(ref_ID_filt, (obj, filt), method='remove')
-
-                #clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel))
-                # keeping tmp folder to be able to help understand exception
-                clean_tmp(tmp_path, True)
-                close_log(log, logfile)
-                return None
-
-            else:
-                # feed [header_ref] to [run_qc_check], and make
-                # dummy catalogs if there is a red flag
-                qc_flag = run_qc_check (header_ref, tel, check_key_type='full')
-                if qc_flag=='red':
-                    log.error('red QC flag in [header_ref] returned by reference '
-                              '[optimal_subtraction]; making dummy catalogs as '
-                              'if it were a new image')
-                    run_qc_check (header_ref, tel, cat_type='new',
-                                  cat_dummy=fits_tmp_cat, check_key_type='full')
-                    header_trans = header_ref.copy()
-                    run_qc_check (header_trans, tel, cat_type='trans',
-                                  cat_dummy=fits_tmp_trans,
-                                  check_key_type='trans')
-
-                else:
-                    # update full-source catalog header with latest
-                    # qc-flags; transient catalog not needed
-                    log.info ('updating ref catalog header with QC flags')
-                    update_cathead (fits_tmp_cat, header_ref)
-
-
-                # update reduced image header with extended header
-                # from ZOGY's optimal_subtraction
-                update_imhead (new_fits, header_ref)
-
-
-                if qc_flag != 'red':
-                    # move [ref_2keep] to the reference directory
-                    make_dir (ref_path)
-                    ref_base = ref_fits_out.split('_red.fits')[0]
-                    copy_files2keep(tmp_base, ref_base,
-                                    get_par(set_bb.ref_2keep,tel),
-                                    # need to copy instead of move, as
-                                    # copying of some of the same
-                                    # files in list_2keep is done
-                                    # further down below
-                                    move=False)
-
-
-                # now that reference is built, remove this reference ID
-                # and filter combination from the [ref_ID_filt] queue
-                log.info ('removing reference ID and filter combination from '
-                          'the [ref_ID_filt] queue')
-                result = check_ref(ref_ID_filt, (obj, filt), method='remove')
-        
-
-                if qc_flag != 'red':
-                    log.info('finished making reference image: {}'
-                             .format(ref_fits_out))
-                else:
-                    log.info('encountered red flag; not using image: {} '
-                             '(original name: {}) as reference'
-                             .format(header_ref['REDFILE'],
-                                     header_ref['ORIGFILE']))
-
     else:
 
         # block that runs zogy on two images: new and ref
 
         # make symbolic links to all files in the reference
         # directory with the same filter
-        ref_files = glob.glob('{}/{}_{}_*'.format(ref_path, tel, filt))
+        #ref_files = glob.glob('{}/{}_{}_*'.format(ref_path, tel, filt))
+        ref_files = list_files('{}/{}_'.format(ref_path, tel),
+                               search_str='_{}_'.format(filt))
+
 
         # instead of symbolic links, just copy the reference files
         # over to tmp_path to avoid editing them (at least the header
         # is updated by zogy in function prep_optimal_subtraction)
         make_symlink = False
         for ref_file in ref_files:
-            
+
             if make_symlink:
                 # and funpack/unzip if necessary (before symbolic link
                 # to avoid unpacking multiple times during the same night)
@@ -2168,14 +2138,14 @@ def blackbox_reduce (filename):
                                                     ref_file.split('/')[-1]))
             else:
                 # alternatively, copy the file to tmp_path
-                ref_file_tmp = shutil.copy2 (ref_file, tmp_path)
+                ref_file_tmp = copy_file (ref_file, tmp_path+'/')
                 # and unzip if needed
                 unzip(ref_file_tmp, put_lock=False)
 
 
         ref_fits = '{}/{}'.format(tmp_path, ref_fits_out.split('/')[-1])
         ref_fits_mask = ref_fits.replace('_red.fits', '_mask.fits')
-        
+
         log.info('new_fits: {}'.format(new_fits))
         log.info('new_fits_mask: {}'.format(new_fits_mask))
         log.info('ref_fits: {}'.format(ref_fits))
@@ -2186,7 +2156,7 @@ def blackbox_reduce (filename):
             zogy_processed = False
             header_new, header_trans = optimal_subtraction(
                 new_fits=new_fits, ref_fits=ref_fits, new_fits_mask=new_fits_mask,
-                ref_fits_mask=ref_fits_mask, set_file='set_zogy', 
+                ref_fits_mask=ref_fits_mask, set_file='set_zogy',
                 verbose=None, redo_new=None, redo_ref=None,
                 nthreads=set_bb.nthreads, telescope=tel,
                 keep_tmp=get_par(set_bb.keep_tmp,tel))
@@ -2214,7 +2184,7 @@ def blackbox_reduce (filename):
                                 move=(not get_par(set_bb.keep_tmp,tel)))
 
                 # remove cat_extract and trans_extract products?
-                
+
                 #clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel))
                 # keeping tmp folder to be able to help understand exception
                 clean_tmp(tmp_path, True)
@@ -2255,7 +2225,7 @@ def blackbox_reduce (filename):
                     # update transient catalog header with latest qc-flags
                     log.info ('updating trans catalog header with QC flags')
                     update_cathead (fits_tmp_trans, header_newtrans)
-                    
+
 
                 # update reduced new image header with extended header
                 # from ZOGY's optimal_subtraction; no need to update
@@ -2300,22 +2270,31 @@ def blackbox_reduce (filename):
     # if original filename contains ADC, save any *dRADEC* files from
     # tmp to /idia/projects/meerlicht/ADCtests/tel_yyyymmdd folders
     # CHECK!!!
-    if 'adc' in filename.lower():
+    if 'adc' in filename.lower() and tel in ['ML1', 'BG2', 'BG3', 'BG4']:
 
-        dest_dir = ('/idia/projects/meerlicht/ADCtests/{}_{}'
-                    .format(tel, date_eve))
+        if tel == 'ML1':
+            dest_dir = ('/idia/projects/meerlicht/ADCtests/{}_{}'
+                        .format(tel, date_eve))
+        else:
+            dest_dir = ('~/ADCtests/{}_{}'.format(tel, date_eve))
+
+
         #dest_dir = ('/idia/projects/meerlicht/ADCtests/LambdaEff')
         make_dir (dest_dir)
 
-        adc_files = glob.glob('{}*dRADEC*'.format(tmp_base))
+
+        #adc_files = glob.glob('{}*dRADEC*'.format(tmp_base))
+        adc_files = list_files(tmp_base, search_str='dRADEC')
+
+
         # add header file - needs to come from new_base as it might
         # have been moved over
         adc_files.append('{}_red_hdr.fits'.format(new_base))
         for adc_file in adc_files:
-            shutil.copy2(adc_file, dest_dir)
+            copy_file (adc_file, dest_dir+'/')
 
 
-    
+
     # only for ML, create symbolic links in alternative directory
     # structure if transient catalog is involved; turn off for now
     if False:
@@ -2328,7 +2307,7 @@ def blackbox_reduce (filename):
 
     clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel))
     close_log(log, logfile)
-    
+
     return fits_out
 
 
@@ -2341,7 +2320,7 @@ def create_symlinks (new_base, obj, filt):
                     '_trans_hdr.fits', '_trans_light.fits']
 
     src_files = ['{}_red{}'.format(new_base, ext) for ext in symlink_exts]
-    files_present = np.array([os.path.isfile(f) for f in src_files])
+    files_present = np.array([isfile(f) for f in src_files])
 
     # only creating symbolic links if all extensions are present
     if np.all(files_present):
@@ -2357,7 +2336,7 @@ def create_symlinks (new_base, obj, filt):
             src_dir, src_name = os.path.split(src_file)
             target_file = '{}/{}'.format(target_dir, src_name)
 
-            try: 
+            try:
                 os.symlink (src_file, target_file)
                 log.info ('creating symbolic link: {} -> {}'
                           .format(target_file, src_file))
@@ -2374,14 +2353,14 @@ def create_symlinks (new_base, obj, filt):
 
 
     return
-                
+
 
 ################################################################################
 
 def is_dumcat (fits_cat):
-    
+
     dumcat = False
-    if os.path.isfile(fits_cat):
+    if isfile(fits_cat):
         header_cat = read_hdulist(fits_cat, get_data=False, get_header=True)
         if 'DUMCAT' in header_cat:
             dumcat = header_cat['DUMCAT']
@@ -2392,12 +2371,12 @@ def is_dumcat (fits_cat):
         log.warning ('catalog {} does not exist'.format(fits_cat))
 
     return dumcat
-            
-                
+
+
 ################################################################################
 
 def verify_header (filename, htypes=None):
-    
+
     """function to verify the presence of keywords in the header of the
        input fits file [filename], where the type of header to check
        is determined by [htypes]. The latter can be a string or list
@@ -2407,7 +2386,7 @@ def verify_header (filename, htypes=None):
 
     """
 
-    # dictionary 
+    # dictionary
     dict_head = {
         # raw header
         # commenting out SIMPLE, BSCALE and BZERO - basic keywords
@@ -2691,7 +2670,7 @@ def verify_header (filename, htypes=None):
     }
 
     # read header of filename
-    if os.path.isfile (filename):
+    if isfile (filename):
         header = read_hdulist (filename, get_data=False, get_header=True)
     else:
         # return success=False if it does not exist
@@ -2749,28 +2728,28 @@ def verify_header (filename, htypes=None):
 ################################################################################
 
 def call_match2SSO(filename, tel):
-    
+
     """Function to call the match2SSO software in order to find known asteroids
        in the transient catalog specified in [filename].
-    
+
     """
 
     # select light version of catalogue if it exists
     fits_for_m2sso = filename.replace('.fits', '_light.fits')
-    if not os.path.exists(fits_for_m2sso):
+    if not isfile(fits_for_m2sso):
         fits_for_m2sso = filename
 
     # run match2SSO on catalogue
-    if os.path.exists(fits_for_m2sso):
+    if isfile(fits_for_m2sso):
         m2sso.run_match2SSO(tel=tel, mode='night', cat2process=fits_for_m2sso,
                             date2process=None, list2process=None, logname=None)
     return
 
 
 ################################################################################
-                            
+
 def update_cathead (filename, header):
-    
+
     with fits.open(filename, 'update', memmap=True) as hdulist:
         # if existing header is minimal (practically only table
         # columns), which can be the case if zogy.optimal_subtraction
@@ -2794,7 +2773,7 @@ def update_cathead (filename, header):
     if 'trans' in filename:
         transcat_light = filename.replace('.fits', '_light.fits')
         # check if it exists
-        if os.path.isfile(transcat_light):
+        if isfile(transcat_light):
             with fits.open(transcat_light, 'update', memmap=True) as hdulist:
                 # N.B.: cannot simply copy updated header above
                 # (header_update) as that will also define the
@@ -2826,7 +2805,7 @@ def update_imhead (filename, header, create_hdrfile=True):
     header['DATEFILE'] = (Time.now().isot, 'UTC date of writing file')
 
     if '.fz' not in filename:
-        
+
         with fits.open(filename, 'update', memmap=True) as hdulist:
             hdulist[-1].header = header
 
@@ -2869,7 +2848,7 @@ def copy_header (fits_dest, header_src):
 
         # delete hdr_dest keys
         process_keys (header_dest)
-        
+
         # copy keys
         process_keys (header_dest, header_src)
 
@@ -2914,11 +2893,11 @@ def process_keys (hdr_dest, hdr_src=None, key_start='BUNIT'):
 
     return
 
-        
+
 ################################################################################
 
 def create_obslog (date, email=True, tel=None, weather_screenshot=True):
-    
+
     # extract table with various observables/keywords from the headers
     # of all raw/reduced files of a particular (evening) date,
     # e.g. ORIGFILE, IMAGETYP, DATE-OBS, PROGNAME, PROGID, OBJECT,
@@ -2929,7 +2908,7 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
     # interested; the email parameters such as sender, recipients,
     # etc., can be defined in BlackBOX settings file
 
-    
+
     date_eve = ''.join(e for e in date if e.isdigit())
     if len(date_eve) != 8:
         log.error ('input date to function create_obslog needs to consist of '
@@ -2944,10 +2923,15 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
     full_path = '{}/{}'.format(red_path, date_dir)
 
     # collect biases, darks, flats and science frames in different lists
-    bias_list = glob.glob('{}/bias/{}*.fits*'.format(full_path, tel))
-    dark_list = glob.glob('{}/dark/{}*.fits*'.format(full_path, tel))
-    flat_list = glob.glob('{}/flat/{}*.fits*'.format(full_path, tel))
-    object_list = glob.glob('{}/{}*_red.fits*'.format(full_path, tel))
+    #bias_list = glob.glob('{}/bias/{}*.fits*'.format(full_path, tel))
+    bias_list = list_files('{}/bias/{}'.format(full_path,tel),search_str='.fits')
+    #dark_list = glob.glob('{}/dark/{}*.fits*'.format(full_path, tel))
+    dark_list = list_files('{}/dark/{}'.format(full_path,tel),search_str='.fits')
+    #flat_list = glob.glob('{}/flat/{}*.fits*'.format(full_path, tel))
+    flat_list = list_files('{}/flat/{}'.format(full_path,tel),search_str='.fits')
+    #object_list = glob.glob('{}/{}*_red.fits*'.format(full_path, tel))
+    object_list = list_files('{}/{}'.format(full_path,tel),search_str='_red.fits')
+
     filenames = [bias_list, dark_list, flat_list, object_list]
     # clean up [filenames]
     filenames = [f for sublist in filenames for f in sublist]
@@ -2958,10 +2942,11 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
     ndark_red = len(dark_list)
     nflat_red = len(flat_list)
     nobject_red = len(object_list)
-    
+
     # collect raw image list
     raw_path = get_par(set_bb.raw_dir,tel)
-    raw_list = glob.glob('{}/{}/*.fits*'.format(raw_path, date_dir))
+    #raw_list = glob.glob('{}/{}/*.fits*'.format(raw_path, date_dir))
+    raw_list = list_files('{}/{}'.format(raw_path, date_dir), search_str='.fits')
 
     # number of different raw files
     nraw = len(raw_list)
@@ -2982,7 +2967,7 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
 
     # maximum filename length for column format
     #max_length = max([len(f.strip()) for f in filenames])
-    
+
     # keywords to add to table
     keys = ['ORIGFILE', 'IMAGETYP', 'DATE-OBS', 'PROGNAME', 'PROGID', 'OBJECT',
             'FILTER', 'EXPTIME', 'RA', 'DEC', 'AIRMASS', 'FOCUSPOS',
@@ -2991,7 +2976,7 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
     formats = {#'ORIGFILE': '{:60}',
         #'IMAGETYP': '{:<8}',
         'DATE-OBS': '{:.19}',
-        'EXPTIME': '{:.1f}',              
+        'EXPTIME': '{:.1f}',
         'RA': '{:.3f}',
         'DEC': '{:.3f}',
         'AIRMASS': '{:.3f}',
@@ -3020,7 +3005,7 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
         # append to rows
         rows.append(row)
 
-        
+
     # create table from rows
     names = []
     for i_key, key in enumerate(keys):
@@ -3029,7 +3014,7 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
     if len(rows) == 0:
         # rows without entries: create empty table
         table = Table(names=names)
-    else: 
+    else:
         table = Table(rows=rows, names=names)
 
     # order by DATE-OBS
@@ -3066,7 +3051,7 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
                            '(https://suthweather.saao.ac.za): {}'.format(e))
             png_name = None
     else:
-        if not os.path.isfile(png_name):
+        if not isfile(png_name):
             png_name = None
 
 
@@ -3079,17 +3064,26 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
     body  = 'Summary of {} observations:\n'.format(date_dir.replace('/','-'))
     body += '-----------------------------------\n'
 
-    body += ('# raw images:       {} ({} biases, {} darks, {} flats, {} objects)\n'
-             .format(nraw, nbias_raw, ndark_raw, nflat_raw, nobject_raw))
-    body += ('# reduced images:   {} ({} biases, {} darks, {} flats, {} objects)\n'
-             .format(nred, nbias_red, ndark_red, nflat_red, nobject_red))
-    cat_list = glob.glob('{}/{}*_red_cat.fits'.format(full_path, tel))
+    body += ('# raw images:       {} ({} biases, {} darks, {} flats, {} objects)'
+             '\n'.format(nraw, nbias_raw, ndark_raw, nflat_raw, nobject_raw))
+    body += ('# reduced images:   {} ({} biases, {} darks, {} flats, {} objects)'
+             '\n'.format(nred, nbias_red, ndark_red, nflat_red, nobject_red))
+
+    #cat_list = glob.glob('{}/{}*_red_cat.fits'.format(full_path, tel))
+    cat_list = list_files('{}/{}'.format(full_path, tel),
+                          end_str='_red_cat.fits')
     body += ('# full-source cats: {} ({} red-flagged)\n'.format(
         len(cat_list), count_redflags(cat_list)))
-    trans_list = glob.glob('{}/{}*_red_trans.fits'.format(full_path, tel))
+
+    #trans_list = glob.glob('{}/{}*_red_trans.fits'.format(full_path, tel))
+    trans_list = list_files('{}/{}'.format(full_path, tel),
+                            end_str='_red_trans.fits')
     body += ('# transient cats:   {} ({} red-flagged)\n'.format(
         len(trans_list), count_redflags(trans_list, key='TQC-FLAG')))
-    sso_list = glob.glob('{}/{}*_red_trans_sso.fits'.format(full_path, tel))
+
+    #sso_list = glob.glob('{}/{}*_red_trans_sso.fits'.format(full_path, tel))
+    sso_list = list_files('{}/{}'.format(full_path, tel),
+                          end_str='_red_trans_sso.fits')
     body += ('# SSO cats:         {} ({} empty)\n'.format(
         len(sso_list), count_redflags(sso_list, key='SDUMCAT')))
     body += '\n'
@@ -3104,7 +3098,7 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
             subject = '{} night report {}'.format(tel, date_dir.replace('/','-'))
             smtp_server = get_par(set_bb.smtp_server,tel)
             port = get_par(set_bb.port,tel)
-            
+
             log.info ('sending email with subject {} to {} using smtp server {} '
                       'on port {}'
                       .format(subject, recipients, smtp_server, port))
@@ -3158,7 +3152,7 @@ def send_email (recipients, subject, body,
         smtpObj = smtplib.SMTP_SSL(smtp_server, port)
     else:
         smtpObj = smtplib.SMTP(smtp_server, port)
-        
+
     smtpObj.ehlo()
     send_from = sender
     send_to = recipients.split(',')
@@ -3171,36 +3165,36 @@ def send_email (recipients, subject, body,
 
     if body is None:
         text = ''
-    elif os.path.isfile(body):
+    elif isfile(body):
         with open(body, 'r') as f:
             text = f.read()
     else:
         text = body
-        
+
     msg.attach( MIMEText(text) )
 
     if attachments is not None:
         att_list = attachments.split(',')
         for attachment in att_list:
-            if os.path.isfile(attachment):
+            if isfile(attachment):
                 part = MIMEBase('application', "octet-stream")
                 part.set_payload( open(attachment,"rb").read() )
                 encoders.encode_base64(part)
                 part.add_header('Content-Disposition', 'attachment; filename={}'
-                                .format(os.path.basename(attachment)))
+                                .format(attachment.split('/')[-1]))
                 msg.attach(part)
-	
+
     smtpObj.sendmail(send_from, send_to, msg.as_string())
     smtpObj.close()
 
-    
+
 ################################################################################
-    
+
 def get_flatstats (data, header, data_mask, tel=None):
 
     if get_par(set_zogy.timing,tel):
         t = time.time()
-    
+
     # mask of valid pixels
     mask_use = (data_mask == 0)
 
@@ -3208,16 +3202,16 @@ def get_flatstats (data, header, data_mask, tel=None):
     # add some header keywords with the statistics
     sec_temp = get_par(set_bb.flat_norm_sec,tel)
     value_temp = '[{}:{},{}:{}]'.format(
-        sec_temp[0].start+1, sec_temp[0].stop+1, 
-        sec_temp[1].start+1, sec_temp[1].stop+1) 
+        sec_temp[0].start+1, sec_temp[0].stop+1,
+        sec_temp[1].start+1, sec_temp[1].stop+1)
     header['STATSEC'] = (
         value_temp, 'pre-defined statistics section [y1:y2,x1:x2]')
-    
+
 
     # statistics on STATSEC
     mask_use_temp = mask_use[sec_temp]
-    median_sec = np.median(data[sec_temp][mask_use_temp])
-    std_sec = np.std(data[sec_temp][mask_use_temp])
+    median_sec = np.nanmedian(data[sec_temp][mask_use_temp])
+    std_sec = np.nanstd(data[sec_temp][mask_use_temp])
     # using masked array (slow!)
     #median_sec = np.ma.median(data_masked[sec_temp])
     #std_sec = np.ma.std(data_masked[sec_temp])
@@ -3227,12 +3221,12 @@ def get_flatstats (data, header, data_mask, tel=None):
     header['RSTDSEC'] = (std_sec/median_sec, 'relative sigma (STD) flat '
                          'over STATSEC')
 
-    
+
     # full image statistics
     index_stat = get_rand_indices(data.shape)
     mask_use_temp = mask_use[index_stat]
-    median = np.median(data[index_stat][mask_use_temp])
-    std = np.std(data[index_stat][mask_use_temp])
+    median = np.nanmedian(data[index_stat][mask_use_temp])
+    std = np.nanstd(data[index_stat][mask_use_temp])
     # masked array (slow!)
     #median = np.ma.median(data_masked[index_stat])
     #std = np.ma.std(data_masked[index_stat])
@@ -3240,24 +3234,24 @@ def get_flatstats (data, header, data_mask, tel=None):
     header['FLATMED'] = (median, '[e-] median flat')
     header['FLATSTD'] = (std, '[e-] sigma (STD) flat')
     header['FLATRSTD'] = (std/median, 'relative sigma (STD) flat')
-    
+
     # add the channel median level to the flatfield header
     chan_sec, data_sec, os_sec_hori, os_sec_vert, data_sec_red = (
         define_sections(np.shape(data), tel=tel))
     nchans = np.shape(data_sec)[0]
-    
+
     for i_chan in range(nchans):
-        
-        median_temp = np.median(data[data_sec_red[i_chan]])
+
+        median_temp = np.nanmedian(data[data_sec_red[i_chan]])
         header['FLATM{}'.format(i_chan+1)] = (
             median_temp,
             '[e-] channel {} median flat (bias-subtracted)'.format(i_chan+1))
-        
-        std_temp = np.std(data[data_sec_red[i_chan]])
+
+        std_temp = np.nanstd(data[data_sec_red[i_chan]])
         header['FLATS{}'.format(i_chan+1)] = (
             std_temp,
             '[e-] channel {} sigma (STD) flat'.format(i_chan+1))
-        
+
         header['FLATRS{}'.format(i_chan+1)] = (
             std_temp/median_temp,
             'channel {} relative sigma (STD) flat'.format(i_chan+1))
@@ -3270,7 +3264,7 @@ def get_flatstats (data, header, data_mask, tel=None):
     ysize, xsize = data.shape
     subsize = get_par(set_zogy.subimage_size,tel)
     nsubs_side = int(ysize/subsize)
-    
+
     # create masked array and reshape it
     data_masked_reshaped = np.ma.masked_array(data, mask=~mask_use).reshape(
         nsubs_side,subsize,-1,subsize).swapaxes(1,2).reshape(
@@ -3307,6 +3301,8 @@ def get_flatstats (data, header, data_mask, tel=None):
     minimum = np.amin(mini_median[mask_cntr])
     maximum = np.amax(mini_median[mask_cntr])
     danstat = np.abs((maximum - minimum) / (maximum + minimum))
+    if not np.isfinite(danstat):
+        danstat = 'None'
 
     header['NSUBSTOT'] = (mask_cntr.size, 'number of subimages available for statistics')
     header['NSUBS'] = (np.sum(mask_cntr), 'number of subimages used for statistics')
@@ -3330,53 +3326,6 @@ def get_flatstats (data, header, data_mask, tel=None):
 
 ################################################################################
 
-def check_ref (queue_ref, obj_filt, method=None, put_lock=True):
-
-    if put_lock:
-        lock.acquire()
-        
-    # initialize list with copy of queue 
-    mycopy = []
-    ref_being_made = False
-
-    while True:
-        try:
-            # get (return and remove) next element from input queue
-            # [queue_ref]
-            elem = queue_ref.get(False)
-        except:
-            # if no more elements left, break
-            break
-        else:
-            # add element to copy of queue, unless element matches
-            # [obj_filt] and [method] is set to remove
-            if not (elem == obj_filt and method=='remove'):
-                mycopy.append(elem)
-
-                
-    # loop over copy of queue to put elements back into input queue
-    # N.B.: input queue is empty at this point
-    for elem in mycopy:
-        # put element back into original queue
-        queue_ref.put(elem, False)
-        # if element matches input [obj_filt] (tuple: (object,
-        # filter)), reference image is still being made
-        if elem == obj_filt:
-            ref_being_made = True
-
-    # need to wait a little bit because putting an element in the
-    # queue is not instantaneous, and so it could (and does) happen
-    # that queue is checked again before element is present
-    time.sleep(0.1)
-
-    if put_lock:
-        lock.release()
-
-    return ref_being_made
-
-                
-################################################################################
-
 def close_log (log, logfile):
 
     handlers = log.handlers[:]
@@ -3396,18 +3345,24 @@ def close_log (log, logfile):
 
 def make_dir (path, empty=False):
 
-    """Function to make directory. If [empty] is True and the directory
-       already exists, it will first be removed. """
+    """Function to make directory. If [empty] is True and the
+       directory already exists, it will first be removed. In case of
+       google cloud version, don't do anything - there are no
+       actual directories in a bucket."""
 
-    # if already exists but needs to be empty, remove it first
-    if os.path.isdir(path) and empty:
-        shutil.rmtree(path)
 
-    # do not check if directory exists, just try to make it; changed this
-    # after racing condition occurred on the ilifu Slurm cluster when
-    # reducing flatfields, where different tasks need to make the same
-    # directory
-    os.makedirs(path, exist_ok=True)
+    # check if google_cloud is set
+    if not path[0:5] == 'gs://':
+
+        # if already exists but needs to be empty, remove it first
+        if isdir(path) and empty:
+            shutil.rmtree(path)
+
+        # do not check if directory exists, just try to make it; changed this
+        # after racing condition occurred on the ilifu Slurm cluster when
+        # reducing flatfields, where different tasks need to make the same
+        # directory
+        os.makedirs(path, exist_ok=True)
 
 
     return
@@ -3416,24 +3371,26 @@ def make_dir (path, empty=False):
 ################################################################################
 
 def clean_tmp (tmp_path, keep_tmp):
-    
+
     """ Function that removes the tmp folder corresponding to the
         reduced image / reference image if [set_bb.keep_tmp] not True.
     """
 
     # check if folder exists
-    if os.path.isdir(tmp_path):
+    if isdir(tmp_path):
 
         # delete [tmp_path] folder if [set_bb.keep_tmp] not True
         if not keep_tmp:
             shutil.rmtree(tmp_path)
             log.info ('removing temporary folder: {}'.format(tmp_path))
-                
+
         else:
             # otherwise fpack its fits images
-            list_2pack = glob.glob('{}/*.fits'.format(tmp_path))
+            #list_2pack = glob.glob('{}/*.fits'.format(tmp_path))
+            list_2pack = list_files(tmp_path, end_str='.fits')
+
             for filename in list_2pack:
-                __ = fpack (filename)
+                fpack (filename)
 
     else:
         log.warning ('tmp folder {} does not exist'.format(tmp_path))
@@ -3444,7 +3401,7 @@ def clean_tmp (tmp_path, keep_tmp):
 
 ################################################################################
 
-def copy_files2keep (src_base, dest_base, ext2keep, move=True, do_fpack=True):
+def copy_files2keep (src_base, dest_base, ext2keep, move=True, run_fpack=True):
 
     """Function to copy/move files with base name [src_base] and
     extensions [ext2keep] to files with base name [dest_base] with the
@@ -3459,11 +3416,12 @@ def copy_files2keep (src_base, dest_base, ext2keep, move=True, do_fpack=True):
     log.info ('extensions to copy: {}'.format(ext2keep_uniq))
 
     # list of all files starting with [src_base]
-    src_files = glob.glob('{}*'.format(src_base))
+    #src_files = glob.glob('{}*'.format(src_base))
+    src_files = list_files(src_base)
 
     # loop this list
     for src_file in src_files:
-        # determine file string following [src_base] 
+        # determine file string following [src_base]
         src_ext = src_file.split(src_base)[-1]
         # check if this matches entry in [ext2keep_uniq]
         for ext in ext2keep_uniq:
@@ -3483,7 +3441,8 @@ def copy_files2keep (src_base, dest_base, ext2keep, move=True, do_fpack=True):
                     dest_file_fz = '{}.fz'.format(dest_file)
                     if (src_file.split('.')[-1] == 'fits'
                         and '_ldac.fits' not in src_file
-                        and os.path.isfile(dest_file_fz)):
+                        and isfile(dest_file_fz)
+                        and dest_file[0:5] != 'gs://'):
 
 
                         # read src_file data and header
@@ -3492,7 +3451,7 @@ def copy_files2keep (src_base, dest_base, ext2keep, move=True, do_fpack=True):
 
                         # check if src_file is an image
                         if int(header_src['NAXIS'])==2:
-                            
+
                             # read dest_file data
                             data_dest = read_hdulist(dest_file_fz)
 
@@ -3512,7 +3471,7 @@ def copy_files2keep (src_base, dest_base, ext2keep, move=True, do_fpack=True):
                                     '_Fpsf.fits']
 
                                 for ext_tmp in exts_keephead:
-                                    
+
                                     if ext_tmp in dest_file:
                                         # for various images, update
                                         # header of already existing
@@ -3531,16 +3490,27 @@ def copy_files2keep (src_base, dest_base, ext2keep, move=True, do_fpack=True):
                                           'significantly different from that of '
                                           '{}'.format(dest_file_fz, src_file))
 
-                                        
-                    if do_fpack:
+
+                    if run_fpack:
                         # fpack src_file if needed
                         src_file = fpack (src_file)
-                        
+
                         # add '.fz' extension to [dest_file] in case
                         # [src_file] was fpacked (not all files are
                         # fpacked)
                         if '.fz' in src_file and '.fz' not in dest_file:
                             dest_file = '{}.fz'.format(dest_file)
+
+                        # create a jpg image of [src_file] now that
+                        # files are being copied from tmp to red or
+                        # ref and not vice versa, and file is reduced,
+                        # D or Scorr image
+                        if ('_red.fits' in src_file or '_D.fits' in src_file or
+                            '_Scorr.fits' in src_file):
+                            file_jpg = create_jpg (src_file)
+                            # copy/move it over to the destination folder
+                            dest_folder = os.path.dirname(dest_file)
+                            copy_file (file_jpg, dest_folder+'/', move=move)
 
 
                     # remove the potentially existing f/unpacked
@@ -3553,29 +3523,15 @@ def copy_files2keep (src_base, dest_base, ext2keep, move=True, do_fpack=True):
                     else:
                         file_2remove = '{}.fz'.format(dest_file)
 
-                    if os.path.isfile(file_2remove):
-                        os.remove(file_2remove)
-                        log.info('removing existing {}'.format(file_2remove))
+                    if isfile(file_2remove):
+                        #log.info('removing existing {}'.format(file_2remove))
+                        #os.remove(file_2remove)
+                        remove_files ([file_2remove], verbose=True)
 
 
                     # move or copy file if it does not need to be skipped
                     if not skip:
-                        if not move:
-                            log.info('copying {} to {}'.format(src_file, dest_file))
-                            shutil.copy2(src_file, dest_file)
-                        else:
-                            log.info('moving {} to {}'.format(src_file, dest_file))
-                            shutil.move(src_file, dest_file)
-
-
-                    # create a jpg image if do_fpack is True,
-                    # i.e. files are being copied from tmp to red or
-                    # ref and not vice versa, and file is reduced, D
-                    # or Scorr image
-                    if do_fpack and ('_red.fits' in dest_file or
-                                     '_D.fits' in dest_file or
-                                     '_Scorr.fits' in dest_file):
-                        create_jpg (dest_file)
+                        copy_file (src_file, dest_file, move=move)
 
 
     return
@@ -3586,7 +3542,7 @@ def copy_files2keep (src_base, dest_base, ext2keep, move=True, do_fpack=True):
 def sat_detect (data, header, data_mask, header_mask, tmp_path):
 
     # could also try skimage.transform.probabilistic_hough_line()
-    
+
     if get_par(set_zogy.timing,tel):
         t = time.time()
 
@@ -3620,11 +3576,11 @@ def sat_detect (data, header, data_mask, header_mask, tmp_path):
                 raise RuntimeError ('problem with running detsat module')
 
         #create satellite trail if found
-        trail_coords = results[(fits_binned_mask,0)] 
+        trail_coords = results[(fits_binned_mask,0)]
         #continue if satellite trail found
-        if len(trail_coords) > 0: 
+        if len(trail_coords) > 0:
             trail_segment = trail_coords[0]
-            try: 
+            try:
                 #create satellite trail mask
                 mask_binned = make_mask(fits_binned_mask, 0, trail_segment,
                                         sublen=5, pad=0, sigma=5,
@@ -3639,13 +3595,13 @@ def sat_detect (data, header, data_mask, header_mask, tmp_path):
             satellite_fitting = True
             binned_data[mask_binned == 1] = np.median(binned_data)
             fits_old_mask = '{}/old_mask.fits'.format(tmp_path)
-            if os.path.isfile(fits_old_mask):
+            if isfile(fits_old_mask):
                 old_mask = read_hdulist(fits_old_mask)
                 mask_binned = old_mask+mask_binned
             fits.writeto(fits_old_mask, mask_binned, overwrite=True)
         else:
             break
-    
+
     if satellite_fitting == True:
         #unbin mask
         mask_sat = np.kron(
@@ -3675,13 +3631,13 @@ def sat_detect (data, header, data_mask, header_mask, tmp_path):
         if 'fits_old_mask' in locals():
             remove_files ([fits_old_mask])
 
-        
+
     if get_par(set_zogy.timing,tel):
         log_timing_memory (t0=t, label='sat_detect')
 
     return data_mask
 
-        
+
 ################################################################################
 
 def cosmics_corr (data, header, data_mask, header_mask):
@@ -3689,7 +3645,7 @@ def cosmics_corr (data, header, data_mask, header_mask):
     if get_par(set_zogy.timing,tel):
         t = time.time()
 
-    mem_use (label='cosmics_corr at start') 
+    mem_use (label='cosmics_corr at start')
 
 
     # set satlevel to infinite, as input [data_mask] already contains
@@ -3710,21 +3666,21 @@ def cosmics_corr (data, header, data_mask, header_mask):
     if False:
 
         # when using 1.0.9+ version of astroscrappy:
-        
-        # loop channels        
+
+        # loop channels
         nchans = np.shape(data_sec_red)[0]
         for i_chan in range(nchans):
-            
+
             # channel section
             sec_tmp = data_sec_red[i_chan]
-            
+
             rdn_str = 'RDN{}'.format(i_chan+1)
             if rdn_str not in header:
                 log.error ('keyword {} expected but not present in header'
                            .format(rdn_str))
             else:
                 data_rdnoise2[sec_tmp] = header[rdn_str]**2
-            
+
 
         # add Poisson noise
         data_var = data_rdnoise2 + data
@@ -3742,11 +3698,11 @@ def cosmics_corr (data, header, data_mask, header_mask):
 
 
     else:
-        
+
         # when using 1.0.8 version of astroscrappy:
 
         readnoise = header['RDNOISE']
-    
+
         mask_cr, data = astroscrappy.detect_cosmics(
             data, inmask=(data_mask!=0),
             sigclip=get_par(set_bb.sigclip,tel),
@@ -3755,13 +3711,13 @@ def cosmics_corr (data, header, data_mask, header_mask):
             niter=get_par(set_bb.niter,tel),
             readnoise=readnoise, gain=1.0,
             satlevel=satlevel_electrons,
-            cleantype='medmask', 
+            cleantype='medmask',
             sepmed=get_par(set_bb.sepmed,tel))
 
 
 
-    mem_use (label='cosmics_corr just after astroscrappy') 
-    
+    mem_use (label='cosmics_corr just after astroscrappy')
+
     # from astroscrappy 'manual': To reproduce the most similar
     # behavior to the original LA Cosmic (written in IRAF), set inmask
     # = None, satlevel = np.inf, sepmed=False, cleantype='medmask',
@@ -3771,7 +3727,7 @@ def cosmics_corr (data, header, data_mask, header_mask):
     #    sigfrac=get_par(set_bb.sigfrac,tel), objlim=get_par(set_bb.objlim,tel),
     #    niter=get_par(set_bb.niter,tel),
     #    readnoise=header['RDNOISE'], satlevel=np.inf)
-    
+
     # add pixels affected by cosmic rays to [data_mask]
     data_mask[mask_cr==1] += get_par(set_zogy.mask_value['cosmic ray'],tel)
 
@@ -3786,7 +3742,7 @@ def cosmics_corr (data, header, data_mask, header_mask):
 
     log.info('number of cosmic rays identified: {}'.format(ncosmics))
 
-        
+
     if get_par(set_zogy.timing,tel):
         log_timing_memory (t0=t, label='cosmics_corr')
 
@@ -3796,16 +3752,16 @@ def cosmics_corr (data, header, data_mask, header_mask):
 ################################################################################
 
 def mask_init (data, header, filt, imgtype):
-    
+
     """Function to create initial mask from the bad pixel mask (defining
        the bad and edge pixels), and pixels that are saturated and
        pixels connected to saturated pixels.
 
     """
-    
+
     if get_par(set_zogy.timing,tel):
         t = time.time()
-    
+
     fits_bpm = (get_par(set_bb.bad_pixel_mask,tel)
                 .replace('bpm', 'bpm_{}'.format(filt)))
 
@@ -3820,12 +3776,12 @@ def mask_init (data, header, filt, imgtype):
         data_mask = np.zeros(np.shape(data), dtype='uint8')
 
 
-    # create initial mask header 
+    # create initial mask header
     header_mask = fits.Header()
 
-    
+
     if imgtype == 'object':
-        
+
         # mask of pixels with non-finite values in [data]
         mask_infnan = ~np.isfinite(data)
         # replace those pixel values with zeros
@@ -3852,7 +3808,7 @@ def mask_init (data, header, filt, imgtype):
         # diagonally
         struct = np.ones((3,3), dtype=bool)
         __, nobj_sat = ndimage.label(mask_sat, structure=struct)
-    
+
 
         # and pixels connected to saturated pixels
         struct = np.ones((3,3), dtype=bool)
@@ -3889,7 +3845,7 @@ def mask_init (data, header, filt, imgtype):
 def fill_sat_holes (data_mask, mask_value):
 
     """fill_holes and binary_close saturated pixels in data_mask"""
-    
+
     value_sat = mask_value['saturated']
     value_satcon = mask_value['saturated-connected']
     mask_satcon = ((data_mask & value_sat == value_sat) |
@@ -3929,14 +3885,32 @@ def mask_header(data_mask, header_mask):
 
 def master_prep (fits_master, data_shape, create_master, pick_alt=True):
 
+    """function to create a master calibration file [fits_master] with
+       shape [data_shape] if it does not already exist and does not
+       contain a red flag, or to pick an existing one nearby in time.
+       If [create_master] is False, or there are too few individual
+       calibration files (<3) available, or the master created has
+       been flagged red, a nearby master frame is searched for.
+       In addition to that, [pick_alt] needs to be True
+
+    """
+
     if get_par(set_zogy.timing,tel):
         t = time.time()
 
 
-    # infer path, imtype, evening date and filter from input [fits_master]
+    # infer path, imgtype, evening date and filter from input [fits_master]
     path, filename = os.path.split(fits_master)
-    imtype, date_eve = filename.split('.fits')[0].split('_')[0:2]
-    if imtype == 'flat':
+
+    # previously, master frames were named [imgtype]_[date_eve]..
+    # instead of [tel]_[imgtype]_[date_eve]..
+    #imgtype, date_eve = filename.split('.fits')[0].split('_')[0:2]
+    # the following selection handles both cases
+    imgtype, date_eve = (filename.split('.fits')[0].split('{}_'.format(tel))[-1]
+                         .split('_')[0:2])
+
+    # for flat, also extract filter
+    if imgtype == 'flat':
         filt = filename.split('.fits')[0].split('_')[-1]
     else:
         filt = None
@@ -3948,80 +3922,82 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True):
 
 
     if master_present:
-        log.info ('master {} {} already exists'.format(imtype, fits_master))
-
-
-    # switch off this block; it's likely that a forced reduction is
-    # only meant to rereduce the object frames with the already
-    # existing master frames. Also in the case where [master_prep] is
-    # called from [create_masters], better to remove masters manually
-    # if they need to be redone.
-    if False:
-        # if this is a forced re-reduction, delete the master if it exists
-        if master_present and get_par(set_bb.force_reproc_new,tel):
-            os.remove(fits_master)
-            # also remove jpg if it exists
-            file_jpg = '{}.jpg'.format(fits_master.split('.fits')[0])
-            if os.path.isfile(file_jpg):
-                os.remove(file_jpg)
-
-            master_present = False
-            if '.fz' in fits_master:
-                fits_master = fits_master.replace('.fz','')
-
-            log.info ('forced reprocessing; deleting master {} {} and its jpg'
-                      .format(imtype, fits_master))
-
+        log.info ('master {} {} already exists'.format(imgtype, fits_master))
 
 
     # check if master bias/flat does not contain any red flags:
     master_ok = True
     if master_present:
-        header_master = read_hdulist (fits_master, get_data=False, get_header=True)
+        header_master = read_hdulist (fits_master, get_data=False,
+                                      get_header=True)
         if ('QC-FLAG' in header_master and header_master['QC-FLAG']=='red'):
             master_ok = False
             log.warning ('existing master {} {} contains a red flag'
-                         .format(imtype, fits_master))
+                         .format(imgtype, fits_master))
+
 
 
     if not (master_present and master_ok):
 
         # in night mode only, sleep for 60s to make sure individual
-        # biases and/or flats have been reduced and written to disk
-        # check!!!
-        if proc_mode == 'night':
+        # biases and/or flats have been reduced and written to disk;
+        # this is only used in the old "chopper" night mode, where the
+        # master files were created on-the-fly triggered by the first
+        # science frame of the night. At ilifu/Slurm or in the google
+        # cloud, the master frames are prepared in advance before the
+        # night starts
+        google_cloud = (fits_master[0:5] == 'gs://')
+        if proc_mode == 'night' and not google_cloud:
+            log.warning ('waiting for 60s for all individual calibration frames '
+                         'to have been reduced before continuing with '
+                         '[master_prep]')
             time.sleep(60)
 
 
         # prepare master image from files in [path] +/- the specified
         # time window
-        if imtype=='flat':
-            nwindow = int(get_par(set_bb.flat_window,tel))
-        elif imtype=='bias' or imtype=='dark':
-            nwindow = int(get_par(set_bb.bias_window,tel))
+        nwindow = int(get_par(set_bb.cal_window,tel)[imgtype])
 
-        file_list = []
+
+        # for both ilifu/Slurm and google cloud, the individual
+        # calibration files are in red_dir
         red_dir = get_par(set_bb.red_dir,tel)
+
+
+        # collect individual calibration files in [file_list]
+        file_list = []
         for n_day in range(-nwindow, nwindow+1):
-            # determine mjd at noon (local or UTC, does not matter) of date_eve +- n_day
+            # determine mjd at noon (local or UTC, does not matter) of
+            # date_eve +- n_day
             mjd_noon = date2mjd('{}'.format(date_eve), time_str='12:00') + n_day
             # corresponding path
-            date_temp = Time(mjd_noon, format='mjd').isot.split('T')[0].replace('-','/')
-            path_temp = '{}/{}/{}'.format(red_dir, date_temp, imtype)
-            if imtype=='flat':
-                file_list.append(sorted(
-                    glob.glob('{}/{}_*_{}.fits*'.format(path_temp, tel, filt))))
+            date_tmp = (Time(mjd_noon, format='mjd').isot.split('T')[0]
+                        .replace('-','/'))
+            path_tmp = '{}/{}/{}/{}_'.format(red_dir, date_tmp, imgtype, tel)
+
+            # additional search string, which will select particular
+            # filter for flats
+            if imgtype=='flat':
+                search_str = '{}.fits'.format(filt)
             else:
-                file_list.append(sorted(
-                    glob.glob('{}/{}_*.fits*'.format(path_temp, tel))))
+                search_str = '.fits'
+
+            # collect files
+            file_list.append(list_files(path_tmp, search_str=search_str))
 
 
-        # clean up [file_list]
-        file_list = [f for sublist in file_list for f in sublist]
+        # clean up lists in [file_list] and sort
+        file_list = sorted([f for sublist in file_list for f in sublist])
+        nfiles = len(file_list)
 
-        # do not consider image with header QC-FLAG set to red
-        mask_keep = np.ones(len(file_list), dtype=bool)
-        mjd_obs = np.zeros(len(file_list))
+
+        # do not consider image with header QC-FLAG set to red, and
+        # also avoid using MeerLICHT evening flats due to dome
+        # vignetting for period from July 2019 until February 2020;
+        # moreover, mjd_obs is read from header to be able to sort the
+        # calibration files in time futher below
+        mask_keep = np.ones(nfiles, dtype=bool)
+        mjd_obs = np.zeros(nfiles)
 
 
         if create_master:
@@ -4033,20 +4009,20 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True):
             # Header missing END card. [blackbox_reduce, line 1323]
 
             for i_file, filename in enumerate(file_list):
-                
+
                 log.info ('reading header of {}'.format(filename))
                 # check!!! - the following line leads to an exception when
                 # running both bias and flatfield reductions on Slurm with
                 # multiple tasks/processes:
                 # Header missing END card. [blackbox_reduce, line 1323]
-                header_temp = read_hdulist (filename, get_data=False,
-                                            get_header=True)
-                if 'QC-FLAG' in header_temp and header_temp['QC-FLAG'] == 'red':
+                header_tmp = read_hdulist (filename, get_data=False,
+                                           get_header=True)
+                if 'QC-FLAG' in header_tmp and header_tmp['QC-FLAG'] == 'red':
                     mask_keep[i_file] = False
 
                 # record MJD-OBS in array
-                if 'MJD-OBS' in header_temp:
-                    mjd_obs[i_file] = header_temp['MJD-OBS'] 
+                if 'MJD-OBS' in header_tmp:
+                    mjd_obs[i_file] = header_tmp['MJD-OBS']
 
 
                 # for period from July 2019 until February 2020, avoid
@@ -4066,13 +4042,9 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True):
         nfiles = len(file_list)
 
 
-        # if number of biases/flats exceed nbias_max/nflat_max, select
-        # the nbias_max/nflat_max ones closest in time to midnight of
-        # the evening date
-        if imtype=='bias' or imtype=='dark':
-            nmax = get_par(set_bb.nbias_max,tel)
-        elif imtype=='flat':
-            nmax = get_par(set_bb.nflat_max,tel)
+        # if number of biases/darks/flats exceeds ncal_max, select the
+        # ones closest in time to midnight of the evening date
+        nmax = int(get_par(set_bb.ncal_max,tel)[imgtype])
 
         if nfiles > nmax:
             # difference between observed MJD and mignight of the
@@ -4087,42 +4059,42 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True):
             if not (nfiles < 3 or not master_ok or not create_master):
                 log.info ('number of available {} frames ({}) exceeds the '
                           'maximum specified ({}); using these frames closest '
-                          'in time to midnight of the evening date ({}): {}'
-                          .format(imtype, len(index_sort), nmax, mjd_midnight,
+                          'in time to midnight of the evening date ({}):\n{}'
+                          .format(imgtype, len(index_sort), nmax, date_eve,
                                   file_list))
 
 
         # look for a nearby master instead if the master bias/flat
-        # present contains a red flag, or there are too few individual
-        # frames to make a master, or the input [create_master] is
-        # switched off
+        # present contains a red flag, or if there are too few
+        # individual frames to make a master, or the input
+        # [create_master] is switched off
         if nfiles < 3 or not master_ok or not create_master:
 
-            if imtype=='flat':
+            if imgtype=='flat':
                 msg = 'flat in filter {}'.format(filt)
             else:
-                msg = imtype
-                
+                msg = imgtype
+
             # if input [pick_alt] is True, look for a nearby master
             # flat, otherwise just return None
             if pick_alt or not create_master:
-                fits_master_close = get_closest_biasflat(date_eve, imtype,
-                                                         filt=filt)
+                fits_master_close = get_closest_master(date_eve, imgtype,
+                                                       filt=filt)
             else:
                 if master_ok:
                     log.warning ('too few good frames available to produce '
                                  'master {} for evening date {} +/- window '
                                  'of {} days'.format(msg, date_eve, nwindow))
-
                 return None
+
 
             if fits_master_close is not None:
 
                 # if master bias subtraction switch is off, the master
                 # bias is still prepared; only show message below in
                 # case switch is on, otherwise it is confusing
-                if ((imtype=='bias' and get_par(set_bb.subtract_mbias,tel))
-                    or imtype=='flat'):
+                if ((imgtype=='bias' and get_par(set_bb.subtract_mbias,tel))
+                    or imgtype=='flat'):
                     log.warning ('using {} as master for evening date {}'
                                  .format(fits_master_close, date_eve))
 
@@ -4133,48 +4105,54 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True):
                 # a negligible amount of time
                 # os.symlink(fits_master_close, fits_master)
                 fits_master = fits_master_close
-                
+
             else:
-                if ((imtype=='bias' and get_par(set_bb.subtract_mbias,tel))
-                    or imtype=='flat'):
-                    log.error('no alternative master {} found'
-                              .format(msg))
+                if ((imgtype=='bias' and get_par(set_bb.subtract_mbias,tel))
+                    or imgtype=='flat'):
+                    log.error('no alternative master {} found'.format(msg))
 
                 return None
-                
+
         else:
 
-            if imtype=='flat':
+            # create the master frame
+
+            if imgtype=='flat':
                 msg = 'flat in filter {}'.format(filt)
             else:
-                msg = imtype
+                msg = imgtype
 
-            log.info ('making master {} for night {}'.format(msg, date_eve))
-            if imtype=='bias':
+                log.info ('making {} master {} for night {}'.format(tel, msg,
+                                                                    date_eve))
+            if imgtype=='bias':
                 if not get_par(set_bb.subtract_mbias,tel):
                     log.info ('(but will not be applied to input image '
                               'as [subtract_mbias] is set to False)')
+
 
             # assuming that individual flats/biases have the same
             # shape as the input data
             ysize, xsize = data_shape
             master_cube = np.zeros((nfiles, ysize, xsize), dtype='float32')
 
-            # initialize master header
-            header_master = fits.Header()        
 
-            # fill the cube
+            # initialize master header
+            header_master = fits.Header()
+
+
+            # fill the cube; ra_flats and dec_flats are used to check
+            # offsets between flats
             ra_flats = []
             dec_flats = []
             for i_file, filename in enumerate(file_list):
 
-                master_cube[i_file], header_temp = read_hdulist(filename,
-                                                                get_header=True)
+                master_cube[i_file], header_tmp = read_hdulist(filename,
+                                                               get_header=True)
 
-                if imtype=='flat':
+                if imgtype=='flat':
                     # divide by median over the region [set_bb.flat_norm_sec]
-                    if 'MEDSEC' in header_temp:
-                        median = header_temp['MEDSEC']
+                    if 'MEDSEC' in header_tmp:
+                        median = header_tmp['MEDSEC']
                     else:
                         index_flat_norm = get_par(set_bb.flat_norm_sec,tel)
                         median = np.median(master_cube[i_file][index_flat_norm])
@@ -4186,69 +4164,80 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True):
                         master_cube[i_file] /= median
 
                     # collect RA and DEC to check for dithering
-                    if 'RA' in header_temp and 'DEC' in header_temp:
-                        ra_flats.append(header_temp['RA'])
-                        dec_flats.append(header_temp['DEC'])
+                    if 'RA' in header_tmp and 'DEC' in header_tmp:
+                        ra_flats.append(header_tmp['RA'])
+                        dec_flats.append(header_tmp['DEC'])
+
 
                 # copy some header keyword values from first file
                 if i_file==0:
                     for key in ['IMAGETYP', 'DATE-OBS', 'FILTER', 'RA', 'DEC',
-                                'XBINNING', 'YBINNING', 'MJD-OBS', 'AIRMASS', 
+                                'XBINNING', 'YBINNING', 'MJD-OBS', 'AIRMASS',
                                 'ORIGIN', 'TELESCOP', 'PYTHON-V', 'BB-V']:
-                        if key in header_temp:
-                            header_master[key] = (header_temp[key],
-                                                  header_temp.comments[key])
+                        if key in header_tmp:
+                            header_master[key] = (header_tmp[key],
+                                                  header_tmp.comments[key])
 
 
-                if imtype=='flat':
+                if imgtype=='flat':
                     comment = 'name reduced flat'
                 else:
-                    comment = 'name gain/os-corrected {} frame'.format(imtype)
+                    comment = 'name gain/os-corrected {} frame'.format(imgtype)
 
-                header_master['{}{}'.format(imtype.upper(), i_file+1)] = (
+                # add name reduced calibration file to master header
+                header_master['{}{}'.format(imgtype.upper(), i_file+1)] = (
                     filename.split('/')[-1].split('.fits')[0],
                     '{} {}'.format(comment, i_file+1))
-                
-                if 'ORIGFILE' in header_temp.keys():
-                    header_master['{}OR{}'.format(imtype.upper(), i_file+1)] = (
-                        header_temp['ORIGFILE'], 'name original {} {}'
-                        .format(imtype, i_file+1))
+
+                # add original name of calibration file to master header
+                if 'ORIGFILE' in header_tmp.keys():
+                    header_master['{}OR{}'.format(imgtype.upper(), i_file+1)] = (
+                        header_tmp['ORIGFILE'], 'name original {} {}'
+                        .format(imgtype, i_file+1))
 
                 # also copy a few header keyword values from the last file
                 if i_file==nfiles-1:
                     for key in ['DATE-END', 'MJD-END']:
-                        if key in header_temp:
-                            header_master[key] = (header_temp[key],
-                                                  header_temp.comments[key])
-                    
+                        if key in header_tmp:
+                            header_master[key] = (header_tmp[key],
+                                                  header_tmp.comments[key])
+
+
             # determine the median
             master_median = np.median(master_cube, axis=0)
 
+
             # add number of files combined
-            header_master['N{}'.format(imtype.upper())] = (
-                nfiles, 'number of {} frames combined'.format(imtype.lower()))
+            header_master['N{}'.format(imgtype.upper())] = (
+                nfiles, 'number of {} frames combined'.format(imgtype.lower()))
+
 
             # add time window used
-            header_master['{}-WIN'.format(imtype.upper())] = (
+            header_master['{}-WIN'.format(imgtype.upper())] = (
                 nwindow, '[days] input time window to include {} frames'
-                .format(imtype.lower()))
+                .format(imgtype.lower()))
 
-            # add some header keywords to the master flat
-            if imtype=='flat':
-                sec_temp = get_par(set_bb.flat_norm_sec,tel)
-                value_temp = '[{}:{},{}:{}]'.format(
-                    sec_temp[0].start+1, sec_temp[0].stop+1, 
-                    sec_temp[1].start+1, sec_temp[1].stop+1) 
+
+            # add some more header keywords to the master flat
+            if imgtype=='flat':
+
+                sec_tmp = get_par(set_bb.flat_norm_sec,tel)
+                value_tmp = '[{}:{},{}:{}]'.format(
+                    sec_tmp[0].start+1, sec_tmp[0].stop+1,
+                    sec_tmp[1].start+1, sec_tmp[1].stop+1)
                 header_master['STATSEC'] = (
-                    value_temp, 'pre-defined statistics section [y1:y2,x1:x2]')
+                    value_tmp, 'pre-defined statistics section [y1:y2,x1:x2]')
+
 
                 header_master['MFMEDSEC'] = (
-                    np.median(master_median[sec_temp]), 
+                    np.median(master_median[sec_tmp]),
                     'median master flat over STATSEC')
-                
+
+
                 header_master['MFSTDSEC'] = (
-                    np.std(master_median[sec_temp]),
+                    np.std(master_median[sec_tmp]),
                     'sigma (STD) master flat over STATSEC')
+
 
                 # "full" image statistics
                 index_stat = get_rand_indices(master_median.shape)
@@ -4257,6 +4246,7 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True):
                 header_master['MFMED'] = (median_master, 'median master flat')
                 header_master['MFSTD'] = (std_master, 'sigma (STD) master flat')
 
+
                 # check if flats were dithered; calculate offset in
                 # arcsec of each flat with respect to the previous one
                 ra_flats = np.array(ra_flats)
@@ -4264,24 +4254,29 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True):
                 noffset = 0
                 offset_mean = 0
                 if len(ra_flats) > 0 and len(dec_flats) > 0:
-                    offset = 3600. * haversine (ra_flats, dec_flats, 
-                                                np.roll(ra_flats,1), np.roll(dec_flats,1))
+                    offset = 3600. * haversine (ra_flats, dec_flats,
+                                                np.roll(ra_flats,1),
+                                                np.roll(dec_flats,1))
                     # count how many were offset by at least 5"
                     mask_off = (offset >= 5)
                     noffset = np.sum(mask_off)
                     if noffset > 0:
                         offset_mean = np.mean(offset[mask_off])
 
-                        
-                header_master['N-OFFSET'] = (noffset, 
-                                             'number of flats with offsets > 5 arcsec')
-                header_master['OFF-MEAN'] = (offset_mean, 
+
+                header_master['N-OFFSET'] = (noffset, 'number of flats with '
+                                             'offsets > 5 arcsec')
+                header_master['OFF-MEAN'] = (offset_mean,
                                              '[arcsec] mean dithering offset')
+
                 if float(noffset)/nfiles >= 0.66:
                     flat_dithered = True
                 else:
                     flat_dithered = False
-                header_master['FLATDITH'] = (flat_dithered, 'majority of flats were dithered')
+
+                header_master['FLATDITH'] = (flat_dithered,
+                                             'majority of flats were dithered')
+
 
                 # set edge and non-positive pixels to 1; edge pixels
                 # are identified by reading in bad pixel mask as
@@ -4290,29 +4285,33 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True):
                 # [masters_left]
                 fits_bpm = (get_par(set_bb.bad_pixel_mask,tel)
                             .replace('bpm', 'bpm_{}'.format(filt)))
-                bpm_present, fits_bpm = already_exists (fits_bpm, get_filename=True)
+                bpm_present, fits_bpm = already_exists (fits_bpm,
+                                                        get_filename=True)
+
                 if bpm_present:
                     # if mask exists, read it
                     data_mask = read_hdulist(fits_bpm)
                     mask_replace = ((data_mask==get_par(
                         set_zogy.mask_value['edge'],tel)) | (master_median<=0))
                     master_median[mask_replace] = 1
-                    
 
-                # now that master flat is produced, calculate (but do
-                # not apply) the different channels' normalization
+
+                # now that master flat is produced, calculate - but do
+                # not apply - the different channels' normalization
                 # factors such that the resulting image would appear
                 # smooth without any jumps in levels between the
                 # different channels
-
-                __, __, __, __, data_sec_red = define_sections(data_shape, tel=tel)
+                __, __, __, __, data_sec_red = define_sections(data_shape,
+                                                               tel=tel)
                 nchans = np.shape(data_sec_red)[0]
                 med_chan_cntr = np.zeros(nchans)
                 std_chan_cntr = np.zeros(nchans)
 
+
                 # copy of master_median
                 master_median_corr = np.copy(master_median)
-                
+
+
                 # first match the channels vertically, by using the
                 # statistics of the regions at the top of the bottom
                 # channels and bottom of the top channels
@@ -4323,19 +4322,22 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True):
                         med_chan_cntr[i_chan] = np.median(data_chan[-nrows:,:])
                     else:
                         med_chan_cntr[i_chan] = np.median(data_chan[0:nrows,:])
-                        
+
                     # correct master image channel
                     master_median_corr[data_sec_red[i_chan]] /= med_chan_cntr[i_chan]
-                        
+
+
                 # channel correction factor applied so far
                 factor_chan = 1./med_chan_cntr
-                                
+
+
                 # now match channels horizontally
                 ysize, xsize = data_shape
                 ny = get_par(set_bb.ny,tel)
                 nx = get_par(set_bb.nx,tel)
                 dy = ysize // ny
                 dx = xsize // nx
+
 
                 nrows = 2000
                 ncols = 200
@@ -4344,26 +4346,36 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True):
                     # of the 4 being considered
                     y_index = dy
                     x_index = i*dx
+
                     # statistics of right side of previous channel pair
                     data_stat1 = master_median_corr[y_index-nrows:y_index+nrows,
                                                     x_index-ncols:x_index]
-                    # statistics of right side of previous channel pair
+
+                    # statistics of left side of current channel pair
                     data_stat2 = master_median_corr[y_index-nrows:y_index+nrows,
                                                     x_index:x_index+ncols]
                     ratio = np.median(data_stat1)/np.median(data_stat2)
+
                     # correct relevant channels
                     master_median_corr[data_sec_red[i]] *= ratio
                     master_median_corr[data_sec_red[i+nx]] *= ratio
+
                     # update correction factor
                     factor_chan[i] *= ratio
                     factor_chan[i+nx] *= ratio
 
 
-                # normalise corrected master to [flat_norm_sec] section
-                sec_temp = get_par(set_bb.flat_norm_sec,tel)
-                ratio_norm = np.median(master_median_corr[sec_temp])
-                master_median_corr /= ratio_norm
-                factor_chan /= ratio_norm
+                if False:
+                    # normalize corrected master to [flat_norm_sec] section
+                    sec_tmp = get_par(set_bb.flat_norm_sec,tel)
+                    ratio_norm = np.median(master_median_corr[sec_tmp])
+                    master_median_corr /= ratio_norm
+                    factor_chan /= ratio_norm
+
+
+                # normalize correction factors to an average of unity
+                factor_chan /= np.mean(factor_chan)
+
 
                 # add factor_chan values to header
                 for i_chan in range(nchans):
@@ -4371,8 +4383,8 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True):
                         factor_chan[i_chan], 'channel {} gain correction factor'
                         .format(i_chan+1))
 
-                    
-            elif imtype=='bias':
+
+            elif imgtype=='bias':
 
                 # add some header keywords to the master bias
                 index_stat = get_rand_indices(master_median.shape)
@@ -4395,17 +4407,19 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True):
                     index_stat = get_rand_indices(data_chan.shape)
                     mean_chan[i_chan], __, std_chan[i_chan] = sigma_clipped_stats(
                         data_chan[index_stat], mask_value=0)
+
                 for i_chan in range(nchans):
                     header_master['MBIASM{}'.format(i_chan+1)] = (
                         mean_chan[i_chan], '[e-] channel {} mean master bias'
                         .format(i_chan+1))
+
                 for i_chan in range(nchans):
                     header_master['MBRDN{}'.format(i_chan+1)] = (
                         std_chan[i_chan], '[e-] channel {} sigma (STD) master '
                         'bias'.format(i_chan+1))
 
 
-            elif imtype=='dark':
+            elif imgtype=='dark':
 
                 # add some header keywords to the master dark
                 index_stat = get_rand_indices(master_median.shape)
@@ -4428,77 +4442,152 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True):
                     index_stat = get_rand_indices(data_chan.shape)
                     mean_chan[i_chan], __, std_chan[i_chan] = sigma_clipped_stats(
                         data_chan[index_stat], mask_value=0)
+
                 for i_chan in range(nchans):
                     header_master['MDARKM{}'.format(i_chan+1)] = (
                         mean_chan[i_chan], '[e-] channel {} mean master dark'
                         .format(i_chan+1))
+
                 for i_chan in range(nchans):
                     header_master['MDRDN{}'.format(i_chan+1)] = (
                         std_chan[i_chan], '[e-] channel {} sigma (STD) master '
                         'dark'.format(i_chan+1))
 
-                    
+
             # call [run_qc_check] to update master header with any QC flags
             run_qc_check (header_master, tel)
-            # make dir for output file if it doesn't exist yet
-            make_dir (os.path.split(fits_master)[0])
-            # write to output file
-            header_master['DATEFILE'] = (Time.now().isot, 'UTC date of writing '
-                                         'file')
-            fits.writeto(fits_master, master_median.astype('float32'),
-                         header_master, overwrite=True)
-            # fpack
-            fits_master = fpack (fits_master)
-            # create jpg
-            create_jpg (fits_master)
 
-            
+            # write fits
+            fits_master = write_fits (
+                fits_master, master_median.astype('float32'), header_master,
+                master=True)
+
 
     if get_par(set_zogy.timing,tel):
         log_timing_memory (t0=t, label='master_prep')
+
 
     return fits_master
 
 
 ################################################################################
 
-def get_closest_biasflat (date_eve, file_type, filt=None):
+def delta_one_month (date_eve, dmonth):
+
+    # make sure there are no characters in [date_eve]
+    date_eve = ''.join(e for e in date_eve if e.isdigit())
+
+    if dmonth == 0:
+        # mjd of date_eve
+        mjd_noon = date2mjd('{}'.format(date_eve), time_str='12:00')
+
+    elif dmonth == -1:
+        # mjd of last day of last month
+        day = int(date_eve[6:8])
+        mjd_noon = date2mjd('{}'.format(date_eve), time_str='12:00') - (day+1)
+
+    elif dmonth == 1:
+        # mjd of first day of next month
+        year = int(date_eve[0:4])
+        month = int(date_eve[4:6])
+        day = 1
+        if month == 12:
+            year += 1
+            month = 1
+        else:
+            month += 1
+
+        date_eve_new = '{}{:02}{:02}'.format(year, month, day)
+        mjd_noon = date2mjd('{}'.format(date_eve_new), time_str='12:00')
+
+    else:
+        log.error ('maximum [dmonth] in [delta_one_month] is 1')
+
+
+    # return corresponding path without the day: yyyy/mm/
+    return (Time(mjd_noon, format='mjd').isot.split('T')[0]
+            .replace('-','/'))[0:8]
+
+
+################################################################################
+
+def get_closest_master (date_eve, imgtype, filt=None):
+
+    log.info ('running get_closest_master')
 
     if get_par(set_zogy.timing,tel):
         t = time.time()
-        
-    red_dir = get_par(set_bb.red_dir,tel)
-    search_str = '{}/*/*/*/{}/{}_????????'.format(red_dir, file_type, file_type)
-    if filt is None:
-        search_str = '{}.fits*'.format(search_str)
-    else:
-        search_str = '{}_{}.fits*'.format(search_str, filt)
 
-    files = glob.glob(search_str)
-    nfiles = len(files)
-    
+    # base path to directory with master frames
+    master_dir = get_par(set_bb.master_dir,tel)
+
+
+    # search window in months on either side of evening date [date_eve]
+    # N.B.: maximum of one!
+    nwindow = 1
+
+
+    # go through search window
+    file_list = []
+    for n_month in range(-nwindow, nwindow+1):
+
+        # use function [delta_one_month] to extract path yyyy/mm/
+        date_tmp = delta_one_month (date_eve, n_month)
+
+        # create path to be used in [list_files]:
+        # [master_dir]/yyyy/mm
+        path_tmp = '{}/{}'.format(master_dir, date_tmp)
+
+        # start string, [tel]_[imgtype]_, e.g. 'ML1_bias_'
+        start_str = '{}_{}_'.format(tel, imgtype)
+
+        # end_str of filename, where filter can be specified for flats
+        if imgtype=='flat':
+            end_str = '{}.fits.fz'.format(filt)
+        else:
+            end_str = '.fits.fz'
+
+        # collect files
+        file_list.append(list_files(path_tmp, start_str=start_str,
+                                    end_str=end_str, recursive=True))
+
+
+
+    # clean up lists in [file_list] and sort
+    file_list = sorted([f for sublist in file_list for f in sublist])
+    nfiles = len(file_list)
+
+
+    # list of evening dates corresponding to file_list
+    list_date_eve = [''.join(f.split('/')[-5:-2]) for f in file_list]
+
+
+    # find file that is closest in time to [date_eve]
     if nfiles > 0:
-        # find file that is closest in time to [date_eve]
-        mjds = np.array([date2mjd(files[i].split('/')[-1].split('_')[1])
-                         for i in range(nfiles)])
+        #mjds = np.array([date2mjd(file_list[i].split('/')[-1].split('_')[1])
+        #                 for i in range(nfiles)])
+        mjds = np.array([date2mjd(date) for date in list_date_eve])
+
         # these mjds corresponding to the very start of the day
         # (midnight) but in the comparison this offset cancels out
         i_close = np.argmin(abs(mjds - date2mjd(date_eve)))
-        par2return = files[i_close]
+        par2return = file_list[i_close]
 
     else:
         par2return = None
-    
+
+
     if get_par(set_zogy.timing,tel):
-        log_timing_memory (t0=t, label='get_closest_biasflat')
+        log_timing_memory (t0=t, label='get_closest_master')
+
 
     return par2return
 
-    
+
 ################################################################################
 
 def date2mjd (date_str, time_str=None, get_jd=False):
-    
+
     """convert [date_str] and [time_str] to MJD or JD with possible
     formats: yyyymmdd or yyyy-mm-dd for [date_str] and hhmmss[.s] or
     hh:mm[:ss.s] for [time_str]
@@ -4515,25 +4604,25 @@ def date2mjd (date_str, time_str=None, get_jd=False):
             time_str = '{}:{}:{}'.format(time_str[0:2],
                                          time_str[2:4],
                                          time_str[4:])
-        date_str = '{} {}'.format(date_str, time_str) 
+        date_str = '{} {}'.format(date_str, time_str)
 
-        
+
     if get_jd:
         return Time(date_str).jd
     else:
         return Time(date_str).mjd
-    
+
 
 ################################################################################
 
 def check_header1 (header, filename):
-    
+
     header_ok = True
 
     # check that all crucial keywords are present in the header; N.B.:
     # [sort_files] function near top of BlackBOX already requires the
     # IMAGETYP keyword so this need not really be checked here
-    
+
     # crucial keywords for any image type
     for key in ['IMAGETYP', 'DATE-OBS', 'FILTER']:
         if key not in header:
@@ -4548,7 +4637,7 @@ def check_header1 (header, filename):
     # define imgtype
     imgtype = header['IMAGETYP'].lower()
 
-    
+
     # for early ML data, header keyword FIELD_ID instead of OBJECT was
     # used for the field identification
     if 'FIELD_ID' in header:
@@ -4584,7 +4673,7 @@ def check_header1 (header, filename):
                 log.error ('OBJECT (or FIELD_ID) not in range 1-19999; '
                            'not processing {}'.format(filename))
                 header_ok = False
-   
+
 
         # remaining important keywords; for biases, darks and flats, these
         # keywords are not strictly necessary (although for flats they are
@@ -4622,14 +4711,14 @@ def radec_offset (header, filename):
     mlbg_fieldIDs = get_par(set_bb.mlbg_fieldIDs,tel)
     #table_grid = ascii.read(mlbg_fieldIDs, names=['ID', 'RA', 'DEC'],
     #                        data_start=0)
-    table_grid = Table.read(mlbg_fieldIDs)
-    
-    
+    table_grid = Table.read(mlbg_fieldIDs, memmap=True)
+
+
     if 'RA-CNTR' in header and 'DEC-CNTR' in header:
-        
+
         ra_cntr = header['RA-CNTR']
         dec_cntr = header['DEC-CNTR']
-        
+
         # find relevant object/field ID in field definition
         obj = header['OBJECT']
         mask_match = (table_grid['field_id'].astype(int) == int(obj))
@@ -4669,7 +4758,7 @@ def radec_offset (header, filename):
 ################################################################################
 
 def check_header2 (header, filename):
-    
+
     header_ok = True
 
     # check if the field ID and RA-REF, DEC-REF combination is
@@ -4678,7 +4767,7 @@ def check_header2 (header, filename):
     offset_max = 10.
 
     mlbg_fieldIDs = get_par(set_bb.mlbg_fieldIDs,tel)
-    table_grid = Table.read(mlbg_fieldIDs)
+    table_grid = Table.read(mlbg_fieldIDs, memmap=True)
     imgtype = header['IMAGETYP'].lower()
     if imgtype=='object':
         obj = header['OBJECT']
@@ -4720,7 +4809,7 @@ def check_header2 (header, filename):
 
 
     # if binning is not 1x1, also skip processing
-    if 'XBINNING' in header and 'YBINNING' in header: 
+    if 'XBINNING' in header and 'YBINNING' in header:
         if int(header['XBINNING']) != 1 or int(header['YBINNING']) != 1:
             log.error ('BINNING not 1x1; not processing {}'.format(filename))
 
@@ -4758,7 +4847,7 @@ def set_header(header, filename):
             else:
                 log.warning ('dtype of keyword {} is not updated'.format(key))
 
-                
+
     edit_head(header, 'NAXIS', comments='number of array dimensions')
     edit_head(header, 'NAXIS1', comments='length of array axis')
     edit_head(header, 'NAXIS2', comments='length of array axis')
@@ -4769,10 +4858,10 @@ def set_header(header, filename):
     edit_head(header, 'BZERO', comments='value = fits_value*BSCALE+BZERO')
     #edit_head(header, 'CCD-AMP', value='', comments='Amplifier mode of the CCD camera')
     #edit_head(header, 'CCD-SET', value='', comments='CCD settings file')
-   
+
     edit_head(header, 'CCD-TEMP', value='None',
               comments='[C] Current CCD temperature')
-        
+
     if 'XBINNING' in header:
         edit_head(header, 'XBINNING', comments='[pix] Binning factor X axis')
     else:
@@ -4782,7 +4871,7 @@ def set_header(header, filename):
         xbinning = int(np.ceil(float(nx*dx)/xsize))
         edit_head(header, 'XBINNING', value=xbinning,
                   comments='[pix] Binning factor X axis')
-        
+
     if 'YBINNING' in header:
         edit_head(header, 'YBINNING', comments='[pix] Binning factor Y axis')
     else:
@@ -4796,12 +4885,12 @@ def set_header(header, filename):
 
     edit_head(header, 'RADESYS', value='ICRS',
               comments='Coordinate reference frame')
-    edit_head(header, 'EPOCH', value=2015.5,
+    edit_head(header, 'EPOCH', value=get_par(set_zogy.cal_epoch,tel),
               comments='Coordinate reference epoch')
 
     edit_head(header, 'DOMEAZ', value='None', dtype=float,
               comments='[deg] Dome azimuth (N=0;E=90)')
-    
+
 
     edit_head(header, 'FLIPSTAT', value='None',
               comments='Telescope side of the pier')
@@ -4824,7 +4913,7 @@ def set_header(header, filename):
     else:
         edit_head(header, 'ACQEND', value='None',
                   comments='end of acquisition (server timing)')
-        
+
 
     # for some flatsfieds, IMAGETYP was erroneously set to Object;
     # update those
@@ -4840,10 +4929,10 @@ def set_header(header, filename):
     # keywords, and if they do, the keyword values are actually
     # identical to those of the image preceding the bias/dark), then
     # just adopt the original DATE-OBS (=ACQSTART) as the date of
-    # observation    
+    # observation
     if ('GPSSTART' in header and 'GPSEND' in header and
         (imgtype == 'object' or imgtype == 'flat')):
-        
+
         # replace DATE-OBS with (GPSSTART+GPSEND)/2
         gps_mjd = Time([header['GPSSTART'], header['GPSEND']], format='isot').mjd
         mjd_obs = np.sum(gps_mjd)/2.
@@ -4852,21 +4941,22 @@ def set_header(header, filename):
                   comments='Midexp. date @img cntr:(GPSSTART+GPSEND)/2')
 
         # change from a string to time class
-        date_obs = Time(date_obs_str, format='isot') 
+        date_obs = Time(date_obs_str, format='isot')
 
         # also add keyword to check (GPSEND-GPSSTART) - EXPTIME
         gps_shut = (gps_mjd[1]-gps_mjd[0])*24*3600. - float(header['EXPTIME'])
         edit_head(header, 'GPS-SHUT', value=gps_shut,
                   comments='[s] Shutter time:(GPSEND-GPSSTART)-EXPTIME')
-        
+
     else:
         date_obs_str = header['DATE-OBS']
         date_obs = Time(date_obs_str, format='isot')
         # DATE-OBS already present; just edit the comments
         edit_head(header, 'DATE-OBS', comments='Date at start (=ACQSTART)')
         mjd_obs = Time(date_obs, format='isot').mjd
-        
-        
+
+
+
     edit_head(header, 'GPSSTART', value='None',
               comments='GPS timing start of opening shutter')
     edit_head(header, 'GPSEND', value='None',
@@ -4878,7 +4968,7 @@ def set_header(header, filename):
 
     edit_head(header, 'MJD-OBS', value=mjd_obs,
               comments='[d] MJD (based on DATE-OBS)')
-    
+
     # in degrees:
     lon_temp = get_par(set_zogy.obs_lon,tel)
     lst = date_obs.sidereal_time('apparent', longitude=lon_temp)
@@ -4887,11 +4977,11 @@ def set_header(header, filename):
     lst_str = lst.to_string(sep=':', precision=3)
     edit_head(header, 'LST', value=lst_str,
               comments='apparent LST (based on DATE-OBS)')
-        
+
     utc = (mjd_obs-np.floor(mjd_obs)) * 3600. * 24
     edit_head(header, 'UTC', value=utc, comments='[s] UTC (based on DATE-OBS)')
     edit_head(header, 'TIMESYS', value='UTC', comments='Time system used')
-    
+
 
     # telescope latitude, longitude and height (used for AIRMASS and
     # SITELONG, SITELAT and ELEVATIO)
@@ -4940,7 +5030,7 @@ def set_header(header, filename):
                 'DEC-REF' in header):
                 ra_icrs = Angle(header['RA-REF'], unit=u.hour).degree
                 dec_icrs = Angle(header['DEC-REF'], unit=u.deg).degree
-                
+
                 # RA-REF and DEC-REF are assumed to be J2000/ICRS,
                 # so no need to convert from JNOW
                 edit_head(header, 'RA', value=ra_icrs,
@@ -4951,7 +5041,7 @@ def set_header(header, filename):
         # determine airmass
         airmass, alt, az = get_airmass(ra_icrs, dec_icrs, date_obs_str, lat, lon,
                                        height, get_altaz=True)
-        edit_head(header, 'AIRMASS', value=float(airmass), 
+        edit_head(header, 'AIRMASS', value=float(airmass),
                   comments='Airmass (based on RA, DEC, DATE-OBS)')
 
         # ALTITUDE and AZIMUTH not always present in raw header, so
@@ -4984,13 +5074,13 @@ def set_header(header, filename):
     coords_moon = get_moon(date_obs, location)
     moon_ra = coords_moon.ra.deg
     moon_dec = coords_moon.dec.deg
-    
+
     if 'RA' in header and 'DEC' in header:
         coords = SkyCoord (ra_icrs, dec_icrs, unit='deg', frame='icrs')
         moon_sep = coords_moon.separation(coords).deg
     else:
         moon_sep = 'None'
-        
+
     moon_altaz = coords_moon.transform_to(AltAz(obstime=date_obs,
                                                 location=location))
     moon_ill = moon.moon_illumination (date_obs)
@@ -5017,12 +5107,12 @@ def set_header(header, filename):
 
     # do not consider RA-TEL and DEC-TEL anymore for the reduced header
     if False:
-    
+
         if 'RA-TEL' in header and 'DEC-TEL' in header:
 
             ra_tel_deg = float(header['RA-TEL'])
             dec_tel_deg = float(header['DEC-TEL'])
-            
+
             # convert RA-TEL value from hours to degrees; assume that
             # until 15-03-2019 RA-TEL was in degrees, afterwards in hours,
             # although for many bias and other calibration frames it was
@@ -5036,21 +5126,21 @@ def set_header(header, filename):
             equinox = Time(mjd_obs, format='mjd').jyear_str
             ra_tel_icrs, dec_tel_icrs = jnow2icrs (ra_tel_deg, dec_tel_deg,
                                                    equinox)
-            
+
             edit_head(header, 'RA-TEL', value=ra_tel_icrs,
                       comments='[deg] Telescope right ascension (ICRS)')
             edit_head(header, 'DEC-TEL', value=dec_tel_icrs,
                       comments='[deg] Telescope declination (ICRS)')
 
         else:
-        
+
             # if not available in raw header, add them with 'None' values
             edit_head(header, 'RA-TEL', value='None',
                       comments='[deg] Telescope right ascension')
             edit_head(header, 'DEC-TEL', value='None',
                       comments='[deg] Telescope declination')
 
-    
+
     # now that RA/DEC are (potentially) corrected, determine local
     # hour angle; this keyword was in the raw image header for a while,
     # but seems to have disappeared during the 2nd half of March 2019
@@ -5127,14 +5217,14 @@ def set_header(header, filename):
               comments='[km/h] Vaisala wind gust mast')
     edit_head(header, 'WINDDIR',  value='None', dtype=float,
               comments='[deg] Vaisala wind direction mast')
-    
-    
+
+
     edit_head(header, 'FILTER', comments='Filter')
     if tel=='ML1':
         # for some 2017 data, 'VR' was used for 'q':
         if header['FILTER'] == 'VR':
             edit_head(header, 'FILTER', value='q')
-                
+
         # for ML1: filter is incorrectly identified in the header for data
         # taken with Abot from 2017-11-19T00:00:00 until 2019-01-13T15:00:00.
         # Divided this time in a transition period (from 2017-11-19T00:00:00
@@ -5148,7 +5238,7 @@ def set_header(header, filename):
         filt_corr = {'u':'q',
                      'g':'r',
                      'q':'i',
-                     'r':'g', 
+                     'r':'g',
                      'i':'z',
                      'z':'u'}
 
@@ -5182,7 +5272,7 @@ def set_header(header, filename):
               comments='[micron] Focuser position')
 
     if tel=='ML1':
-        origin = 'MeerLICHT-1, Sutherland'
+        origin = 'MeerLICHT-1,Sutherland'
         mpc_code = 'L66'
         telescop = 'MeerLICHT-1'
     if tel[0:2]=='BG':
@@ -5215,7 +5305,7 @@ def set_header(header, filename):
     edit_head(header, 'ORIGFILE', value=filename.split('/')[-1].split('.fits')[0],
               comments='ABOT name')
 
-    
+
     edit_head(header, 'OBSERVER', value='None', dtype=str,
               comments='Robotic observations software and PC ID')
     edit_head(header, 'ABOTVER',  value='None', dtype=str, comments='ABOT version')
@@ -5231,10 +5321,10 @@ def set_header(header, filename):
               comments='[mm] Position offset ADC lens in x')
     edit_head(header, 'ADCY',     value='None', dtype=float,
               comments='[mm] Position offset ADC lens in y')
-    
-    
+
+
     # remove the following keywords:
-    keys_2remove = ['FILTWHID', 'FOC-ID', 'EXPOSURE', 'END-OBS', 'FOCUSMIT', 
+    keys_2remove = ['FILTWHID', 'FOC-ID', 'EXPOSURE', 'END-OBS', 'FOCUSMIT',
                     'FOCUSAMT', 'OWNERGNM', 'OWNERGID', 'OWNERID',
                     'AZ-REF', 'ALT-REF', 'CCDFULLH', 'CCDFULLW', 'RADECSYS',
                     'RA-TEL', 'DEC-TEL']
@@ -5243,7 +5333,7 @@ def set_header(header, filename):
             log.info ('removing keyword {}'.format(key))
             header.remove(key, remove_all=True)
 
-            
+
     # put some order in the header
     keys_sort = ['SIMPLE', 'BITPIX', 'NAXIS', 'NAXIS1', 'NAXIS2',
                  'BUNIT', 'BSCALE', 'BZERO',
@@ -5258,9 +5348,9 @@ def set_header(header, filename):
                  'SITELAT', 'SITELONG', 'ELEVATIO', 'AIRMASS',
                  'MOON-RA', 'MOON-DEC', 'MOON-SEP',
                  'MOON-ALT', 'MOON-AZ', 'MOON-ILL',
-                 'SET-TEMP', 'CCD-TEMP', 'CCD-ID', 'CONTROLL', 'DETSPEED', 
+                 'SET-TEMP', 'CCD-TEMP', 'CCD-ID', 'CONTROLL', 'DETSPEED',
                  'CCD-NW', 'CCD-NH', 'FOCUSPOS',
-                 'ORIGIN', 'MPC-CODE', 'TELESCOP', 'INSTRUME', 
+                 'ORIGIN', 'MPC-CODE', 'TELESCOP', 'INSTRUME',
                  'OBSERVER', 'ABOTVER', 'PROGNAME', 'PROGID', 'ORIGFILE',
                  'GUIDERST', 'GUIDERFQ', 'TRAKTIME', 'ADCX', 'ADCY',
                  'CL-BASE', 'RH-MAST', 'RH-DOME', 'RH-AIRCO', 'RH-PIER',
@@ -5276,7 +5366,7 @@ def set_header(header, filename):
             # append key, value and comments to new header
             header_sort.append((key, header[key], header.comments[key]))
         else:
-            log.warning ('keyword {} not in header'.format(key))            
+            log.warning ('keyword {} not in header'.format(key))
 
     return header_sort
 
@@ -5287,18 +5377,18 @@ def jnow2icrs (ra_in, dec_in, equinox, icrs2jnow=False):
 
     """function to convert RA and DEC coordinates in decimal degrees to
        ICRS, or back using icrs2jnow=True
-    
+
     """
 
     if icrs2jnow:
         coords = SkyCoord(ra_in*u.degree, dec_in*u.degree, frame='icrs')
         jnow = FK5(equinox=equinox)
         coords_out = coords.transform_to(jnow)
-        
+
     else:
         coords_out = SkyCoord(ra_in*u.degree, dec_in*u.degree, frame='fk5',
                               equinox=equinox).icrs
-        
+
     return coords_out.ra.value, coords_out.dec.value
 
 
@@ -5364,7 +5454,7 @@ def define_sections (data_shape, xbin=1, ybin=1, tel=None):
     os_sec_hori = tuple([(slice(y,y+ysize_os_cut), slice(x,x+dx))
                          for y in range(dy-ysize_os_cut,dy+ysize_os_cut,ysize_os_cut)
                          for x in range(0,xsize,dx)])
-    
+
     # channel reduced data section slices; shape=(16,2)
     data_sec_red = tuple([(slice(y,y+ysize_chan), slice(x,x+xsize_chan))
                           for y in range(0,ysize-ny*ysize_os,ysize_chan)
@@ -5386,7 +5476,7 @@ def os_corr (data, header, imgtype, xbin=1, ybin=1, data_limit=2000, tel=None):
        regions. The [header] is update in place.
 
     """
- 
+
     if get_par(set_zogy.timing,tel):
         t = time.time()
 
@@ -5409,7 +5499,7 @@ def os_corr (data, header, imgtype, xbin=1, ybin=1, data_limit=2000, tel=None):
     # number of data columns and rows in the channel (without overscans)
     ncols = get_par(set_bb.xsize_chan,tel) // xbin
     nrows = get_par(set_bb.ysize_chan,tel) // ybin
-    
+
     # initialize output data array (without overscans)
     ny = get_par(set_bb.ny,tel)
     nx = get_par(set_bb.nx,tel)
@@ -5424,13 +5514,13 @@ def os_corr (data, header, imgtype, xbin=1, ybin=1, data_limit=2000, tel=None):
     nrows_chan = np.shape(data[chan_sec[0]])[0]
     y_vos = np.arange(nrows_chan)
 
-    
+
     for i_chan in range(nchans):
 
         # -----------------
         # vertical overscan
         # -----------------
-        
+
         # first subtract a low-order polynomial fit to the clipped
         # mean (not median!) of the vertical overcan section from the
         # entire channel
@@ -5467,11 +5557,11 @@ def os_corr (data, header, imgtype, xbin=1, ybin=1, data_limit=2000, tel=None):
             if np.isfinite(p_reverse[nc]):
                 value = p_reverse[nc]
             else:
-                value = 'None'              
+                value = 'None'
             header['BIAS{}A{}'.format(i_chan+1, nc)] = (
                 value, '[e-] channel {} vert. overscan A{} polyfit coeff'
                 .format(i_chan+1, nc))
-            
+
         # fit values
         fit_vos_col = np.polyval(p, y_vos)
         if not np.all(np.isfinite(fit_vos_col)):
@@ -5523,7 +5613,7 @@ def os_corr (data, header, imgtype, xbin=1, ybin=1, data_limit=2000, tel=None):
         # interpolate spline over these pixels
         if imgtype == 'object':
             data_hos = inter_pix (data_hos, std_vos[i_chan], mask_hos,
-                                  interp_func='poly', order=2, 
+                                  interp_func='poly', order=2,
                                   dpix=50, fit_neg_values=True)
 
         # determine clipped mean for each column
@@ -5536,11 +5626,11 @@ def os_corr (data, header, imgtype, xbin=1, ybin=1, data_limit=2000, tel=None):
             oscan[0:dcol_half] = mean_hos[0:dcol_half]
         else:
             oscan = mean_hos[0:ncols]
-            
+
         # subtract horizontal overscan
         data[data_sec[i_chan]] -= oscan
         # place into [data_out]
-        data_out[data_sec_red[i_chan]] = data[data_sec[i_chan]] 
+        data_out[data_sec_red[i_chan]] = data[data_sec[i_chan]]
 
 
 
@@ -5569,15 +5659,15 @@ def os_corr (data, header, imgtype, xbin=1, ybin=1, data_limit=2000, tel=None):
     if imgtype == 'flat':
         sec_temp = get_par(set_bb.flat_norm_sec,tel)
         value_temp = '[{}:{},{}:{}]'.format(
-            sec_temp[0].start+1, sec_temp[0].stop+1, 
-            sec_temp[1].start+1, sec_temp[1].stop+1) 
+            sec_temp[0].start+1, sec_temp[0].stop+1,
+            sec_temp[1].start+1, sec_temp[1].stop+1)
         header['STATSEC'] = (
             value_temp, 'pre-defined statistics section [y1:y2,x1:x2]')
-        
+
         header['MEDSEC'] = (
-            np.median(data_out[sec_temp]), 
+            np.median(data_out[sec_temp]),
             '[e-] median flat over STATSEC')
-        
+
         header['STDSEC'] = (
             np.std(data_out[sec_temp]),
             '[e-] sigma (STD) flat over STATSEC')
@@ -5603,7 +5693,7 @@ def xtalk_corr (data, crosstalk_file):
         t = time.time()
 
 
-    if os.path.isfile(crosstalk_file):
+    if isfile(crosstalk_file):
         log.info ('crosstalk file: {}'.format(crosstalk_file))
 
 
@@ -5643,7 +5733,7 @@ def xtalk_corr (data, crosstalk_file):
     #
     # apparently the corrections were determined for the new layout,
     # so the above swap is not necessary
-    
+
     # loop arrays in file and correct the channels accordingly
     for k in range(len(victim)):
         data[chan_sec[int(victim[k])]] -= (
@@ -5655,7 +5745,7 @@ def xtalk_corr (data, crosstalk_file):
     # alternatively, an attempt to do it through matrix
     # multiplication, which should be much faster, but the loop is
     # only taking 1-2 seconds anyway.
-    
+
     # build nchans x nchans correction matrix, such that when
     # matrix-multiplying: data[chan_sec] with the correction matrix,
     # the required crosstalk correction to data[chan_sec] is
@@ -5663,23 +5753,23 @@ def xtalk_corr (data, crosstalk_file):
     #corr_matrix_old = np.zeros((nchans,nchans))
     #for k in range(len(victim)):
     #    corr_matrix_old[int(source[k]-1), int(victim[k]-1)] = correction[k]
-    
+
     # since channels were defined differently, shuffle them around
     #corr_matrix = np.copy(corr_matrix_old)
     #top_left = tuple([slice(0,nchans/2), slice(0,nchans/2)])
     #bottom_right = tuple([slice(nchans/2,nchans), slice(nchans/2,nchans)])
     #corr_matrix[top_left] = corr_matrix_old[bottom_right]
     #corr_matrix[bottom_right] = corr_matrix_old[top_left]
-    
+
     #shape_temp = np.shape(chan_sec[0]) + (nchans,)
     #data_chan_row = np.zeros(shape_temp)
     #data[chan_sec] -= np.matmul(data[chan_sec], corr_matrix)
-    
+
     # N.B.: note that the channel numbering here:
     #
     # [ 0, 1,  2,  3,  4,  5,  6,  7]
     # [ 8, 9, 10, 11, 12, 13, 14, 15]
-    # 
+    #
     # is not the same as that assumed with the gain.
     #
     # height,width = 5300, 1500 # = ccd_sec()
@@ -5711,13 +5801,13 @@ def xtalk_corr (data, crosstalk_file):
     # 15 0 5300 9000 10500
     # 16 0 5300 10500 12000
 
-        
+
     if get_par(set_zogy.timing,tel):
         log_timing_memory (t0=t, label='xtalk_corr')
 
     return data
 
-    
+
 ################################################################################
 
 def nonlin_corr(data, nonlin_corr_file):
@@ -5762,7 +5852,7 @@ def nonlin_corr(data, nonlin_corr_file):
 
     if get_par(set_zogy.timing,tel):
         log_timing_memory (t0=t, label='nonlin_corr')
-        
+
     return data
 
 
@@ -5774,7 +5864,7 @@ def gain_corr(data, header, tel=None):
        for the different channels
 
     """
- 
+
     if get_par(set_zogy.timing,tel):
         t = time.time()
 
@@ -5790,7 +5880,7 @@ def gain_corr(data, header, tel=None):
 
     if get_par(set_zogy.timing,tel):
         log_timing_memory (t0=t, label='gain_corr')
-        
+
     return data
 
     # check if different channels in [set_bb.gain] correspond to the
@@ -5850,14 +5940,14 @@ def get_path (date, dir_type):
 
         # rounds date to microseconds as more digits cannot be
         # defined in the format (next line)
-        #date = Time(date, format='isot').isot 
+        #date = Time(date, format='isot').isot
         #date_format = '%Y-%m-%dT%H:%M:%S.%f'
         #high_noon = 'T12:00:00.0'
-        
+
         if '.' in date:
             # rounds date to microseconds as more digits cannot be
             # defined in the format (next line)
-            date = str(Time(date, format='isot')) 
+            date = str(Time(date, format='isot'))
             date_format = '%Y-%m-%dT%H:%M:%S.%f'
             high_noon = 'T12:00:00.0'
         else:
@@ -5869,7 +5959,7 @@ def get_path (date, dir_type):
         date_noon = date.split('T')[0]+high_noon
         date_local_noon = datetime.strptime(date_noon,date_format).replace(
             tzinfo=gettz(get_par(set_zogy.obs_timezone,tel)))
-        if date_ut < date_local_noon: 
+        if date_ut < date_local_noon:
             # subtract day from date_only
             date = (date_ut - timedelta(1)).strftime('%Y-%m-%d')
         else:
@@ -5879,7 +5969,7 @@ def get_path (date, dir_type):
     # this [date_eve] in format yyyymmdd is also returned
     date_eve = ''.join(e for e in date if e.isdigit())
     date_dir = '{}/{}/{}'.format(date_eve[0:4], date_eve[4:6], date_eve[6:8])
-        
+
 
     if dir_type == 'read':
         root_dir = get_par(set_bb.raw_dir,tel)
@@ -5887,17 +5977,28 @@ def get_path (date, dir_type):
         root_dir = get_par(set_bb.red_dir,tel)
     else:
         log.error ('[dir_type] not one of "read" or "write"')
-        
+
     path = '{}/{}'.format(root_dir, date_dir)
-    if '//' in path:
+
+
+    # remove double forward slashes, but not the ones associated to the
+    # google cloud bucket name
+    path_tmp = path.split('gs://')[-1]
+    if '//' in path_tmp:
         log.info ('replacing double slash in path name: {}'.format(path))
-        path = path.replace('//','/')
-    
+
+        # replace double slash with single one
+        path_tmp = path_tmp.replace('//','/')
+        # put back start of bucket name, which can be an empty string
+        path = '{}{}'.format(path.split(path_tmp)[0], path_tmp)
+
+
+
     return path, date_eve
-    
+
 
 ################################################################################
-    
+
 def get_date_time (header):
     '''Returns image observation date and time in the correct format.
 
@@ -5914,31 +6015,57 @@ def get_date_time (header):
 
 def sort_files(read_path, search_str, recursive=False):
 
-    """Function to sort raw files by type.  Globs all files in read_path
-       and to sorts files into bias, flat and science images using the
-       IMAGETYP header keyword.  Similar to Kerry's function in
-       BGreduce, slightly adapted as sorting by filter is not needed.
+    """Function to sort raw files by type. Lists all files in
+       read_path and to sorts files into bias, flat and science images
+       using the IMAGETYP header keyword. Compatible with Google Cloud
+       buckets.
 
     """
-       
+
     #glob all raw files and sort
-    if recursive:
-        all_files = sorted(glob.glob('{}/**/{}'.format(read_path, search_str),
-                                     recursive=recursive))
+    #if recursive:
+    #    all_files = sorted(glob.glob('{}/**/{}'.format(read_path, search_str),
+    #                                 recursive=recursive))
+    #else:
+    #    all_files = sorted(glob.glob('{}/{}'.format(read_path, search_str)))
+
+
+    # dealing with google cloud bucket?
+    google_cloud = (read_path[0:5] == 'gs://')
+
+    if not google_cloud or types is None or 'object' in types:
+        all_files = sorted(list_files(read_path, search_str, recursive=recursive))
     else:
-        all_files = sorted(glob.glob('{}/{}'.format(read_path, search_str)))
+        # reading a bucket fits file header is rather slow in the
+        # Google cloud, so if only biases, darks, flats or object
+        # images are needed through input parameter imgtypes (= global
+        # parameter types), then only select those files
+        tmp_files = []
+        if 'bias' in types:
+            tmp_files.append(list_files(read_path, 'Bias', recursive=recursive))
+        if 'flat' in types:
+            tmp_files.append(list_files(read_path, 'flat', recursive=recursive))
+        if 'dark' in types:
+            tmp_files.append(list_files(read_path, 'Dark', recursive=recursive))
+
+        # for object files, all files are selected (first part of this
+        # if statement), mainly because the raw image name does not
+        # indicate the image type for object files
+
+        # clean up lists within list
+        all_files = sorted([f for sublist in tmp_files for f in sublist])
 
 
     biases = [] #list of biases
     darks = [] #list of darks
     flats = [] #list of flats
     objects = [] # list of science images
-    others = [] # list of other images 
-    
+    others = [] # list of other images
+
     for i, filename in enumerate(all_files): #loop through raw files
 
         header = read_hdulist(filename, get_data=False, get_header=True)
-        
+
         if 'IMAGETYP' not in header:
             log.info ('keyword IMAGETYP not present in header of image; '
                       'not processing {}'.format(filename))
@@ -5946,9 +6073,9 @@ def sort_files(read_path, search_str, recursive=False):
             others.append(filename)
 
         else:
-                  
+
             imgtype = header['IMAGETYP'].lower() #get image type
-            
+
             if 'bias' in imgtype: #add bias files to bias list
                 biases.append(filename)
             elif 'dark' in imgtype: #add dark files to dark list
@@ -5960,36 +6087,381 @@ def sort_files(read_path, search_str, recursive=False):
             else:
                 # none of the above, add to others list
                 others.append(filename)
-    
+
     return biases, darks, flats, objects, others
 
 
 ################################################################################
 
-def add_headkeys (path, fits_headers, cat_type, tel=None, nproc=1):
+def write_fits (fits_out, data, header, overwrite=True,
+                run_fpack=True, run_create_jpg=True, master=False):
+
+
+    mem_use (label='write_fits at start')
+
+
+    # add time stamp of file creation to header
+    header['DATEFILE'] = (Time.now().isot, 'UTC date of writing file')
+
+
+    # dealing with google cloud bucket?
+    google_cloud = (fits_out[0:5] == 'gs://')
+
+
+    # normal file system
+    if not google_cloud:
+
+        # make dir for output file if it doesn't exist yet
+        make_dir (os.path.dirname(fits_out))
+
+        # write fits directly to the output [fits_out]
+        fits.writeto(fits_out, data, header, overwrite=overwrite)
+
+        # fpack
+        if run_fpack:
+            fits_out = fpack (fits_out)
+
+        # create jpg
+        if run_create_jpg:
+            file_jpg = create_jpg (fits_out)
+
+
+
+    else:
+        # google cloud bucket
+
+        # write data to fits_tmp in tmp_path folder, which is the tmp
+        # dir with subfolder the name of the image without the fits
+        # extension
+        if not master:
+            tmp_path = '{}/{}'.format(get_par(set_bb.tmp_dir,tel),
+                                      fits_out.split('/')[-1].replace('.fits',''))
+        else:
+            # for master frames, just write the fits file without the
+            # extra subfolder, otherwise would also need to remove
+            # that folder while there is no logfile kept for master
+            # frames anyway
+            tmp_path = get_par(set_bb.tmp_dir,tel)
+            # just in case it does not exist yet
+            make_dir (tmp_path)
+
+
+        # write the tmp fits file
+        fits_tmp = '{}/{}'.format(tmp_path, fits_out.split('/')[-1])
+        log.info ('writing tmp fits file {}'.format(fits_tmp))
+        fits.writeto(fits_tmp, data, header, overwrite=overwrite)
+
+
+        # fpack
+        if run_fpack:
+            fits_tmp = fpack (fits_tmp)
+            # add '.fz' to fits_out, which is returned by function
+            if '.fz' not in fits_out:
+                fits_out = '{}.fz'.format(fits_out)
+
+
+        # create jpg
+        if run_create_jpg:
+            file_jpg = create_jpg (fits_tmp)
+
+
+        # move fits_tmp to [dest_folder] in bucket
+        dest_folder = os.path.dirname(fits_out)
+        copy_file (fits_tmp, dest_folder+'/', move=True)
+
+
+        # move the corresponding jpg file
+        if run_create_jpg:
+            copy_file (file_jpg, dest_folder+'/', move=True)
+
+
+        # move the log file
+        if not master:
+            log_tmp = '{}.log'.format(fits_tmp.split('.fits')[0])
+            if isfile (log_tmp):
+                copy_file (log_tmp, dest_folder+'/', move=True)
+
+
+            # try removing the tmp folder, but apparently there is
+            # still an application using the logfile, so that the NFS
+            # creates a .nsf... file in the tmp_path, i.e. it is not
+            # empty. But even shutil.rmtree does not work.
+            # N.B.: this works fine if /tmp is used as temporary folder,
+            # but files are not visible, even while they are
+            # being created
+            try:
+                os.rmdir(tmp_path)
+            except Exception as e:
+                log.warning ('could not remove tmp_path {}: {}'
+                             .format(tmp_path, e))
+
+
+    mem_use (label='write_fits at end')
+
+    return fits_out
+
+
+################################################################################
+
+def copy_file (src_file, dest, move=False, verbose=True):
+
+    """function to copy or move a file [src_file] to [dest], which may
+       be a file or folder; [src_file] and/or [dest] may be part of
+       the usual filesystem or in a google cloud bucket; in the latter
+       case the argument(s) should start with gs://[bucket_name]
+
+    """
+
+    if verbose:
+        if move:
+            label = 'moving'
+        else:
+            label = 'copying'
+
+        log.info('{} {} to {}'.format(label, src_file, dest))
+
+
+    # if not dealing with google cloud buckets, use shutil.copy2 or shutil.move
+    if not (src_file[0:5] == 'gs://' or dest[0:5] == 'gs://'):
+
+        if not move:
+            shutil.copy2(src_file, dest)
+        else:
+            shutil.move(src_file, dest)
+
+    else:
+
+        # this could be done in python, but much easier with gsutil
+        # from the shell
+        if move:
+            cp_cmd = 'mv'
+        else:
+            cp_cmd = 'cp'
+
+
+        cmd = ['gsutil', '-q', cp_cmd, src_file, dest]
+        result = subprocess.run(cmd)
+        #result = subprocess.run(cmd, capture_output=True)
+        #log.info(result.stdout.decode('UTF-8'))
+
+
+    return
+
+
+################################################################################
+
+def list_folders (path, search_str='', depth=None, folders_only=False):
+
+    """function to return list of existing folders starting with
+       [path] (can be a folder or google cloud bucket name and path;
+       this does not have to be a precise or complete folder/path,
+       e.g. [path] can be some_path/some_file_basename), optionally
+       containing [search_str] without any wildcards. [depth]
+       determines how many folder depths are returned, starting from
+       the root directory; for google cloud buckets the root folder
+       (depth=1) is considered to start after the bucket name,
+       i.e. gs://[bucket name]/[root folder]/etc.  If [depth] is not
+       defined, all existing folders are returned. If [folders_only]
+       is False, the 'gs://[bucket_name]' is added at the front of the
+       folders in case [path] refers to a google cloud bucket.
+
+    """
+
+
+    # use function [list_files] to list all files containing 'search_str'
+    file_list = list_files (path, search_str=search_str, recursive=True)
+
+
+    # running in google cloud?
+    google_cloud = (path[0:5]=='gs://')
+
+
+    # remove potential 'gs://' and bucket name
+    if google_cloud:
+
+        # infer bucket name
+        bucket_name, __ = get_bucket_name(path)
+
+        # chop off 'gs://[bucket_name]'
+        file_list = [fn.split(bucket_name)[-1] for fn in file_list]
+
+
+    if depth is None:
+        # list all existing folders
+        folder_list = ['/'.join(fn.split('/')[:-1]) for fn in file_list]
+    else:
+        # create folder list with depth [depth]
+        folder_list = ['/'.join(fn.split('/')[:depth+1]) for fn in file_list]
+
+
+    # remove duplicate folders and sort
+    folder_list = sorted(list(set(folder_list)))
+
+
+    # append 'gs://[bucket_name]' if needed
+    if google_cloud and not folders_only:
+        folder_list = ['gs://{}{}'.format(bucket_name, fn) for fn in folder_list]
+
+
+    log.info ('folder_list: {}'.format(folder_list))
+
+
+    return folder_list
+
+
+################################################################################
+
+def list_files (path, search_str='', end_str='', start_str=None,
+                recursive=False):
+
+    """function to return list of files starting with [path] (can be a
+       folder or google cloud bucket name and path; this does not have
+       to be a precise or complete folder/path, e.g. [path] can be
+       some_path/some_file_basename), with possible [end_str] and
+       containing [search_str] without any wildcards. If path is an
+       exact folder, then [start_str] can be used as the beginning of
+       the filename.
+
+    """
+
+    # is google cloud being used?
+    google_cloud = (path[0:5] == 'gs://')
+
+
+    # split input [path] into folder_bucket and prefix; if path is a
+    # folder, need to add a slash at the end, otherwise the prefix
+    # will be the name of the deepest folder
+    if isdir(path) and path[-1] != '/':
+        path = '{}/'.format(path)
+
+
+    # if path is indeed a folder, then prefix will be an empty string,
+    # which is fine below
+    folder_bucket, prefix = os.path.split(path.split('gs://')[-1])
+
+
+    # if path consists of just the bucket name including gs:// or just
+    # a path without any slashes at all, the above will lead to an
+    # empty folder_bucket and prefix=path; turn these around
+    if len(folder_bucket)==0:
+        folder_bucket = prefix
+        prefix = ''
+
+
+    # if prefix is empty and [start] is defined, use
+    # that as the prefix
+    if prefix=='' and start_str is not None:
+        prefix = start_str
+
+
+    # if not dealing with google cloud buckets, use glob
+    if not google_cloud:
+
+        #glob files
+        if recursive:
+            files = glob.glob('{}/**/{}*{}*{}'.format(folder_bucket, prefix,
+                                                      search_str, end_str),
+                              recursive=True)
+        else:
+            files = glob.glob('{}/{}*{}*{}'.format(folder_bucket, prefix,
+                                                   search_str, end_str))
+
+    else:
+
+        # for buckets, use storage.Client().list_blobs; see
+        # https://cloud.google.com/storage/docs/samples/storage-list-files-with-prefix#storage_list_files_with_prefix-python
+
+        # setting delimiter to '/' restricts the results to only the
+        # files in a given folder
+        if recursive:
+            delimiter = None
+        else:
+            delimiter = '/'
+
+
+        # bucket name and prefix (e.g. gs://) to add to output files
+        bucket_name, bucket_file = get_bucket_name(path)
+        bucket_prefix = path.split(bucket_name)[0]
+
+
+        if False:
+            log.info ('folder_bucket: {}'.format(folder_bucket))
+            log.info ('prefix: {}'.format(prefix))
+            log.info ('path: {}'.format(path))
+            log.info ('bucket_name: {}'.format(bucket_name))
+            log.info ('bucket_file: {}'.format(bucket_file))
+
+
+        # get the blobs
+        storage_client = storage.Client()
+        blobs = storage_client.list_blobs(bucket_name, prefix=bucket_file,
+                                          delimiter=delimiter)
+
+        # collect blobs' names in list of files
+        files = []
+        for blob in blobs:
+
+            filename = blob.name
+
+            # check for search string; if search string is empty,
+            # following if statement will be False
+            if search_str not in filename:
+                continue
+
+            # check if filename ends with [end_str]
+            len_ext = len(end_str)
+            if len_ext > 0 and filename[-len_ext:] != end_str:
+                # if not, continue with next blob
+                continue
+
+            # after surviving above checks, append filename including
+            # the bucket prefix and name
+            files.append('{}{}/{}'.format(bucket_prefix, bucket_name, filename))
+
+
+    #log.info ('files returned by [list_files]: {}'.format(files))
+    log.info ('number of files returned by [list_files]: {}'.format(len(files)))
+
+
+    return files
+
+
+################################################################################
+
+def add_headkeys (path_full, fits_headers, search_str='', end_str='',
+                  tel=None, nproc=1):
 
     # read [fits_headers]
-    table_headers = Table.read(fits_headers)
+    table_headers = Table.read(fits_headers, memmap=True)
+
 
     # determine its column names and dtypes
     colnames = table_headers.colnames
     dtypes = [str(table_headers.dtype[n]) for n in colnames]
     log.info ('number of columns: {}'.format(len(colnames)))
 
-    # determine filenames whose headers to add
-    file_str = '_{}.fits'.format(cat_type)
-    red_dir = get_par(set_bb.red_dir,tel)
-    filenames = sorted(glob.glob('{}/{}/**/*{}*'.format(red_dir, path, file_str),
-                                 recursive=True))
-    log.info ('number of {} catalogs for which to add headers: {}'
-              .format(cat_type, len(filenames)))
+
+    # use [list_files] to determine which filenames to process
+    filenames = sorted(list_files('{}'.format(path_full), search_str=search_str,
+                                  end_str=end_str, recursive=True))
+    log.info ('number of filenames for which to add headers: {}'
+              .format(len(filenames)))
 
 
     if len(filenames) > 0:
-    
-        # use pool_func and function [get_row] to multi-process list of
-        # basenames
-        rows = pool_func (get_head_row, filenames, colnames, nproc=nproc)
+
+        # in case of only 1 processor:
+        if nproc == 1:
+            rows = []
+            for filename in filenames:
+                row = get_head_row (filename, colnames)
+                rows.append(row)
+
+        else:
+            # for multiple processors, use pool_func and function
+            # [get_row] to multi-process list of basenames
+            rows = pool_func (get_head_row, filenames, colnames, nproc=nproc)
+
 
         # convert rows to table
         table = Table(rows=rows, names=colnames, masked=True, dtype=dtypes)
@@ -6002,16 +6474,26 @@ def add_headkeys (path, fits_headers, cat_type, tel=None, nproc=1):
         # added (as was done before), but it allows an entire night to
         # be added again when some files needed to be re-processed
         table_headers = unique(table_headers, keys='FILENAME')
-        
+
         # overwrite fits_headers
-        table_headers.write(fits_headers, overwrite=True)
+        if 'gs://' in fits_headers:
+            # in google cloud table.write to a file in bucket is not
+            # working, so save table to temporary file in the current
+            # working directory and then copy to bucket
+            with tempfile.NamedTemporaryFile(delete=True, suffix='.fits') as f:
+                table_headers.write (f.name, overwrite=True)
+                copy_file (f.name, fits_headers)
+
+        else:
+            table_headers.write(fits_headers, overwrite=True)
 
     else:
 
-        log.warning ('no *{} files available in folder {}/{} for which to add '
-                     'header keys'.format(file_str, red_dir, path))
+        log.warning ('no files with path/folder {} (and its subfolders) with '
+                     'search_str {} and end_str {} for which to add header keys'
+                     .format(path_full, search_str, end_str))
 
-        
+
     return
 
 
@@ -6020,8 +6502,7 @@ def add_headkeys (path, fits_headers, cat_type, tel=None, nproc=1):
 def get_head_row (filename, colnames):
 
     # read filename header
-    with fits.open(filename) as hdulist:
-        header = hdulist[-1].header
+    header = read_hdulist(filename, get_data=False, get_header=True)
 
     # loop columns to add
     row = []
@@ -6067,8 +6548,8 @@ def unzip(imgname, put_lock=True, timeout=None):
         lock.release()
 
     return imgname
-        
-    
+
+
 ################################################################################
 
 # from https://stackoverflow.com/questions/15008758/parsing-boolean-values-with-argparse
@@ -6087,17 +6568,20 @@ def str2bool(v):
 
 if __name__ == "__main__":
 
-    # multiprocessing method
+    # multiprocessing method; see https://docs.python.org/3/library/multiprocessing.html#contexts-and-start-methods
+    # and also https://pythonspeed.com/articles/python-multiprocessing/
     #set_start_method('spawn')
+    #set_start_method('fork') # this is the current default
+    #set_start_method('forkserver')
 
-    
+
     parser = argparse.ArgumentParser(description='User parameters')
 
-    parser.add_argument('--telescope', type=str, default='ML1', 
+    parser.add_argument('--telescope', type=str, default='ML1',
                         help='Telescope name (ML1, BG2, BG3 or BG4); '
                         'default=\'ML1\'')
 
-    parser.add_argument('--mode', type=str, default='day', 
+    parser.add_argument('--mode', type=str, default='day',
                         help='Day or night mode of pipeline; default=\'day\'')
 
     parser.add_argument('--date', type=str, default=None,
@@ -6107,7 +6591,7 @@ if __name__ == "__main__":
     parser.add_argument('--read_path', type=str, default=None,
                         help='Full path to the input raw data directory; if not '
                         'defined it is determined from [set_blackbox.raw_dir], '
-                        '[telescope] and [date]; default=None') 
+                        '[telescope] and [date]; default=None')
 
     parser.add_argument('--recursive', type=str2bool, default=False,
                         help='Recursively include subdirectories for input '
@@ -6123,7 +6607,7 @@ if __name__ == "__main__":
     parser.add_argument('--image', type=str, default=None, help='Only process '
                         'this particular image (requires full path); '
                         'default=None')
-    
+
     parser.add_argument('--image_list', type=str, default=None,
                         help='Process images listed in ASCII file with this '
                         'name; default=None')
@@ -6160,8 +6644,8 @@ if __name__ == "__main__":
 
 
     args = parser.parse_args()
-    run_blackbox (telescope=args.telescope, mode=args.mode, date=args.date, 
-                  read_path=args.read_path, recursive=args.recursive, 
+    run_blackbox (telescope=args.telescope, mode=args.mode, date=args.date,
+                  read_path=args.read_path, recursive=args.recursive,
                   imgtypes=args.imgtypes, filters=args.filters, image=args.image,
                   image_list=args.image_list, master_date=args.master_date,
                   img_reduce=args.img_reduce, cat_extract=args.cat_extract,
