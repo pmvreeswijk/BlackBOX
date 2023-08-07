@@ -483,14 +483,14 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
                                 size_thumbnails=size_thumbnails,
                                 ML_calc_prob=get_par(
                                     set_zogy.ML_calc_prob,telescope),
-                                tel=telescope)
+                                tel=telescope, set_zogy=set_zogy)
 
         else:
             result = format_cat(None, cat_dummy, cat_type=cat_type,
                                 header_toadd=header_dummy,
                                 apphot_radii=get_par(
                                     set_zogy.apphot_radii,telescope),
-                                tel=telescope)
+                                tel=telescope, set_zogy=set_zogy)
 
 
 
