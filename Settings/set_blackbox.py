@@ -241,7 +241,8 @@ ysize_chan, xsize_chan = 5280, 1320
 sender = {'ML1': 'MeerLICHT night report <paul.vreeswijk@blackgem.org>',
           'BG': 'BlackGEM night report'}
 # comma-separated email addresses of recipients
-recipients = 'ml-nightreports@blackgem.org'
+recipients = {'ML1': 'ml-nightreports@blackgem.org',
+              'BG': 'bg-nightreports@blackgem.org'}
 reply_to = 'paul.vreeswijk@blackgem.org'
 smtp_server = 'smtp-relay.gmail.com'
 port = 465
