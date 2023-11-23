@@ -54,11 +54,7 @@ voscan_poldeg = 3
 # Directory structure and files to keep
 #===============================================================================
 
-# running blackbox in the Google Cloud?
-google_cloud = True
-
 # directory name where [blackbox] is run and the default subdirectories
-# N.B.: not used if google_cloud is True
 run_dir_base = os.environ['DATAHOME']
 
 # temporary directory where data is reduced; ideally this is on a disk
@@ -78,22 +74,23 @@ keep_tmp = False
 run_dir = {}; raw_dir={}; red_dir={}; log_dir={}; ref_dir={}; tmp_dir={}
 master_dir = {}
 
-if not google_cloud:
-    for tel in ['ML1', 'BG2', 'BG3', 'BG4']:
-        run_dir[tel] = '{}/{}'.format(run_dir_base, tel)
-        raw_dir[tel] = '{}/raw'.format(run_dir[tel])
-        red_dir[tel] = '{}/red'.format(run_dir[tel])
-        log_dir[tel] = '{}/log'.format(run_dir[tel])
-        ref_dir[tel] = '{}/ref'.format(run_dir[tel])
-        tmp_dir[tel] = '{}/{}/tmp'.format(tmp_dir_base, tel)
-        master_dir[tel] = red_dir[tel]
-else:
-    for tel in ['ML1', 'BG2', 'BG3', 'BG4']:
-        raw_dir[tel] = 'gs://blackgem-raw/{}'.format(tel)
-        red_dir[tel] = 'gs://blackgem-red/{}'.format(tel)
-        ref_dir[tel] = 'gs://blackgem-ref'
-        tmp_dir[tel] = '{}/{}/tmp'.format(tmp_dir_base, tel)
-        master_dir[tel] = 'gs://blackgem-masters/{}'.format(tel)
+# MeerLICHT directory structure
+for tel in ['ML1']:
+    run_dir[tel] = '{}/{}'.format(run_dir_base, tel)
+    raw_dir[tel] = '{}/raw'.format(run_dir[tel])
+    red_dir[tel] = '{}/red'.format(run_dir[tel])
+    log_dir[tel] = '{}/log'.format(run_dir[tel])
+    ref_dir[tel] = '{}/ref'.format(run_dir[tel])
+    tmp_dir[tel] = '{}/{}/tmp'.format(tmp_dir_base, tel)
+    master_dir[tel] = red_dir[tel]
+
+# BlackGEM directory structure
+for tel in ['BG2', 'BG3', 'BG4']:
+    raw_dir[tel] = 'gs://blackgem-raw/{}'.format(tel)
+    red_dir[tel] = 'gs://blackgem-red/{}'.format(tel)
+    ref_dir[tel] = 'gs://blackgem-ref'
+    tmp_dir[tel] = '{}/{}/tmp'.format(tmp_dir_base, tel)
+    master_dir[tel] = 'gs://blackgem-masters/{}'.format(tel)
 
 
 # name endings of files to keep for the reference and new images
@@ -238,8 +235,8 @@ ysize_chan, xsize_chan = 5280, 1320
 #===============
 # for ML: sender apparently needs to contain <@astro.ru.nl> for emails
 # to actually arrive at Radboud; not relevant for BG/Google Cloud
-sender = {'ML1': 'MeerLICHT night report <paul.vreeswijk@blackgem.org>',
-          'BG': 'BlackGEM night report'}
+sender = {'ML1': '<paul.vreeswijk@blackgem.org>',
+          'BG': '<paul.vreeswijk@blackgem.org>'}
 # comma-separated email addresses of recipients
 recipients = {'ML1': 'ml-nightreports@blackgem.org',
               'BG': 'bg-nightreports@blackgem.org'}
