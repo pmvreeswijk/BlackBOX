@@ -200,8 +200,12 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     # attach general logfile to logging
     ###################################
 
+    # dealing with google cloud bucket?
+    google_cloud = (get_par(set_bb.raw_dir,tel)[0:5] == 'gs://')
+
+
     # in google_cloud mode, do not keep general logfile
-    if not get_par(set_bb.google_cloud,tel):
+    if not google_cloud:
 
         if not isdir(get_par(set_bb.log_dir,tel)):
             os.makedirs(get_par(set_bb.log_dir,tel))
@@ -1285,8 +1289,9 @@ def blackbox_reduce (filename):
 
 
         # general log file; not kept in google cloud mode
-        if get_par(set_bb.google_cloud,tel):
+        if google_cloud:
             genlogfile = None
+
 
         header['LOG'] = (str(genlogfile).split('/')[-1], 'name general '
                          'logfile')
@@ -2645,7 +2650,11 @@ def verify_header (filename, htypes=None):
         'LIMEFLUX': {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
         'LIMMAG':   {'htype':'full', 'dtype':float, 'DB':True,  'None_OK':True},
         'NOBJECTS': {'htype':'full', 'dtype':int,   'DB':True,  'None_OK':True},
+        'NGAIA':    {'htype':'full', 'dtype':int,   'DB':False, 'None_OK':True},
+        'MAG-SAT':  {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
         'RADECOFF': {'htype':'full', 'dtype':float, 'DB':True,  'None_OK':True},
+        'RAOFF':    {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'DECOFF':   {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
         'FORMAT-P': {'htype':'full', 'dtype':bool,  'DB':False, 'None_OK':True},
         'DUMCAT':   {'htype':'full', 'dtype':bool,  'DB':True,  'None_OK':False},
         'QC-FLAG':  {'htype':'full', 'dtype':str,   'DB':True,  'None_OK':False},
@@ -2779,7 +2788,8 @@ def update_cathead (filename, header):
             hdulist[-1].header += header
         else:
             for key in header:
-                if 'QC' in key or 'DUMCAT' in key or 'RADECOFF' in key:
+                if ('QC' in key or 'DUMCAT' in key or 'RAOFF' in key or
+                    'DECOFF' in key):
                     hdulist[-1].header[key] = (header[key], header.comments[key])
 
         header_update = hdulist[-1].header
@@ -2797,7 +2807,8 @@ def update_cathead (filename, header):
                 # light version
                 #hdulist[-1].header = header_update
                 for key in header:
-                    if 'QC' in key or 'DUMCAT' in key or 'RADECOFF' in key:
+                    if ('QC' in key or 'DUMCAT' in key or 'RAOFF' in key or
+                        'DECOFF' in key):
                         hdulist[-1].header[key] = (header[key],
                                                    header.comments[key])
 
@@ -4856,15 +4867,27 @@ def radec_offset (header, filename):
                         table_grid['ra_c'][i_grid],
                         table_grid['dec_c'][i_grid], mlbg_fieldIDs, filename))
 
-    else:
 
-        # set offset to zero
-        offset_deg = 0.
+        # calculate offsets in RA and DEC separately
+        offset_ra = haversine(table_grid['ra_c'][i_grid], dec_cntr,
+                              ra_cntr, dec_cntr)
+        offset_dec = haversine(ra_cntr, table_grid['dec_c'][i_grid],
+                               ra_cntr, dec_cntr)
+
+
+    else:
+        # set offsets to 'None'
+        offset_deg = 'None'
+        offset_ra =  'None'
+        offset_dec = 'None'
 
 
     # add header keywords
     header['RADECOFF'] = (offset_deg, '[deg] offset RA,DEC-CNTR wrt ML/BG field '
                           'grid')
+    header['RAOFF'] = (offset_ra, '[deg] offset RA-CNTR wrt ML/BG field grid RA')
+    header['DECOFF'] = (offset_dec, '[deg] offset DEC-CNTR wrt ML/BG field grid '
+                        'DEC')
 
 
     return
@@ -6473,6 +6496,8 @@ def add_headkeys (path_full, fits_headers, search_str='', end_str='',
 
 def get_head_row (filename, colnames):
 
+    log.info ('processing {}'.format(filename))
+
     # read filename header
     header = read_hdulist(filename, get_data=False, get_header=True)
 
@@ -6489,7 +6514,7 @@ def get_head_row (filename, colnames):
         else:
             row += [np.ma.masked]
 
-        if row[i] == 'None':
+        if row[i] == 'None' or row[i] == '':
             row[i] = np.ma.masked
 
     return row
