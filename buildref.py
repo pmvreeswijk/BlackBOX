@@ -1,4 +1,3 @@
-
 import os
 import re
 import fnmatch
@@ -29,42 +28,27 @@ else:
     os.environ['OMP_NUM_THREADS'] = str(cpus_per_task)
 
 
-from astropy.coordinates import Angle
-
-# trouble installing fitsio in singularity container so create
-# fallback on astropy.io.fits (imported in zogy import above)
-#try:
-#    import fitsio
-#    use_fitsio = True
-#except:
-#    use_fitsio = False
-use_fitsio = False
-    
-from multiprocessing import Pool, Manager, Lock, Queue, Array
+from multiprocessing import Pool
 
 import aplpy
 
-from zogy import *
+import zogy
 import set_zogy
-
-from blackbox import date2mjd, unzip, fill_sat_holes
-from blackbox import get_par, already_exists, copy_files2keep
-from blackbox import close_log, define_sections, make_dir
-from blackbox import pool_func, fpack, create_jpg, clean_tmp
-from qc import qc_check, run_qc_check
-
+import blackbox as bb
 import set_blackbox as set_bb
+import qc
 
 
-__version__ = '0.8.2'
+__version__ = '0.9.0'
 
 
 ################################################################################
 
-def buildref (telescope=None, fits_table=None, table_only=None, date_start=None,
+def buildref (telescope=None, fits_table_list=None, date_start=None,
               date_end=None, field_IDs=None, filters=None, go_deep=None,
-              qc_flag_max=None, seeing_max=None, make_colfig=False,
-              filters_colfig='iqu', extension=None, keep_tmp=None):
+              qc_flag_max=None, seeing_max=None, skip_zogy=False,
+              make_colfig=False, filters_colfig='iqu', extension=None,
+              keep_tmp=None):
 
 
     """Module to consider one specific or all available field IDs within a
@@ -72,17 +56,34 @@ def buildref (telescope=None, fits_table=None, table_only=None, date_start=None,
     field ID in one or all filters, using those images that satisfy
     the quality flag and seeing constraint. The combining of the
     images is done using the function imcombine.
-    
+
     The resulting reference image is put through zogy.py as the
     reference image and the corresponding reference directory is
     prepared.
 
+    To do for BlackGEM:
+
+    - needs to be able to combine images from all BGs, but also keep
+      the option of combining images from specific telescope; so add
+      boolean input parameter mix_BGs?
+
+    - need to make compatible with google cloud
+
+    - output name is different: [tel]_[field ID]_[filter]_[creation date]_..
+      for both ML and BG. Since for BG, tel=BG, make tel=ML for ML1?
+
+    - for BG: reference images have their separate bucket: gs://blackgem-ref
+      what to do for ML? Keep the same as it is, except update the filenames?
+
+    - for BG: if ref image already exists, the existing one needs to
+      be moved to a separated bucket: gs://blackgem-ref-old. What to
+      do for ML in that case?
+
     """
-    
-    global tel, lock, max_qc_flag, max_seeing, start_date, end_date
+
+    global tel, max_qc_flag, max_seeing, start_date, end_date
     global time_refstart, ext, deep
     tel = telescope
-    lock = Lock()
     max_qc_flag = qc_flag_max
     max_seeing = seeing_max
     start_date = date_start
@@ -112,7 +113,7 @@ def buildref (telescope=None, fits_table=None, table_only=None, date_start=None,
 
     # record starting time to add to header
     time_refstart = Time.now().isot
-    
+
 
     log.info ('building reference images')
     log.info ('number of processes: {}'.format(nproc))
@@ -129,76 +130,62 @@ def buildref (telescope=None, fits_table=None, table_only=None, date_start=None,
         log.info ('filters_colfig:      {}'.format(filters_colfig))
     log.info ('folder extension:    {}'.format(extension))
 
-    
+
     t0 = time.time()
 
 
-    # read or prepare a table with filenames and relevant header keywords
-    # -------------------------------------------------------------------
+    # read list of tables with filenames and relevant header keywords
+    # ---------------------------------------------------------------
+    # previously also included possiblity to prepare this table, but
+    # not needed anymore as header tables are ready to be used
 
-    # if provided and it exists, read input table with header info
-    if fits_table is not None and os.path.isfile(fits_table):
-        
-        log.info ('reading existing header table: {}'.format(fits_table))
-        table = Table.read(fits_table)
+    if fits_table_list is not None:
 
-        # make sure FILENAME column contains the image name instead of
-        # catalog
-        table['FILENAME'] = ['{}_red.fits.fz'.format(fn.split('_red')[0])
-                             for fn in table['FILENAME']]
+        for it, fits_table in enumerate(fits_table_list):
 
-    else:
+            if zogy.isfile(fits_table):
 
-        red_path = get_par(set_bb.red_dir,tel)
-        filenames = glob.glob('{}/*/*/*/*_red.fits*'.format(red_path))
-        nfiles = len(filenames)
-        log.info ('total number of files: {}'.format(nfiles))
+                log.info ('reading header table: {}'.format(fits_table))
+                table_tmp = Table.read(fits_table)
+                if it==0:
+                    table = table_tmp
+                else:
+                    # stack tables
+                    table = vstack([table, table_tmp])
 
-
-        # split into [nproc] lists
-        list_of_filelists = []
-        index = np.linspace(0,nfiles,num=nproc+1).astype(int)
-        for i in range(nproc):
-            list_of_filelists.append(filenames[index[i]:index[i+1]])
-
-
-        # use function pool_func_lists to read headers from files
-        # using multiple processes and write them to a table
-        results = pool_func_lists (header2table, list_of_filelists, nproc=nproc)
-        # stack separate tables in results
-        table = vstack(results)
-
-        log.info ('file headers read in {:.2f}s'.format(time.time()-t0))
-
-
-        # remove any test files
-        mask_test = np.array(['test' in f.lower() for f in table['ORIGFILE']])
-        table = table[~mask_test]
-        log.info ('number of test files discarded: {}'.format(np.sum(mask_test)))
-
-        
-        # write to file
-        if fits_table is not None:
-            log.info ('writing table to file {}'.format(fits_table))
-            table.write(fits_table, format='fits', overwrite=True)
-        else:
-            log.warning ('not writing table to file')
+            else:
+                log.warning ('{} not found'.format(fits_table))
 
 
 
-    if table_only:
-        log.info ('[table_only] parameter is set to True; nothing left to do')
+
+
+    # check if table contains any entries
+    if len(table)==0:
+        log.error ('no entries in tables in [fits_table_list]; exiting')
         logging.shutdown()
         return
+
+    else:
+        log.info ('{} files in input table(s)'.format(len(table)))
+
+
+
+    # make sure FILENAME column contains the image name instead of
+    # catalog
+    table['FILENAME'] = ['{}_red.fits.fz'.format(fn.split('_red')[0])
+                         for fn in table['FILENAME']]
+
+
+    # filter table entries based on telescope
+    # ---------------------------------------
+    mask = np.array([tel in fn for fn in table['FILENAME']])
+    table = table[mask]
+    log.info ('{} files left (telescope cut)'.format(len(table)))
 
 
     # filter table entries based on date, field_ID, filter, qc-flag and seeing
     # ------------------------------------------------------------------------
-
-    log.info ('number of files with all required keywords: {}'
-                 .format(len(table)))
-
-    
     if date_start is not None or date_end is not None:
 
         # filter this list by converting the date and time contained in
@@ -207,14 +194,14 @@ def buildref (telescope=None, fits_table=None, table_only=None, date_start=None,
         mjd_start = set_date (date_start)
         mjd_end = set_date (date_end, start=False)
         # convert dates and times in filenames to MJDs (accurate to the second)
-        mjd_files = np.array([date2mjd (f.split('/')[-1].split('_')[1],
-                                        time_str=f.split('/')[-1].split('_')[2])
-                              for f in table['FILENAME']])
+        mjd_files = np.array([bb.date2mjd(f.split('/')[-1].split('_')[1],
+                                          time_str=f.split('/')[-1].split('_')[2]
+                                          ) for f in table['FILENAME']])
         # mask of files to include
         if mjd_end >= mjd_start:
             if mjd_start == mjd_end:
                 mjd_end += 1
-                
+
             mask = ((mjd_files >= mjd_start) & (mjd_files <= mjd_end))
 
         else:
@@ -224,20 +211,19 @@ def buildref (telescope=None, fits_table=None, table_only=None, date_start=None,
 
         # select relevant table entries
         table = table[mask]
-        log.info ('number of files left (date_start/end cut): {}'
-                     .format(len(table)))
+        log.info ('{} files left (date_start/end cut)'.format(len(table)))
 
 
-    
+
     # if object (field ID) is specified, which can include the unix
     # wildcards * and ?, select only images with a matching object
     # string; field_IDs can also be an ascii file with the field ID(s)
     # listed in the 1st column
     filter_list = None
     if field_IDs is not None:
-        
+
         # check if it's a file
-        if os.path.isfile(field_IDs):
+        if zogy.isfile(field_IDs):
 
             # read ascii table
             table_ID = Table.read(field_IDs, format='ascii', data_start=0)
@@ -266,6 +252,7 @@ def buildref (telescope=None, fits_table=None, table_only=None, date_start=None,
             if field_ID.isdigit() and len(field_ID)!=5:
                 field_ID_list[i_field] = '{:0>5}'.format(field_ID)
 
+
         # prepare mask where presence of (header) table object entry
         # is checked against any of the field IDs in field_ID_list;
         # this mask will contain len(table) * len(field_ID_list)
@@ -279,7 +266,8 @@ def buildref (telescope=None, fits_table=None, table_only=None, date_start=None,
         # any of the input field_IDs, use it)
         mask = np.any(mask, axis=0)
         table = table[mask]
-        log.info ('number of files left (FIELD_ID cut): {}'.format(len(table)))
+        log.info ('{} files left (FIELD_ID cut)'.format(len(table)))
+
 
 
     # if filter(s) is specified, select only images with filter(s)
@@ -288,9 +276,9 @@ def buildref (telescope=None, fits_table=None, table_only=None, date_start=None,
         #mask = [table['FILTER'][i] in filters for i in range(len(table))]
         mask = [filt in filters for filt in table['FILTER']]
         table = table[mask]
-        log.info ('number of files left (FILTER cut): {}'.format(len(table)))
-        
-        
+        log.info ('{} files left (FILTER cut)'.format(len(table)))
+
+
     # if qc_flag_max is specified, select only images with QC-FLAG of
     # qc_flag_max and better
     if len(table)>0 and qc_flag_max is not None:
@@ -307,13 +295,13 @@ def buildref (telescope=None, fits_table=None, table_only=None, date_start=None,
         mask_red = [table['QC-FLAG'][i].strip()=='red'
                     for i in range(len(table))]
         log.info ('number of green: {}, yellow: {}, orange: {}, red: {}'
-                     .format(np.sum(mask_green), np.sum(mask_yellow),
-                             np.sum(mask_orange), np.sum(mask_red)))
-        
+                  .format(np.sum(mask_green), np.sum(mask_yellow),
+                          np.sum(mask_orange), np.sum(mask_red)))
+
         # strip table color from spaces
         mask = [table['QC-FLAG'][i].strip() in qc_col for i in range(len(table))]
         table = table[mask]
-        log.info ('number of files left (QC-FLAG cut): {}'.format(len(table)))
+        log.info ('{} files left (QC-FLAG cut)'.format(len(table)))
 
 
     # if max_seeing is specified, select only images with the same or
@@ -321,9 +309,9 @@ def buildref (telescope=None, fits_table=None, table_only=None, date_start=None,
     if max_seeing is not None:
         mask = (table['PSF-SEE'] <= max_seeing)
         table = table[mask]
-        log.info ('number of files left (SEEING cut): {}'.format(len(table)))
+        log.info ('{} files left (SEEING cut)'.format(len(table)))
 
-        
+
     # if centering is set to 'grid' in buildref settings file, read
     # the file that contains the ML/BG field grid definition, that
     # will be used to fill [radec_list] in the loop below
@@ -351,14 +339,17 @@ def buildref (telescope=None, fits_table=None, table_only=None, date_start=None,
     A_swarp_list = []
     nsigma_clip_list = []
 
+
     # unique objects in table
     objs_uniq = np.unique(table['OBJECT'])
     # if field_IDs were provided in input file, use those instead
     if field_IDs is not None and os.path.isfile(field_IDs):
         objs_uniq = field_ID_list
 
+
     # unique filters in table
     filts_uniq = np.unique(table['FILTER'])
+
 
     # various settings file parameters used in loop
     imagesize_type = get_par(set_br.imagesize_type,tel)
@@ -369,9 +360,10 @@ def buildref (telescope=None, fits_table=None, table_only=None, date_start=None,
     # background box size
     bkg_size = get_par(set_zogy.bkg_boxsize,tel)
 
+
     # loop objects
     for n_obj, obj in enumerate(objs_uniq):
-        
+
         # skip fields '00000' and those beyond 20,000
         #if int(obj) == 0 or int(obj) >= 20000:
         if int(obj) == 0 or int(obj) >= 20000:
@@ -379,12 +371,12 @@ def buildref (telescope=None, fits_table=None, table_only=None, date_start=None,
 
         # table mask of this particular field_ID
         mask_obj = (table['OBJECT'] == obj)
-        
+
         # if mask_obj is empty, continue
         if np.sum(mask_obj) == 0:
             continue
 
-        # determine image center based on [center_type]        
+        # determine image center based on [center_type]
         if center_type == 'grid':
             # for 'grid' centering, let [radec] refer to a tuple pair
             # containing the RA and DEC coordinates
@@ -394,8 +386,8 @@ def buildref (telescope=None, fits_table=None, table_only=None, date_start=None,
                          table_grid['dec_c'][mask_grid][0])
             else:
                 log.error ('field ID/OBJECT {} not present in ML/BG '
-                              'grid definition file {}; skipping it'
-                              .format(obj, mlbg_fieldIDs))
+                           'grid definition file {}; skipping it'
+                           .format(obj, mlbg_fieldIDs))
                 continue
 
 
@@ -415,8 +407,8 @@ def buildref (telescope=None, fits_table=None, table_only=None, date_start=None,
             radec = (None, None)
 
 
-            
-        # determine image size based on [imagesize_type]        
+
+        # determine image size based on [imagesize_type]
         if imagesize_type == 'input':
             # same as input
             #image_size = '{},{}'.format(xsize, ysize)
@@ -444,6 +436,7 @@ def buildref (telescope=None, fits_table=None, table_only=None, date_start=None,
         else:
             filts_toloop = filts_uniq
 
+
         # loop filters
         for filt in filts_toloop:
 
@@ -451,8 +444,8 @@ def buildref (telescope=None, fits_table=None, table_only=None, date_start=None,
             # combination
             mask = (mask_obj & (table['FILTER'] == filt))
             nfiles = np.sum(mask)
-            log.info ('number of files left for {} in filter {}: {}'
-                         .format(obj, filt, nfiles))
+            log.info ('{} files left for {} in filter {}'
+                      .format(nfiles, obj, filt))
             # if no files left, continue
             if nfiles == 0:
                 continue
@@ -508,9 +501,9 @@ def buildref (telescope=None, fits_table=None, table_only=None, date_start=None,
 
                     np.place (mask, mask, mask_use)
                     nfiles = np.sum(mask)
-                    log.info ('number of files left for {} in filter {}: {} '
-                              'after selecting images within seeing spread'
-                              .format(obj, filt, nfiles))
+                    log.info ('{} files left for {} in filter {} after '
+                              'selecting images within seeing spread'
+                              .format(nfiles, obj, filt))
 
                 else:
                     # if not, use weighted combine_type rather than clipped
@@ -531,14 +524,14 @@ def buildref (telescope=None, fits_table=None, table_only=None, date_start=None,
             files_sort = table[mask]['FILENAME'][indices_sort]
 
 
-            if False: 
+            if False:
 
                 # calculate projected cumulative LIMMAG if images
                 # would be combined using simple average
                 limmags_sort_cum = -2.5*np.log10(
                     np.sqrt(np.cumsum((10**(-0.4*limmags_sort))**2))
                     / (np.arange(len(limmags_sort))+1))
-            
+
 
                 # weighted version, calculating the error in the weighted
                 # mean using the values from S-BKGSTD as the sigmas (the
@@ -549,12 +542,13 @@ def buildref (telescope=None, fits_table=None, table_only=None, date_start=None,
                     1./np.sqrt(np.cumsum(1./bkgstd_sort**2))/bkgstd_sort[0]))
 
 
+
             # weighted version using limiting magnitudes (converted to
             # flux) instead of S-BKGSTD
             limflux_sort = 10**(-0.4*limmags_sort)
             limmags_sort_cum = (limmags_sort[0]-2.5*np.log10(
                 1./np.sqrt(np.cumsum(1./limflux_sort**2))/limflux_sort[0]))
-            
+
 
             # filter based on target limiting magnitude
             if not deep:
@@ -583,22 +577,21 @@ def buildref (telescope=None, fits_table=None, table_only=None, date_start=None,
             nuse = min (nuse, nfiles)
             # update mask
             mask_sort_cum[0:nuse] = True
-            
-            
+
+
             # files that were excluded
             nfiles_excl = np.sum(~mask_sort_cum)
             if nfiles_excl > 0:
                 files_2exclude = files_sort[~mask_sort_cum]
                 limmags_2exclude = limmags_sort[~mask_sort_cum]
                 seeing_2exclude = seeing_sort[~mask_sort_cum]
-                log.warning ('files ({}) and their limmags excluded from '
-                                '{}-band coadd:'.format(nfiles_excl, filt))
+                log.warning ('{} files and their limmags excluded from {}-band '
+                             'coadd'.format(nfiles_excl, filt))
                 for i in range(len(files_2exclude)):
-                    log.info ('{}, {:.3f}'
-                                 .format(files_2exclude[i],
-                                         limmags_2exclude[i]))
+                    log.info ('{}, {:.3f}'.format(files_2exclude[i],
+                                                  limmags_2exclude[i]))
 
-                    
+
             # files to combine
             files_2coadd = files_sort[mask_sort_cum]
             limmags_2coadd = limmags_sort[mask_sort_cum]
@@ -606,19 +599,19 @@ def buildref (telescope=None, fits_table=None, table_only=None, date_start=None,
             bkgstd_2coadd = bkgstd_sort[mask_sort_cum]
 
             nfiles_used = nfiles - nfiles_excl
-            log.info ('files ({}), limmags, projected cumulative limmags '
-                         'and seeing used for {}-band coadd:'
-                         .format(nfiles-nfiles_excl, filt))
+            log.info ('{} files, limmags, projected cumulative limmags and '
+                      'seeing used for {}-band coadd'.format(nfiles-nfiles_excl,
+                                                             filt))
             for i in range(len(files_2coadd)):
                 log.info ('{} {:.3f} {:.3f} {:.2f}'
-                             .format(files_2coadd[i], limmags_2coadd[i],
-                                     limmags_sort_cum[i], seeing_2coadd[i]))
+                          .format(files_2coadd[i], limmags_2coadd[i],
+                                  limmags_sort_cum[i], seeing_2coadd[i]))
 
             limmag_proj = limmags_sort_cum[mask_sort_cum][-1]
-            
+
             log.info ('projected (target) {}-band limiting magnitude of '
-                         'co-add: {:.2f} ({})'
-                         .format(filt, limmag_proj, limmag_target))
+                      'co-add: {:.2f} ({})'
+                      .format(filt, limmag_proj, limmag_target))
 
 
 
@@ -635,11 +628,11 @@ def buildref (telescope=None, fits_table=None, table_only=None, date_start=None,
             combine_type_list.append(combine_type)
             A_swarp_list.append(A_swarp)
             nsigma_clip_list.append(nsigma_clip)
-            
+
 
     if len(table)==0:
         log.warning ('no field IDs with sufficient number of good images to '
-                        'process')
+                     'process')
         logging.shutdown()
         return
 
@@ -659,7 +652,7 @@ def buildref (telescope=None, fits_table=None, table_only=None, date_start=None,
             prep_ref (list_of_imagelists[i], obj_list[i], filt_list[i],
                       radec_list[i], imagesize_list[i], nfiles_list[i],
                       limmag_proj_list[i], combine_type_list[i],
-                      A_swarp_list[i], nsigma_clip_list[i])
+                      A_swarp_list[i], nsigma_clip_list[i], skip_zogy)
 
     else:
 
@@ -672,7 +665,8 @@ def buildref (telescope=None, fits_table=None, table_only=None, date_start=None,
                                   filt_list, radec_list, imagesize_list,
                                   nfiles_list, limmag_proj_list,
                                   combine_type_list, A_swarp_list,
-                                  nsigma_clip_list, nproc=nproc)
+                                  nsigma_clip_list, [skip_zogy] * len(obj_list),
+                                  nproc=nproc)
 
 
 
@@ -682,8 +676,8 @@ def buildref (telescope=None, fits_table=None, table_only=None, date_start=None,
         log.info ('preparing color figures')
         # also prepare color figures
         try:
-            result = pool_func (prep_colfig, objs_uniq, filters_colfig,
-                                nproc=nproc)
+            result = zogy.pool_func (prep_colfig, objs_uniq, filters_colfig,
+                                     nproc=nproc)
         except Exception as e:
             #log.exception (traceback.format_exc())
             log.exception ('exception was raised during [pool_func]: {}'
@@ -694,34 +688,34 @@ def buildref (telescope=None, fits_table=None, table_only=None, date_start=None,
 
     logging.shutdown()
     return
-    
-    
+
+
 ################################################################################
 
 def calc_imsize (ra, dec, ra0, dec0, imsize, bkg_size, pixscale):
-    
+
     # calculate maximum offset in RA and DEC to determine
     # output imagesize (square) that include all images for
     # this object, and expanding it for the size to contain a
     # multiple of the background boxsize
-    offset_ra = np.amax(np.abs(haversine(ra, dec, ra0, dec0)))
+    offset_ra = np.amax(np.abs(zogy.haversine(ra, dec, ra0, dec0)))
     offset_dec = np.amax(np.abs(dec - dec0))
     offset_pix = int(max(offset_ra, offset_dec) * 3600 / pixscale)
     # grow until multiple of background boxsize
     while offset_pix % bkg_size != 0:
         offset_pix += 1
-        
+
     return imsize + 2*offset_pix
 
 
 ################################################################################
 
 def set_date (date, start=True):
-    
+
     """function to convert start/end dates at noon to mjd"""
-    
+
     mjd_today_noon = int(Time.now().mjd) + 0.5
-    
+
     # if no date is specified, include all data from 20 years ago
     # until now
     if date is None:
@@ -736,7 +730,7 @@ def set_date (date, start=True):
         else:
             # otherwise convert date string to mjd
             date = re.sub(',|-|\.|\/', '', date)
-            mjd = date2mjd ('{}'.format(date), time_str='12:00')
+            mjd = bb.date2mjd ('{}'.format(date), time_str='12:00')
 
     return mjd
 
@@ -752,7 +746,7 @@ def pool_func_lists (func, list_of_imagelists, *args, nproc=1):
             args_temp = [filelist]
             for arg in args:
                 args_temp.append(arg[nlist])
-                
+
             results.append(pool.apply_async(func, args_temp))
 
         pool.close()
@@ -760,18 +754,20 @@ def pool_func_lists (func, list_of_imagelists, *args, nproc=1):
         results = [r.get() for r in results]
         #    log.info ('result from pool.apply_async: {}'.format(results))
         return results
-        
+
     except Exception as e:
         #log.exception (traceback.format_exc())
         log.exception ('exception was raised during [pool.apply_async({})]: '
                        '{}'.format(func, e))
 
         raise RuntimeError
-    
+
 
 ################################################################################
 
 def header2table (filenames):
+
+    use_fitsio = False
 
     # initialize rows
     rows = []
@@ -787,12 +783,12 @@ def header2table (filenames):
     for filename in filenames:
 
         # check if filename exists, fpacked or not
-        exists, filename = already_exists (filename, get_filename=True)
+        exists, filename = bb.already_exists (filename, get_filename=True)
         if exists:
             try:
                 if use_fitsio:
                     # read header; use fitsio as it is faster than
-                    # astropy.io.fits on when not using solid state disk
+                    # astropy.io.fits when not using solid state disk
                     with fitsio.FITS(filename) as hdulist:
                         h = hdulist[-1].read_header()
                 else:
@@ -802,7 +798,7 @@ def header2table (filenames):
                 log.exception ('trouble reading header; skipping image {}'
                                   .format(filename))
                 continue
-                        
+
         else:
             log.warning ('file does not exist; skipping image {}'
                             .format(filename))
@@ -860,11 +856,11 @@ def header2table (filenames):
                             h[key] = h_cat[key]
                             #log.info ('h[{}]: {}, h_cat[{}]: {}'
                             #             .format(key, h[key], key, h_cat[key]))
-                            
+
 
         # skip for now
         if False:
-                            
+
             # check if flag of particular colour was set in the
             # image-subtraction stage; if yes, then promote the flag
             # colour as that flag is not relevant to the image itself and
@@ -911,17 +907,17 @@ def header2table (filenames):
     if len(rows) == 0:
         # rows without entries: create empty table
         table = Table(names=names, dtype=dtypes)
-    else: 
+    else:
         table = Table(rows=rows, names=names, dtype=dtypes)
 
-        
+
     return table
 
 
 ################################################################################
 
 def prep_colfig (field_ID, filters):
-    
+
     # determine reference directory and file
     ref_path = '{}/{:0>5}'.format(get_par(set_bb.ref_dir,tel), field_ID)
     if deep:
@@ -934,34 +930,34 @@ def prep_colfig (field_ID, filters):
 
     # header keyword to use for scaling (e.g. PC-ZP or LIMMAG)
     key = 'LIMMAG'
-    
+
     # initialize rgb list of images
     images_rgb = []
     images_std = []
     images_zp = []
-    
+
     for filt in filters:
 
         image = '{}/{}_{}_red.fits'.format(ref_path, tel, filt)
-        exists, image = already_exists(image, get_filename=True)
-        
+        exists, image = bb.already_exists(image, get_filename=True)
+
         if not exists:
             log.info ('{} does not exist; not able to prepare color '
                       'figure for field_ID {}'.format(image, field_ID))
             return
         else:
-            
+
             # add to image_rgb list (unzip if needed)
-            image = unzip(image, put_lock=False)
+            image = bb.unzip(image, put_lock=False)
             images_rgb.append(image)
-            
+
             # read image data and header
-            data, header = read_hdulist(image, get_header=True)
-            
+            data, header = zogy.read_hdulist(image, get_header=True)
+
             # determine image standard deviation
             mean, median, std = sigma_clipped_stats(data)
             images_std.append(std)
-            
+
             # read header zeropoint
             if key in header:
                 images_zp.append(header[key])
@@ -970,7 +966,7 @@ def prep_colfig (field_ID, filters):
                           'prepare color figure for field_ID {}'
                           .format(key, field_ID))
                 return
-            
+
     # scaling
     f_min = 0
     vmin_r = f_min * images_std[0]
@@ -988,22 +984,52 @@ def prep_colfig (field_ID, filters):
                          vmin_r=vmin_r, vmax_r=vmax_r,
                          vmin_g=vmin_g, vmax_g=vmax_g,
                          vmin_b=vmin_b, vmax_b=vmax_b)
-    
 
-    
+
+################################################################################
+
+def ref_already_exists (ref_path, tel, field_ID, filt, get_filename=False):
+
+    # list files in ref_path with search string [tel]_[fieldID]_[filt]
+    # and ending with _red.fits.fz
+    list_ref = bb.list_files(ref_path, search_str='{}_{}_{}_'
+                             .format(tel, field_ID, filt),
+                             end_str='_red.fits.fz')
+
+    # initialize exists and filename
+    exists, filename = False, None
+
+    # check if list_ref has any entries
+    if len(list_ref) > 0:
+        exists = True
+        filename = list_ref[-1]
+        if len(list_ref) > 1:
+            log.warning ('multiple reference images with the same field {}'
+                         'and filter {} combination present in {}:\n{}\n'
+                         'returning the last one'
+                         .format(field_ID, filt, ref_path, list_ref))
+
+    if get_filename:
+        return exists, filename
+    else:
+        return exists
+
+
 ################################################################################
 
 def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
-              combine_type, A_swarp, nsigma_clip):
+              combine_type, A_swarp, nsigma_clip, skip_zogy):
+
 
     # determine and create reference directory
     ref_path = '{}/{:0>5}'.format(get_par(set_bb.ref_dir,tel), field_ID)
     # in deep mode, change this path to the deep folder
     if deep:
         ref_path = ref_path.replace('/ref/', '/deep/')
-    
-    make_dir (ref_path)
-    
+
+    bb.make_dir (ref_path)
+
+
     # name of output file, including full path
     if not deep:
         ref_fits_out = '{}/{}_{}_red.fits'.format(ref_path, tel, filt)
@@ -1011,37 +1037,38 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
         ref_fits_out = '{}/{}_{}_{}_red.fits'.format(ref_path, tel, field_ID,
                                                      filt)
 
+
     # if reference image already exists, check if images used are the
     # same as the input [imagelist]
-    exists, ref_fits_temp = already_exists (ref_fits_out, get_filename=True)
+    exists, ref_fits_tmp = ref_already_exists (ref_fits_out, get_filename=True)
     if exists:
 
-        log.warning ('reference image {} already exists; not remaking it'
-                        .format(ref_fits_out))
-        return
-        
-
-        # this block below was used previously to only remake the
-        # reference image if new individual files were available
         if False:
+            log.warning ('reference image {} already exists; not remaking it'
+                         .format(ref_fits_out))
+            return
 
-            log.info ('reference image {} already exists; checking if it '
-                         'needs updating'.format(ref_fits_out))
+        else:
+
+            # only remake the reference image if new individual files
+            # are available
+            log.info ('reference image {} already exists; checking if it needs '
+                      'updating'.format(ref_fits_tmp))
             # read header
-            header_ref = read_hdulist (ref_fits_temp, get_data=False,
-                                       get_header=True)
+            header_ref = zogy.read_hdulist (ref_fits_tmp, get_data=False,
+                                            get_header=True)
             # check how many images were used
             if 'R-NUSED' in header_ref:
                 n_used = header_ref['R-NUSED']
             else:
                 n_used = 1
-            
+
             # gather used images into list
             if 'R-IM1' in header_ref:
                 imagelist_used = [header_ref['R-IM{}'.format(i+1)]
                                   for i in range(n_used)
                                   if 'R-IM{}'.format(i+1) in header_ref]
-            
+
             # compare input [imagelist] with [imagelist_used]; if they are
             # the same, no need to build this particular reference image
             # again
@@ -1056,7 +1083,7 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
                              .format(field_ID, filt))
                 return
 
-        
+
     # prepare temporary folder
     if not deep:
         tmp_path = ('{}/{:0>5}/{}'
@@ -1068,7 +1095,7 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
                     .format(get_par(set_bb.tmp_dir,tel), field_ID,
                             ref_fits_out.split('/')[-1].replace('.fits','')))
 
-    make_dir (tmp_path, empty=True)
+    bb.make_dir (tmp_path, empty=True)
 
 
     # names of tmp output fits and its mask
@@ -1078,7 +1105,7 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
 
     # RA and DEC center of output image
     ra_center, dec_center = radec
-        
+
 
     # create logfile specific to this reference image in tmp folder
     # (to be copied to final output folder at the end)
@@ -1089,18 +1116,18 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
     log.addHandler(fileHandler)
     log.info ('logfile created: {}'.format(logfile))
 
-    
+
     # check if sufficient images available to combine
     if len(imagelist) == 0:
-        
+
         log.error ('no images available to combine for field ID {} in filter {}'
                    .format(field_ID, filt))
-        clean_tmp(tmp_path, get_par(set_br.keep_tmp,tel))
-        close_log(log, logfile)
+        bb.clean_tmp(tmp_path, get_par(set_br.keep_tmp,tel))
+        bb.close_log(log, logfile)
         return
 
     else:
-    
+
 
         if len(imagelist) == 1:
             log.warning ('only a single image available for field ID {} in filter {}'
@@ -1132,64 +1159,71 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
             #log.exception (traceback.format_exc())
             log.exception ('exception was raised during [imcombine]: {}'
                            .format(e))
-            clean_tmp(tmp_path, get_par(set_br.keep_tmp,tel))
-            close_log(log, logfile)
+            bb.clean_tmp(tmp_path, get_par(set_br.keep_tmp,tel))
+            bb.close_log(log, logfile)
             raise RuntimeError
 
 
-        # run zogy on newly prepared reference image
-        try:
-            zogy_processed = False
-            header_optsub = optimal_subtraction(
-                ref_fits=ref_fits, ref_fits_mask=ref_fits_mask,
-                set_file='set_zogy', verbose=None,
-                nthreads=set_br.nthreads, telescope=tel,
-                keep_tmp=get_par(set_br.keep_tmp,tel))
+        if not skip_zogy:
 
-        except Exception as e:
-            #log.exception (traceback.format_exc())
-            log.exception ('exception was raised during reference '
-                           '[optimal_subtraction]: {}'.format(e))
+            # run zogy on newly prepared reference image
+            try:
+                zogy_processed = False
+                header_optsub = zogy.optimal_subtraction(
+                    ref_fits=ref_fits, ref_fits_mask=ref_fits_mask,
+                    set_file='set_zogy', verbose=None,
+                    nthreads=set_br.nthreads, telescope=tel,
+                    keep_tmp=get_par(set_br.keep_tmp,tel))
 
-        else:
-            zogy_processed = True
+            except Exception as e:
+                #log.exception (traceback.format_exc())
+                log.exception ('exception was raised during reference '
+                               '[optimal_subtraction]: {}'.format(e))
 
-        finally:
-            if not zogy_processed:
-                log.error ('due to exception: returning without copying '
-                           'reference files')
+            else:
+                zogy_processed = True
 
-                clean_tmp(tmp_path, get_par(set_br.keep_tmp,tel))
-                close_log(log, logfile)
-                return
-            
+            finally:
+                if not zogy_processed:
+                    log.error ('due to exception: returning without copying '
+                               'reference files')
 
-        log.info('zogy_processed: {}'.format(zogy_processed))
+                    bb.clean_tmp(tmp_path, get_par(set_br.keep_tmp,tel))
+                    bb.close_log(log, logfile)
+                    return
+
+            log.info('zogy_processed: {}'.format(zogy_processed))
+
 
 
         # copy/move files to the reference folder
         tmp_base = ref_fits.split('_red.fits')[0]
         ref_base = ref_fits_out.split('_red.fits')[0]
+        # add date of creation to ref_base
+        date_today = Time.now().isot.split('T')[0].replace('-','')
+        ref_base = '{}_{}'.format(ref_base, date_today)
 
-        # (re)move old reference files
-        oldfiles = glob.glob('{}*'.format(ref_base))
+
+        # first (re)move old reference files
+        oldfiles = bb.list_files (ref_base)
         if len(oldfiles)!=0:
             if False:
                 # remove them
-                for f in oldfiles:
-                    os.remove(f)
+                zogy.remove_files (oldfiles, verbose=True)
             else:
-                # or move them to an Old folder instead
-                old_path = '{}/Old/'.format(ref_path)
-                make_dir (old_path)
+                # or move them to the ref-old folder instead
+                old_path = '{}-old/{:0>5}'.format(get_par(set_bb.ref_dir,tel),
+                                                  field_ID)
+                bb.make_dir (old_path)
                 for f in oldfiles:
-                    f_dst = '{}/{}'.format(old_path,f.split('/')[-1])
-                    shutil.move (f, f_dst)
+                    f_dest = '{}/{}'.format(old_path,f.split('/')[-1])
+                    #shutil.move (f, f_dest)
+                    bb.copy_file (f, f_dest, move=True)
 
-                
+
         # now move [ref_2keep] to the reference directory
-        result = copy_files2keep(tmp_base, ref_base,
-                                 get_par(set_bb.ref_2keep,tel), move=False)
+        result = bb.copy_files2keep(tmp_base, ref_base,
+                                    get_par(set_bb.ref_2keep,tel), move=False)
 
 
     # also build a couple of alternative reference images for
@@ -1198,7 +1232,7 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
     # file extensions defined in blackbox settings file)
     if False:
         masktype_discard = get_par(set_br.masktype_discard,tel)
-        
+
         def help_imcombine (combine_type, back_type, back_default=0,
                             back_size=30, back_filtersize=5):
 
@@ -1229,7 +1263,7 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
             # copy combined image to reference folder
             shutil.move (ref_fits_temp, ref_path)
 
-            
+
         if False:
             help_imcombine ('weighted', 'blackbox')
             help_imcombine ('clipped', 'auto', back_size=60, back_filtersize=5)
@@ -1244,18 +1278,18 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
     log.info('finished making reference image: {}'.format(ref_fits_out))
 
     if False:
-        
+
         # feed [header_optsub] to [run_qc_check] and check for a red flag
-        qc_flag = run_qc_check (header_optsub, tel)
+        qc_flag = qc.run_qc_check (header_optsub, tel)
         qc_flag = 'green'
-    
+
         if qc_flag != 'red':
             tmp_base = ref_fits.split('.fits')[0]
             # now move [ref_2keep] to the reference directory
             ref_base = ref_fits_out.split('.fits')[0]
-            result = copy_files2keep(tmp_base, ref_base,
-                                     get_par(set_bb.ref_2keep,tel),
-                                     move=False)
+            result = bb.copy_files2keep(tmp_base, ref_base,
+                                        get_par(set_bb.ref_2keep,tel),
+                                        move=False)
             log.info('finished making reference image: {}'.format(ref_fits_out))
 
         else:
@@ -1263,11 +1297,11 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
                      .format(ref_fits))
 
 
-    clean_tmp(tmp_path, get_par(set_br.keep_tmp,tel))
-    close_log(log, logfile)
+    bb.clean_tmp(tmp_path, get_par(set_br.keep_tmp,tel))
+    bb.close_log(log, logfile)
     return
-    
-        
+
+
 ################################################################################
 
 def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True,
@@ -1321,13 +1355,13 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
     if os.path.isfile(fits_out) and not overwrite:
         raise RuntimeError ('output image {} already exist'
                             .format(fits_out))
-    
+
     # if fits_mask_out already exists, raise error
     fits_mask_out = fits_out.replace('red.fits', 'mask.fits')
     if os.path.isfile(fits_out) and not overwrite:
         raise RuntimeError ('output image {} already exist'
                             .format(fits_out))
-    
+
     # if output weights or background standard deviation mini image
     # (=sqrt(1/weights image)) already exists, raise error
     fits_weights_out = fits_out.replace('.fits', '_weights.fits')
@@ -1353,7 +1387,7 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
         if not os.path.isfile(swarp_cfg):
             raise IOError ('file {} does not exist'.format(swarp_cfg))
 
-        
+
     # COMBINE TYPE MEDIAN
     # Tells SWarp how to combine resampled images:
     # MEDIAN Take the median of pixel values
@@ -1370,7 +1404,7 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
     # make sure combine_type, back_type and center_type are lower case
     combine_type = combine_type.lower()
     back_type = back_type.lower()
-    
+
     # check if value of [combine_type] is valid; if not, exit
     combine_type_list = ['median', 'average', 'min', 'max', 'weighted', 'chi2',
                          'sum', 'clipped', 'weighted_weight', 'median_weight']
@@ -1394,17 +1428,17 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
 
     # loop input list of images
     for nimage, image in enumerate(imagelist):
-        
+
         if not os.path.isfile(image):
             raise RuntimeError ('input image {} does not exist'.format(image))
 
         # read input image data and header
-        data, header = read_hdulist(image, get_header=True, dtype='float32')
+        data, header = zogy.read_hdulist(image, get_header=True, dtype='float32')
 
         # read corresponding mask image
         image_mask = image.replace('red.fits', 'mask.fits')
-        data_mask, header_mask = read_hdulist(image_mask, get_header=True,
-                                              dtype='uint8')
+        data_mask, header_mask = zogy.read_hdulist(image_mask, get_header=True,
+                                                   dtype='uint8')
 
         # read relevant header keywords
         keywords = ['naxis1', 'naxis2', 'ra', 'dec', 'pc-zp', 'pc-zpstd',
@@ -1421,14 +1455,14 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
             # do not use this row
             mask_keep[nimage] = False
             continue
-        
-        
+
+
         if 'BKG-SUB' in header and header['BKG-SUB']:
             bkg_sub = True
         else:
             bkg_sub = False
 
-                
+
         if back_type != 'new' or bkg_sub:
 
             # background itself is not needed if the image was already
@@ -1438,31 +1472,34 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
             if not bkg_sub:
                 # read corresponding mini background image
                 image_bkg_mini = image.replace('red.fits', 'red_bkg_mini.fits')
-                data_bkg_mini, header_bkg_mini = read_hdulist(image_bkg_mini,
-                                                              get_header=True,
-                                                              dtype='float32')
+                data_bkg_mini, header_bkg_mini = zogy.read_hdulist(
+                    image_bkg_mini, get_header=True, dtype='float32')
+
                 # convert mini to full background image
                 bkg_boxsize = header_bkg_mini['BKG-SIZE']
-                data_bkg = mini2back (data_bkg_mini, data.shape, 
-                                      order_interp=3, bkg_boxsize=bkg_boxsize,
-                                      interp_Xchan=True, timing=False)
+                data_bkg = zogy.mini2back (
+                    data_bkg_mini, data.shape, order_interp=3,
+                    bkg_boxsize=bkg_boxsize, interp_Xchan=True, timing=False)
 
 
             # read mini background STD image
-            image_bkg_std_mini = image.replace('red.fits', 'red_bkg_std_mini.fits')
-            data_bkg_std_mini, header_bkg_std_mini = read_hdulist(image_bkg_std_mini,
-                                                                  get_header=True,
-                                                                  dtype='float32')
+            image_bkg_std_mini = image.replace('red.fits',
+                                               'red_bkg_std_mini.fits')
+            data_bkg_std_mini, header_bkg_std_mini = zogy.read_hdulist(
+                image_bkg_std_mini, get_header=True, dtype='float32')
+
 
             # convert mini STD to full background STD image
             bkg_boxsize = header_bkg_std_mini['BKG-SIZE']
-            data_bkg_std = mini2back (data_bkg_std_mini, data.shape,
-                                      order_interp=3, bkg_boxsize=bkg_boxsize,
-                                      interp_Xchan=False, timing=False)
+            data_bkg_std = zogy.mini2back (
+                data_bkg_std_mini, data.shape, order_interp=3,
+                bkg_boxsize=bkg_boxsize, interp_Xchan=False, timing=False)
+
 
             # save as probably used later on
             image_temp = '{}/{}'.format(tempdir, image.split('/')[-1])
-            image_temp_bkg_std = image_temp.replace('red.fits', 'red_bkg_std.fits')
+            image_temp_bkg_std = image_temp.replace('red.fits',
+                                                    'red_bkg_std.fits')
             image_temp_bkg_std = image_temp_bkg_std.replace('.fz','')
             fits.writeto(image_temp_bkg_std, data_bkg_std, overwrite=True)
 
@@ -1479,8 +1516,8 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
             # unzip if needed
             image_temp = '{}/{}'.format(tempdir, image.split('/')[-1])
             image_mask_temp = image_temp.replace('red.fits', 'mask.fits')
-            image_temp = unzip(image_temp, put_lock=False)
-            image_mask_temp = unzip(image_mask_temp, put_lock=False)
+            image_temp = bb.unzip(image_temp, put_lock=False)
+            image_mask_temp = bb.unzip(image_mask_temp, put_lock=False)
 
             # run source-extractor
             base = image_temp.split('.fits')[0]
@@ -1490,22 +1527,22 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
             imtype = 'new'
             sex_params = get_par(set_zogy.sex_par,tel)
             try:
-                result = run_sextractor(
+                result = zogy.run_sextractor(
                     image_temp, sexcat, get_par(set_zogy.sex_cfg,tel),
                     sex_params, pixscale, header, fit_psf=False,
                     return_fwhm_elong=False, fraction=1.0, fwhm=fwhm,
                     update_vignet=False, imtype=imtype,
                     fits_mask=image_mask_temp, npasses=2, tel=tel,
                     set_zogy=set_zogy)
-                
+
             except Exception as e:
                 #log.exception(traceback.format_exc())
                 log.exception('exception was raised during [run_sextractor]: {}'
                               .format(e))
 
             # read source-extractor output image data and header
-            data, header = read_hdulist(image_temp, get_header=True,
-                                        dtype='float32')
+            data, header = zogy.read_hdulist(image_temp, get_header=True,
+                                             dtype='float32')
 
             # check if background was subtracted this time
             if 'BKG-SUB' in header and header['BKG-SUB']:
@@ -1516,14 +1553,15 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
             if not bkg_sub:
                 # read background image created in [run_sextractor]
                 image_temp_bkg = '{}_bkg.fits'.format(base)
-                data_bkg = read_hdulist (image_temp_bkg, dtype='float32')
+                data_bkg = zogy.read_hdulist (image_temp_bkg, dtype='float32')
 
             image_temp_bkg_std = '{}_bkg_std.fits'.format(base)
-            data_bkg_std = read_hdulist (image_temp_bkg_std, dtype='float32')
+            data_bkg_std = zogy.read_hdulist (image_temp_bkg_std,
+                                              dtype='float32')
 
 
 
-        # determine weights image (1/variance) 
+        # determine weights image (1/variance)
         # for Poisson noise component, use background image instead of
         # image itself:
         #data_var = data_bkg + rdnoise**2
@@ -1531,7 +1569,7 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
         index_nonzero = np.nonzero(data_weights)
         data_weights[index_nonzero] = 1./data_weights[index_nonzero]
 
-            
+
         if False:
             # alternatively, provide the absolute values of the
             # background RMS map and using WEIGHT_TYPE MAP_RMS below;
@@ -1570,10 +1608,10 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
         base = image_temp.split('.fits')[0]
         value_sat = mask_value['saturated']
         if not (masktype_discard & value_sat == value_sat):
-            data = fixpix (data, satlevel=saturate, data_mask=data_mask,
-                           base=base, imtype='new', mask_value=mask_value,
-                           keep_tmp=get_par(set_br.keep_tmp,tel),
-                           along_row=True, interp_func='gauss')
+            data = zogy.fixpix (data, satlevel=saturate, data_mask=data_mask,
+                                base=base, imtype='new', mask_value=mask_value,
+                                keep_tmp=get_par(set_br.keep_tmp,tel),
+                                along_row=True, interp_func='gauss')
 
 
         # fill arrays with header info
@@ -1616,7 +1654,7 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
         fscale = (10**(dmag/-2.5) * imtable['exptime'][mask_keep][0] / exptime)
         # record in table
         imtable['fscale'][nimage] = fscale
-        
+
         # add fscale to image header
         header['FSCALE'] = (fscale, 'flux ratio wrt to first image and at '
                             'airmass=1')
@@ -1648,17 +1686,13 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
             # determine WCS center of field
             wcs = WCS(header)
             ra_temp, dec_temp = wcs.all_pix2world(int(xsize/2), int(ysize/2), 1)
-            #print ('center RA, DEC', ra_temp, dec_temp)
-            #print ('center RA, DEC', Angle(ra_temp, unit=u.deg).to_string(u.hour),
-            #       Angle(dec_temp, unit=u.deg).to_string(u.deg))
-
         else:
             # alternatively, using header keywords read above
             if ':' in ra_temp:
                 ra_temp = Angle(ra_temp, unit=u.hour).degree
             if ':' in dec_temp:
                 dec_temp = Angle(dec_temp, unit=u.degree).degree
-            
+
 
         imtable['ra_center'][nimage] = ra_temp
         imtable['dec_center'][nimage] = dec_temp
@@ -1720,7 +1754,7 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
 
     # clean imtable from images that were not used
     imtable = imtable[mask_keep]
-    
+
 
     # if input [ra_center] or [dec_center] is not defined, use the
     # median RA/DEC of the input images as the center RA/DEC of the
@@ -1728,7 +1762,7 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
     if ra_center is None or dec_center is None:
         ra_center = np.median(imtable['ra_center'])
         dec_center = np.median(imtable['dec_center'])
-    
+
     # convert coordinates to input string for SWarp
     radec_str = '{},{}'.format(ra_center, dec_center)
 
@@ -1774,8 +1808,8 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
     keys2copy = ['XBINNING', 'YBINNING', 'RADESYS', 'EPOCH', 'FLIPSTAT',
                  'OBJECT', 'IMAGETYP', 'FILTER', 'DATE-OBS', 'MJD-OBS',
                  'TIMESYS', 'SITELAT', 'SITELONG', 'ELEVATIO', 'EQUINOX',
-                 'CCD-ID', 'CONTROLL', 'DETSPEED', 'CCD-NW', 'CCD-NH', 'FOCUSPOS', 
-                 'ORIGIN', 'MPC-CODE', 'TELESCOP', 'INSTRUME', 
+                 'CCD-ID', 'CONTROLL', 'DETSPEED', 'CCD-NW', 'CCD-NH', 'FOCUSPOS',
+                 'ORIGIN', 'MPC-CODE', 'TELESCOP', 'INSTRUME',
                  'OBSERVER', 'ABOTVER', 'PROGNAME', 'PROGID',
                  'PYTHON-V', 'BB-V', 'KW-V']
 
@@ -1801,7 +1835,7 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
     cmd_dict['-RESAMPLE_DIR'] = tempdir
     cmd_dict['-RESAMPLE_SUFFIX'] = resample_suffix
     cmd_dict['-RESAMPLING_TYPE'] = 'LANCZOS3'
-    # GAIN_KEYWORD cannot be GAIN, as the value of GAIN1 would then be adopted          
+    # GAIN_KEYWORD cannot be GAIN, as the value of GAIN1 would then be adopted
     cmd_dict['-GAIN_KEYWORD'] = 'anything_but_gain'
     cmd_dict['-GAIN_DEFAULT'] = '1.0'
     cmd_dict['-SATLEV_KEYWORD'] = get_par(set_zogy.key_satlevel,tel)
@@ -1823,18 +1857,18 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
     cmd_dict['-MEM_MAX'] = str(4096)
     cmd_dict['-DELETE_TMPFILES'] = 'N'
     cmd_dict['-NOPENFILES_MAX'] = '256'
-    
+
 
     # execute SWarp, in CLIPPED mode, 2 passes are executed
     for npass in range(2):
-        
+
         if combine_type == 'clipped':
 
             if npass==0:
 
                 # set AMPFRAC=A_swarp
                 cmd_dict['-CLIP_AMPFRAC'] = str(A_swarp)
-                
+
                 # save clipped pixels in ASCII file
                 clip_logname = '{}/clipped.dat'.format(tempdir)
                 cmd_dict['-CLIP_LOGNAME'] = clip_logname
@@ -1845,7 +1879,7 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
 
 
             else:
-                
+
 
                 imagelist_tmp = list(imtable['image_name_tmp'])
 
@@ -1882,8 +1916,8 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
 
 
     # update header of fits_out
-    data_out, header_out = read_hdulist(fits_out, get_header=True,
-                                        dtype='float32')
+    data_out, header_out = zogy.read_hdulist(fits_out, get_header=True,
+                                             dtype='float32')
 
     # with RA and DEC
     header_out['RA'] = (ra_center, '[deg] telescope right ascension')
@@ -1892,7 +1926,7 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
     # with gain, readnoise, saturation level, exptime and mjd-obs
     gain_eff, rdnoise_eff, saturate_eff, exptime_eff, mjd_obs_eff = calc_headers(
         combine_type, imtable)
-    
+
     header_out.set('GAIN', gain_eff, '[e-/ADU] effective gain', after='DEC')
     header_out.set('RDNOISE', rdnoise_eff, '[e-] effective read-out noise',
                    after='GAIN')
@@ -1918,13 +1952,13 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
 
     # time when module was started
     header_out['R-TSTART'] = (time_refstart, 'UT time that module was started')
-    
+
     val_str = '[{},{}]'.format(start_date, end_date)
     header_out['R-TRANGE'] = (val_str,
                               '[date/days wrt R-TSTART] image time range')
-    
+
     header_out['R-QCMAX'] = (max_qc_flag, 'maximum image QC flag')
-    
+
     header_out['R-SEEMAX'] = (max_seeing, '[arcsec] maximum image seeing')
 
     # number of images available and used
@@ -1959,7 +1993,7 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
 
     # projected and target limiting magnitudes
     header_out['R-LMPROJ'] = (limmag_proj, '[mag] projected limiting magnitude')
-    if not deep: 
+    if not deep:
         limmag_target = get_par(set_br.limmag_target,tel)[filt]
     else:
         # set limiting magnitudes to mag=30 for all filters
@@ -1983,17 +2017,17 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
         bkg_sub = True
 
     header_out['BKG-SUB'] = (bkg_sub, 'sky background was subtracted?')
-    
+
     header_out['R-CNTR-M'] = (get_par(set_br.center_type,tel),
                               'reference image centering method')
-    
+
     header_out['R-SIZE-M'] = (get_par(set_br.imagesize_type,tel),
                               'reference image size method')
 
     # discarded mask values
     header_out['R-MSKREJ'] = (masktype_discard,
                               'reject pixels with mask values part of this sum')
-    
+
 
     # any nan value in the image?
     mask_infnan = ~np.isfinite(data_out)
@@ -2033,7 +2067,7 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
         cmd_dict['-COMBINE_TYPE'] = 'MIN'
         cmd_dict['-WEIGHTOUT_NAME'] = '{}/weights_out_tmp.fits'.format(tempdir)
         cmd_dict['-IMAGEOUT_NAME'] = fits_out_min
-        
+
         # convert cmd_dict to list and execute it
         cmd = list(itertools.chain.from_iterable(list(cmd_dict.items())))
         cmd_str = ' '.join(cmd)
@@ -2041,7 +2075,8 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
         result = subprocess.call(cmd)
 
         # read minimum combination
-        data_min = read_hdulist(fits_out_min, get_header=False, dtype='float32')
+        data_min = zogy.read_hdulist(fits_out_min, get_header=False,
+                                     dtype='float32')
 
 
 
@@ -2065,9 +2100,9 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
         cmd_dict['-IMAGEOUT_NAME'] = fits_mask_OR
         cmd_dict['-RESAMPLING_TYPE'] = 'NEAREST'
         cmd_dict['-SUBTRACT_BACK'] = 'N'
-    
+
         # convert cmd_dict to list and execute it
-        cmd = list(itertools.chain.from_iterable(list(cmd_dict.items()))) 
+        cmd = list(itertools.chain.from_iterable(list(cmd_dict.items())))
         cmd_str = ' '.join(cmd)
         log.info ('creating OR mask with SWarp:\n{}'.format(cmd_str))
         result = subprocess.call(cmd)
@@ -2088,11 +2123,11 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
 
 
         # read OR and MIN output masks
-        data_mask_OR = (read_hdulist(fits_mask_OR, get_header=False)
+        data_mask_OR = (zogy.read_hdulist(fits_mask_OR, get_header=False)
                         +0.5).astype('uint8')
-        data_mask_MIN = (read_hdulist(fits_mask_MIN, get_header=False)
+        data_mask_MIN = (zogy.read_hdulist(fits_mask_MIN, get_header=False)
                          +0.5).astype('uint8')
-    
+
 
         # now, wherever mask_MIN is not zero, implying that none of the
         # pixel values in the cube were valid, replace it with the OR mask
@@ -2105,10 +2140,11 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
 
         # remapping each individual image if needed
         log.info ('remapping individual images')
-        
+
         # also SWarp individual images
         refimage = fits_out
-        header_refimage = read_hdulist(refimage, get_data=False, get_header=True)
+        header_refimage = zogy.read_hdulist(refimage, get_data=False,
+                                            get_header=True)
 
         # initialize combined mask
         mask_array_shape = (len(imtable), image_size, image_size)
@@ -2122,58 +2158,58 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
 
                 t_temp = time.time()
                 image_remap = image.replace('.fits', remap_suffix)
-                
+
                 log.info ('refimage: {}'.format(refimage))
                 log.info ('image: {}'.format(image))
                 log.info ('image_remap: {}'.format(image_remap))
-                
+
                 if not os.path.isfile(image_remap):
                     try:
-                        result = run_remap (refimage, image, image_remap,
-                                            (image_size,image_size),
-                                            config=swarp_cfg,
-                                            resample='N', resample_dir=tempdir,
-                                            resample_suffix=resample_suffix,
-                                            nthreads=nthreads)
+                        result = zogy.run_remap (
+                            refimage, image, image_remap,
+                            (image_size,image_size), config=swarp_cfg,
+                            resample='N', resample_dir=tempdir,
+                            resample_suffix=resample_suffix, nthreads=nthreads)
+
                     except Exception as e:
                         #log.exception(traceback.format_exc())
                         log.exception('exception was raised during [run_remap]: '
                                       '{}'.format(e))
                         raise RuntimeError
+
                     else:
                         log.info ('time spent in run_remap: {}'
                                   .format(time.time()-t_temp))
-                        
+
 
             # remap image masks
             image_mask = imtable['mask_name_tmp'][nimage]
-                
+
             log.info ('processing mask: {}'.format(image_mask))
-                
-            data_mask, header_mask = read_hdulist(image_mask, get_header=True,
-                                                  dtype='uint8')
+
+            data_mask, header_mask = zogy.read_hdulist(
+                image_mask, get_header=True, dtype='uint8')
 
             t_temp = time.time()
-            image_mask_remap = image_mask.replace('.fits', remap_suffix) 
+            image_mask_remap = image_mask.replace('.fits', remap_suffix)
             if not os.path.isfile(image_mask_remap):
-                
+
                 try:
-                    result = run_remap (refimage, image_mask, image_mask_remap,
-                                        (image_size,image_size),
-                                        config=swarp_cfg,
-                                        resampling_type='NEAREST',
-                                        resample_dir=tempdir,
-                                        resample_suffix=resample_suffix,
-                                        dtype=data_mask.dtype.name,
-                                        value_edge=mask_value['edge'],
-                                        nthreads=nthreads,
-                                        oversampling=0)
-    
+                    result = zogy.run_remap (
+                        refimage, image_mask, image_mask_remap,
+                        (image_size,image_size), config=swarp_cfg,
+                        resampling_type='NEAREST', resample_dir=tempdir,
+                        resample_suffix=resample_suffix,
+                        dtype=data_mask.dtype.name,
+                        value_edge=mask_value['edge'], nthreads=nthreads,
+                        oversampling=0)
+
                 except Exception as e:
                     #log.exception(traceback.format_exc())
                     log.exception('exception was raised during [run_remap]: '
                                   '{}'.format(e))
                     raise RuntimeError
+
                 else:
                     log.info ('wall-time spent in remapping mask: {}'
                               .format(time.time()-t_temp))
@@ -2181,12 +2217,12 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
 
             t_temp = time.time()
 
-            
+
             # SWarp has converted input mask to float32, so need to
             # read fits image back into integer array to use in
             # combination of masks below
-            data_mask_remap = (read_hdulist(image_mask_remap,
-                                            get_header=False)
+            data_mask_remap = (zogy.read_hdulist(image_mask_remap,
+                                                 get_header=False)
                                +0.5).astype('uint8')
 
             # perform bitwise OR combination of mask_remap and
@@ -2210,13 +2246,13 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
         mask_zeros = (data_sumzeros >= max(1,len(imtable)/3))
         data_mask_out[mask_zeros] = 0
 
-        
+
 
 
     if False:
         # only in case of multiple images
         if len(imagelist) > 1:
-        
+
             # try to clean up erratic mask edges by setting all
             # columns and rows that have less than some fraction of
             # the maximum width of non-edge pixels to edge pixels
@@ -2224,11 +2260,11 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
             mask_edge = (data_mask_out==value_edge)
             dy = np.sum(np.any(~mask_edge, axis=1))
             dx = np.sum(np.any(~mask_edge, axis=0))
-            
+
             frac = 0.9
             mask_y = np.sum(~mask_edge, axis=1) < frac*dx
             mask_x = np.sum(~mask_edge, axis=0) < frac*dy
-            
+
             data_mask_out[:,mask_x] = value_edge
             data_mask_out[mask_y,:] = value_edge
 
@@ -2236,7 +2272,7 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
 
     # fill_holes and binary_close saturated pixels using function
     # blackbox.fill_sat_holes; mask is updated in place
-    fill_sat_holes (data_mask_out, mask_value)
+    bb.fill_sat_holes (data_mask_out, mask_value)
 
 
     # set pixels that are in the actual combined edge to [value_edge],
@@ -2258,17 +2294,17 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
     data_out[mask_edge] = 0
 
 
-    
+
     # convert combined weights image to standard deviation
-    data_weights_out, header_weights_out = read_hdulist(fits_weights_out,
-                                                        get_header=True,
-                                                        dtype='float32')
+    data_weights_out, header_weights_out = zogy.read_hdulist(fits_weights_out,
+                                                             get_header=True,
+                                                             dtype='float32')
     mask_zero_cw = (data_weights_out == 0)
     data_bkg_std_out = np.copy(data_weights_out)
     data_bkg_std_out[~mask_zero_cw] = 1./np.sqrt(data_weights_out[~mask_zero_cw])
     # replace zeros with maximum value
     data_bkg_std_out[mask_zero_cw] = np.amax(data_bkg_std_out[~mask_zero_cw])
-    
+
 
     # if saturated pixels are considered to be bad pixels, i.e.  they
     # are given a weight of zero, then use zogy.fixpix to interpolate
@@ -2276,14 +2312,14 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
     value_sat = mask_value['saturated']
     if masktype_discard & value_sat == value_sat:
         base = fits_out.split('.fits')[0]
-        data_out = fixpix (data_out, satlevel=saturate_eff,
-                           data_bkg_std=data_bkg_std_out,
-                           data_mask=data_mask_out, header=header_out,
-                           base=base, mask_value=mask_value,
-                           keep_tmp=get_par(set_br.keep_tmp,tel),
-                           # along column as reference image has been
-                           # re-oriented to North up, East left
-                           along_row=False, interp_func='gauss')
+        data_out = zogy.fixpix (data_out, satlevel=saturate_eff,
+                                data_bkg_std=data_bkg_std_out,
+                                data_mask=data_mask_out, header=header_out,
+                                base=base, mask_value=mask_value,
+                                keep_tmp=get_par(set_br.keep_tmp,tel),
+                                # along column as reference image has been
+                                # re-oriented to North up, East left
+                                along_row=False, interp_func='gauss')
 
 
     # add pixels that have zero weights in the combined weights
@@ -2295,12 +2331,12 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
     log.info ('{} zero-weight pixels in combined image, of which {} are not '
               'coinciding with already flagged pixels'
               .format(np.sum(mask_zero_cw), np.sum(mask_bad2add)))
-    
+
     # set values of these additional bad pixels to zero in output
     # image
     #data_out[mask_bad2add] = 0
-    
-    
+
+
     if False:
         if len(imtable) != 2:
             data_mask_out[mask_bad2add] += 1
@@ -2348,25 +2384,24 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
     fits.writeto(fits_bkg_std_mini, mini_std.astype('float32'),
                  header_weights_out, overwrite=True)
 
-    
+
 
     log.info ('wall-time spent in imcombine: {}s'.format(time.time()-t0))
 
     return
-    
+
 
 ################################################################################
 
 def mask_objects (imtable):
-    
+
     imagelist = list(imtable['image_name_red'])
     imagelist_tmp = list(imtable['image_name_tmp'])
-    
+
     for nimage, image in enumerate(imagelist):
 
         # read image data
-        data = read_hdulist(image)
-
+        data = zogy.read_hdulist(image)
 
         # get background STD image
         image_temp_bkg_std = imagelist_tmp[nimage].replace('red.fits',
@@ -2375,21 +2410,23 @@ def mask_objects (imtable):
         if os.path.exists(image_temp_bkg_std):
 
             # read it from the full background image
-            data_bkg_std = read_hdulist (image_temp_bkg_std, dtype='float32')
+            data_bkg_std = zogy.read_hdulist (image_temp_bkg_std,
+                                              dtype='float32')
 
         # otherwise extract it from the mini background STD image
         else:
-            
+
             # read mini background STD image
-            image_bkg_std_mini = image.replace('red.fits', 'red_bkg_std_mini.fits')
-            data_bkg_std_mini, header_bkg_std_mini = read_hdulist(image_bkg_std_mini,
-                                                                  get_header=True,
-                                                                  dtype='float32')
+            image_bkg_std_mini = image.replace('red.fits',
+                                               'red_bkg_std_mini.fits')
+            data_bkg_std_mini, header_bkg_std_mini = zogy.read_hdulist(
+                image_bkg_std_mini, get_header=True, dtype='float32')
+
             # convert mini STD to full background STD image
             bkg_boxsize = header_bkg_std_mini['BKG-SIZE']
-            data_bkg_std = mini2back (data_bkg_std_mini, data.shape,
-                                      order_interp=3, bkg_boxsize=bkg_boxsize,
-                                      interp_Xchan=False, timing=False)
+            data_bkg_std = zogy.mini2back (
+                data_bkg_std_mini, data.shape, order_interp=3,
+                bkg_boxsize=bkg_boxsize, interp_Xchan=False, timing=False)
 
 
         # define box sizes, nsigmas and maximum number of outliers to
@@ -2421,8 +2458,8 @@ def mask_objects (imtable):
         mask_obj = pass_filters (table_im, fsize, fsigma, fmax, data.shape)
         log.info ('created mask for {} in {:.2f}s'
                   .format(image, time.time()-t0))
-        
-        
+
+
         # set these pixels to zero in the weights image
         weights_tmp = imagelist_tmp[nimage].replace('.fits','_weights.fits')
         with fits.open(weights_tmp, 'update') as hdulist:
@@ -2431,10 +2468,10 @@ def mask_objects (imtable):
 
         if False:
             sigmas_masked = np.copy(data_nsigma)
-            sigmas_masked[mask_obj] = 0 
-            ds9_arrays(data_mo=data, data_nsigma_mo=data_nsigma,
-                       mask_obj_mo=mask_obj.astype(int),
-                       sigmas_masked_mo=sigmas_masked)
+            sigmas_masked[mask_obj] = 0
+            zogy.ds9_arrays(data_mo=data, data_nsigma_mo=data_nsigma,
+                            mask_obj_mo=mask_obj.astype(int),
+                            sigmas_masked_mo=sigmas_masked)
 
 
     return
@@ -2443,7 +2480,7 @@ def mask_objects (imtable):
 ################################################################################
 
 def pick_images (seeing, max_spread=0.4):
-    
+
     # number of seeing values
     nvalues = len(seeing)
 
@@ -2452,7 +2489,7 @@ def pick_images (seeing, max_spread=0.4):
 
     # seeing values sorted
     seeing_sort = np.sort(seeing)
-    
+
     nmask = 0
     for i, val in enumerate(seeing_sort):
 
@@ -2525,7 +2562,7 @@ def get_A_swarp (imagelist, nsigma_range=np.arange(2.5, 10, 0.1),
     values of A and nsigma, the set of images is determined that
     produces [Nlimit] outliers. The mask of images and the values of A
     and nsigma are returned.
-    
+
     The A value is the same as the parameter CLIP_AMPFRAC (fraction of
     flux variation allowed with clipping) to use in the CLIPPED
     combination in SWarp. Based on Gruen et al. 2014
@@ -2548,9 +2585,9 @@ def get_A_swarp (imagelist, nsigma_range=np.arange(2.5, 10, 0.1),
     if nimages < 3:
         return np.ones(nimages, dtype=bool), A_range[0], nsigma_range[0]
 
-        
+
     # pixel coordinates in the 1st image at which to extract the PSFs
-    header = read_hdulist(imagelist[0], get_data=False, get_header=True)
+    header = zogy.read_hdulist(imagelist[0], get_data=False, get_header=True)
     xsize, ysize = header['NAXIS1'], header['NAXIS2']
     low, high, cntr = int(xsize/8), int(xsize*7/8), int(xsize/2)
     # use 4 corners and the center
@@ -2562,7 +2599,7 @@ def get_A_swarp (imagelist, nsigma_range=np.arange(2.5, 10, 0.1),
     # array to record background STD read from header and the peak
     # value of the PSF images
     bkg_std = np.zeros(nimages)
-    
+
     # initialize [data_psf] with shape (nimages, ncoords, psf_size**2)
     data_psf = np.zeros ((nimages, ncoords, psf_size**2), dtype='float32')
 
@@ -2583,14 +2620,14 @@ def get_A_swarp (imagelist, nsigma_range=np.arange(2.5, 10, 0.1),
         rng = np.random.default_rng()
         fwhm_gauss = 4 * rng.lognormal(0, 0.05, nimages)
         #print ('fwhm_gauss: {}'.format(fwhm_gauss))
-        sigma_gauss = fwhm_gauss / (2.355)
+        sigma_gauss = fwhm_gauss / 2.355
 
-    
+
     # loop images
     for nimage, image in enumerate(imagelist):
-        
+
         # read header
-        header = read_hdulist(image, get_data=False, get_header=True)
+        header = zogy.read_hdulist(image, get_data=False, get_header=True)
 
         # background STD
         bkg_std[nimage] = header['S-BKGSTD']
@@ -2603,7 +2640,7 @@ def get_A_swarp (imagelist, nsigma_range=np.arange(2.5, 10, 0.1),
             wcs_first = WCS(header)
         else:
             wcs = WCS(header)
-            
+
         # loop different coordinates on the image
         for ncoord, coord in enumerate(pixcoords):
 
@@ -2625,25 +2662,26 @@ def get_A_swarp (imagelist, nsigma_range=np.arange(2.5, 10, 0.1),
             # read in PSF output binary table from psfex, containing the
             # polynomial coefficient images, and various PSF parameters using
             # the function [extract_psf_datapars] in zogy.py
-            results = extract_psf_datapars (psfex_bintable, verbose=False)
+            results = zogy.extract_psf_datapars (psfex_bintable, verbose=False)
             (data, header_psf, psf_fwhm, psf_samp, psf_size_config, psf_chi2,
              psf_nstars, polzero1, polscal1, polzero2, polscal2, poldeg) = results
 
 
             if not gauss_test:
                 # extract PSF
-                psf_ima, __ = get_psf_ima (data, xcoord, ycoord, psf_size, psf_samp,
-                                           polzero1, polscal1, polzero2, polscal2,
-                                           poldeg)
+                psf_ima, __ = zogy.get_psf_ima (data, xcoord, ycoord, psf_size,
+                                                psf_samp, polzero1, polscal1,
+                                                polzero2, polscal2, poldeg)
                 #psf_ima[psf_ima<0] = 0
                 #psf_ima /= np.sum(psf_ima)
-                
+
             else:
                 sigma = sigma_gauss[nimage]
                 x0 = y0 = int(psf_size/2)
-                psf_ima = EllipticalGauss2D (xx, yy, x0=x0, y0=y0,
-                                             sigma1=sigma, sigma2=sigma, 
-                                             theta=0, amplitude=1, background=0)
+                psf_ima = zogy.EllipticalGauss2D (xx, yy, x0=x0, y0=y0,
+                                                  sigma1=sigma, sigma2=sigma,
+                                                  theta=0, amplitude=1,
+                                                  background=0)
                 # normalize
                 psf_ima /= np.sum(psf_ima)
 
@@ -2680,7 +2718,7 @@ def get_A_swarp (imagelist, nsigma_range=np.arange(2.5, 10, 0.1),
 
     # loop nsigma and A:
     for nsigma, A in itertools.product(nsigma_range, A_range):
-    
+
         # calculate number of outlier pixels in images; [outlier] has
         # same shape as [data_psf]: (nimages, ncoords, psf_size**2)
         # see Eq. 14 from Gruen et al. paper
@@ -2690,7 +2728,7 @@ def get_A_swarp (imagelist, nsigma_range=np.arange(2.5, 10, 0.1),
         # set outliers related to coordinates that are off the image
         # to zero
         outlier[mask_coord_off] = 0
-        
+
         # negative whenever data_diff is negative
         mask_neg = (data_diff < 0)
         outlier[mask_neg] *= -1
@@ -2759,32 +2797,32 @@ def clipped2mask (clip_logname, imagelist, nsigma_clip, fits_ref):
 
     """
 
-    header = read_hdulist(imagelist[0], get_data=False, get_header=True)
+    header = zogy.read_hdulist(imagelist[0], get_data=False, get_header=True)
     xsize, ysize = header['NAXIS1'], header['NAXIS2']
-    
+
     # filter definitions
     fsize = [            5, 1 ]
     fsigma = [ nsigma_clip, 4 ]
     fmax = [             4, 1 ]
 
-    
+
     # read clip_logname file created by SWarp
     table = ascii.read(clip_logname, format='fast_no_header', data_start=0,
                        names=['nfile', 'x', 'y', 'nsigma'])
-    
+
     # keep only the entries above minimum sigma
     mask_keep = np.abs(table['nsigma']) > min(fsigma)
     table = table[mask_keep]
 
     # read ref image header
-    hdr_ref = read_hdulist(fits_ref, get_data=False, get_header=True)
+    hdr_ref = zogy.read_hdulist(fits_ref, get_data=False, get_header=True)
 
 
     # convert pixel coordinates to RA,DEC
     wcs_ref = WCS(hdr_ref)
     ra_ref, dec_ref = wcs_ref.all_pix2world(table['x'], table['y'], 1)
 
-    
+
     # loop imagelist; that list is assumed to correspond to the
     # integers in the first column of [clip_logname]
     nimages = len(set(table['nfile']))
@@ -2796,7 +2834,7 @@ def clipped2mask (clip_logname, imagelist, nsigma_clip, fits_ref):
 
 
     for nimage, image in enumerate(imagelist):
-        
+
         # part of table relevant for this image
         mask_im = (table['nfile']==nimage)
         table_im = table[mask_im]
@@ -2808,7 +2846,7 @@ def clipped2mask (clip_logname, imagelist, nsigma_clip, fits_ref):
         # convert ra, dec coordinates from the reference frame (the
         # subset relevant for the current image) to pixel coordinates
         # in the frame of the current image
-        hdr_im = read_hdulist(image, get_data=False, get_header=True)
+        hdr_im = zogy.read_hdulist(image, get_data=False, get_header=True)
 
 
         wcs_im = WCS(hdr_im)
@@ -2830,7 +2868,7 @@ def clipped2mask (clip_logname, imagelist, nsigma_clip, fits_ref):
 
 
         # make sure not to include pixels near saturated stars
-        data_mask = (read_hdulist(image.replace('_red.fits', '_mask.fits'))
+        data_mask = (zogy.read_hdulist(image.replace('_red.fits', '_mask.fits'))
                      .astype('uint8'))
         mask_dict = get_par(set_zogy.mask_value,tel)
         # iterate over all mask values
@@ -2861,11 +2899,11 @@ def clipped2mask (clip_logname, imagelist, nsigma_clip, fits_ref):
             im_sigmas = np.zeros((ysize,xsize), dtype='float32')
             im_sigmas[table_im['y']-1,table_im['x']-1] = table_im['nsigma']
 
-            data = read_hdulist(image)
-            ds9_arrays (data_c2m=data, im_sigmas_c2m=im_sigmas,
-                        mask_im_c2m=mask_im.astype(int))
+            data = zogy.read_hdulist(image)
+            zogy.ds9_arrays (data_c2m=data, im_sigmas_c2m=im_sigmas,
+                             mask_im_c2m=mask_im.astype(int))
 
-            
+
         # update corresponding weights image, i.e. set weights value
         # at [mask_im] to zero
         weights_tmp = image.replace('.fits','_weights.fits')
@@ -2874,7 +2912,7 @@ def clipped2mask (clip_logname, imagelist, nsigma_clip, fits_ref):
 
 
     return
-            
+
 
 ################################################################################
 
@@ -2896,18 +2934,18 @@ def pass_filters (table_im, fsize, fsigma, fmax, mask_shape):
 
     # loop filters
     for nf in range(len(fsize)):
-            
+
         # select table entries with nsigma above fsigma[nf]
         mask_nsigma = (np.abs(table_im['nsigma']) > fsigma[nf])
         table_im_filt = table_im[mask_nsigma]
-            
+
         # discard entries that were already masked previously
         mask_masked = mask_im[table_im_filt['y']-1, table_im_filt['x']-1]
         table_im_filt = table_im_filt[~mask_masked]
 
         # number of entries left
         ntable = len(table_im_filt)
-            
+
         # coordinate indices
         x_index = table_im_filt['x'] - 1
         y_index = table_im_filt['y'] - 1
@@ -2919,9 +2957,9 @@ def pass_filters (table_im, fsize, fsigma, fmax, mask_shape):
             mask_tmp = np.zeros(mask_shape, dtype=bool)
             mask_tmp[y_index, x_index] = True
             mask_im |= mask_tmp
-            
+
         else:
-            
+
             # initialize counting image, one for negative and one for
             # positive sigmas
             ysize, xsize = mask_shape
@@ -2930,27 +2968,27 @@ def pass_filters (table_im, fsize, fsigma, fmax, mask_shape):
             mask_pos = (table_im_filt['nsigma'] > 0)
             count_index[mask_pos] = 1
 
-            
+
             # loop table_im_filt entries
             for it in range(ntable):
-                
+
                 # define window with size fsize[nf] with current pixel
                 # at lower left
                 i0 = x_index[it]
                 j0 = y_index[it]
                 i1 = min(i0+fsize[nf], xsize)
                 j1 = min(j0+fsize[nf], ysize)
-                
+
                 # increase pixel values in this region with 1
                 count_im[count_index[it], j0:j1,i0:i1] += 1
 
 
             # mask where count_im is above threshold
             mask_count = ((count_im[0] >= fmax[nf]) | (count_im[1] >= fmax[nf]))
-            
+
             # loop entries in [mask_count] and mask windows to the
             # lower left of them
-            (y_index1, x_index1) = np.nonzero(mask_count) 
+            (y_index1, x_index1) = np.nonzero(mask_count)
             ntable1 = np.sum(mask_count)
             for it in range(ntable1):
 
@@ -2969,186 +3007,8 @@ def pass_filters (table_im, fsize, fsigma, fmax, mask_shape):
 
 ################################################################################
 
-def buildref_optimal(imagelist):
-
-    start_time1 = os.times()
-
-    # size of image
-    ysize = refimage_ysize
-    xsize = refimage_xsize
-
-    # determine cutouts
-    centers, cuts_ima, cuts_ima_fft, cuts_fft, sizes = centers_cutouts(subimage_size,
-                                                                       ysize, xsize)
-    ysize_fft = subimage_size + 2*subimage_border
-    xsize_fft = subimage_size + 2*subimage_border
-    nsubs = centers.shape[0]
-    if verbose:
-        print ('nsubs', nsubs)
-
-    # number of images
-    nimages = len(imagelist)
-    
-    # prepare arrays;
-    # sigma is determined inside nsub loop, so only need 1 dimension
-    # of size nimages
-    sigma_array = np.ndarray((nimages), dtype='float32')
-    # the same goes for fratio in case it is determined across the
-    # entire image, but it requires nimages x nsubs shape in case
-    # fratio is determined for each subimage.
-    fratio_array = np.ndarray((nimages, nsubs), dtype='float32')
-    # P and data need 4 dimensions: nimages x nsub x ysize x xsize as
-    # P needs to be constructed from the full image initially, then
-    # inside the subimage loop the 1st dimension will be summed
-    P_array = np.ndarray((nimages, nsubs, ysize_fft, xsize_fft), dtype='float32')
-    data_array = np.ndarray((nimages, nsubs, ysize_fft, xsize_fft), dtype='float32')
-    
-    # these output arrays will be filled with the output summed R and
-    # P_R for each subimage
-    data_R_full = np.zeros((ysize, xsize), dtype='float32')
-    data_PR_full = np.zeros((ysize, xsize), dtype='float32')
-    
-    # list of keywords to be read from header
-    keywords = [key_gain, key_ron, key_satlevel]
-
-    # loop images in imagelist
-    for nima, image in enumerate(imagelist):
-
-        if verbose:
-            print ('\nimage:', image)
-            print ('----------------------------------------------------------------------')
-
-        # base name
-        base = image[0:-5]
-        # name of resampled image produced by swarp
-        image_resampled = image.replace('.fits', resample_suffix)
-        
-        # read in header of image
-        t = time.time()    
-        with fits.open(image) as hdulist:
-            header = hdulist[0].header
-            gain, readnoise, satlevel = read_header_alt (header, keywords)
-        if verbose:
-            print (keywords)
-            print (read_header_alt (header, keywords))
-            
-        # prepare cubes with shape (nsubs, ysize_fft, xsize_fft) with new,
-        # ref, psf and background images
-        data_array[nima], P_array[nima] = prep_optimal_subtraction_adapted(
-            image, header, image_resampled, nsubs)
-        
-        # get x, y and fratios from matching PSFex stars across entire frame
-        # first set basename of first image
-        if nima==0: base1 = base
-        x_fratio, y_fratio, fratio, dra, ddec = get_fratio_radec(base1+'.psfexcat',
-                                                                 base+'.psfexcat',
-                                                                 base1+'.sexcat',
-                                                                 base+'.sexcat')
-
-        # loop nsubs to fill fratio_array - also needs to be done in
-        # case fratio is determined from the entire image
-        for nsub in range(nsubs):
-            if nima==0:
-                fratio_array[nima, nsub] = 1.
-            else:
-                # take local or full-frame values for fratio
-                subcut = cuts_ima[nsub]
-                index_sub = ((y_fratio > subcut[0]) & (y_fratio < subcut[1]) & 
-                             (x_fratio > subcut[2]) & (x_fratio < subcut[3]))
-                if fratio_local and any(index_sub):
-                    # get median fratio from PSFex stars across subimage
-                    fratio_mean, fratio_std, fratio_median = clipped_stats(
-                        fratio[index_sub])
-                else:
-                    # else for the entire image
-                    fratio_mean, fratio_std, fratio_median = clipped_stats(
-                        fratio, nsigma=2)
-
-                # fill fratio_array
-                fratio_array[nima, nsub] = fratio_median
-                if verbose:
-                    print ('fratio_mean, fratio_median, fratio_std',
-                           fratio_mean, fratio_median, fratio_std)
-            
-
-    start_time2 = os.times()
-
-    print ('\nexecuting optimal co-addition ...')
-    
-    for nsub in range(nsubs):
-    
-        if timing: tloop = time.time()
-        
-        if verbose:
-            print ('\nNsub:', nsub+1)
-            print ('----------')
-
-        # determine clipped mean, median and stddev in
-        # this subimage of all images
-        for nima in range(nimages):
-            mean, stddev, median = clipped_stats(data_array[nima,nsub], nsigma=3)
-            if verbose:
-                print ('clipped mean, median, stddev', mean, median, stddev)
-
-            # replace low values in subimages
-            data_array[nima,nsub][data_array[nima,nsub] <= 0.] = median
-
-            # subtract the median background
-            data_array[nima,nsub] -= median
-
-            # replace saturated pixel values with zero
-            #data[nsub][data[nsub] > 0.95*satlevel] = 0.
-
-            # fill sigma_array
-            sigma_array[nima] = stddev
-
-            
-        # call optimal coaddition function
-        data_R, data_PR = run_coaddition(data_array[:,nsub], P_array[:,nsub], sigma_array,
-                                         fratio_array[:,nsub], nimages)
-        
-        # put sub images into output frames
-        subcut = cuts_ima[nsub]
-        fftcut = cuts_fft[nsub]
-        y1 = subimage_border
-        x1 = subimage_border
-        y2 = subimage_border+subimage_size
-        x2 = subimage_border+subimage_size
-        data_R_full[subcut[0]:subcut[1],subcut[2]:subcut[3]] = data_R[y1:y2,x1:x2]
-        data_PR_full[subcut[0]:subcut[1],subcut[2]:subcut[3]] = data_PR[y1:y2,x1:x2]
-
-        if timing: print ('wall-time spent in nsub loop', time.time()-tloop)
-
-    end_time = os.times()
-    dt_usr  = end_time[2] - start_time2[2]
-    dt_sys  = end_time[3] - start_time2[3]
-    dt_wall = end_time[4] - start_time2[4]
-    print
-    print ("Elapsed user time in {0}:  {1:.3f} sec".format("optcoadd", dt_usr))
-    print ("Elapsed CPU time in {0}:  {1:.3f} sec".format("optcoadd", dt_sys))
-    print ("Elapsed wall time in {0}:  {1:.3f} sec".format("optcoadd", dt_wall))
-    
-    dt_usr  = end_time[2] - start_time1[2]
-    dt_sys  = end_time[3] - start_time1[3]
-    dt_wall = end_time[4] - start_time1[4]
-    print
-    print ("Elapsed user time in {0}:  {1:.3f} sec".format("total", dt_usr))
-    print ("Elapsed CPU time in {0}:  {1:.3f} sec".format("total", dt_sys))
-    print ("Elapsed wall time in {0}:  {1:.3f} sec".format("total", dt_wall))
-    
-    # write full new, ref, D and S images to fits
-    fits.writeto('R.fits', data_R_full, clobber=True)
-    fits.writeto('PR.fits', data_PR_full, clobber=True)
-        
-    # and display
-    cmd = ['ds9', '-zscale', 'R.fits', 'PR.fits', 'swarp_combined.fits']
-    result = subprocess.call(cmd)
-    
-
-################################################################################
-        
 def read_header_alt (header, keywords):
-    
+
     values = []
     for i in range(len(keywords)):
         if keywords[i] in header:
@@ -3160,297 +3020,25 @@ def read_header_alt (header, keywords):
 
 
 ################################################################################
-    
-def prep_optimal_subtraction_adapted (image, header, image_resampled, nsubs):
 
-    print ('\nexecuting prep_optimal_subtraction ...')
-    t = time.time()
-    
-    # read in data of resampled image
-    with fits.open(image_resampled) as hdulist:
-        data = hdulist[0].data
-    # get gain, readnoise and pixscale from header
-    gain = header[key_gain]
-    readnoise = header[key_ron]
-    pixscale = header[key_pixscale]
-    # convert counts to electrons
-    data *= gain
+def get_par (par, tel):
 
-    # determine psf of image (not resampled) with get_psf function
-    psf = get_psf_adapted (image, header, nsubs)
+    """Function to check if [par] is a dictionary with one of the keys
+       being [tel] or the alphabetic part of [tel] (e.g. 'BG'), and if
+       so, return the corresponding value. Otherwise just return the
+       parameter value."""
 
-    # split full image into subimages
-    ysize, xsize = refimage_ysize, refimage_xsize
-
-    # determine cutouts
-    centers, cuts_ima, cuts_ima_fft, cuts_fft, sizes = centers_cutouts(
-        subimage_size, ysize, xsize)
-
-    ysize_fft = subimage_size + 2*subimage_border
-    xsize_fft = subimage_size + 2*subimage_border
-    
-    fftdata = np.zeros((nsubs, ysize_fft, xsize_fft), dtype='float32')
-    for nsub in range(nsubs):
-        subcutfft = cuts_ima_fft[nsub]
-        fftcut = cuts_fft[nsub]
-        fftdata[nsub][fftcut[0]:fftcut[1],fftcut[2]:fftcut[3]] = data[subcutfft[0]:subcutfft[1],
-                                                                      subcutfft[2]:subcutfft[3]]
-        
-    if timing: print ('wall-time spent in prep_optimal_subtraction', time.time()-t)
-    return fftdata, psf
-    
-
-################################################################################
-
-def get_psf_adapted (image, ima_header, nsubs):
-
-    """Function that takes in [image] and determines the actual Point
-    Spread Function as a function of position from the full frame, and
-    returns a cube containing the psf for each subimage in the full
-    frame.
-
-    """
-
-    if timing: t = time.time()
-    print ('\nexecuting get_psf ...')
-
-    # determine image size from header
-    xsize, ysize = ima_header['NAXIS1'], ima_header['NAXIS2']
-    
-    # run psfex on SExtractor output catalog
-    sexcat = image.replace('.fits', '.sexcat')
-    psfexcat = image.replace('.fits', '.psfexcat')
-    if not os.path.isfile(psfexcat) or redo:
-        print ('sexcat', sexcat)
-        print ('psfexcat', psfexcat)
-        result = run_psfex_adapted (sexcat, psfex_cfg, psfexcat)
-
-    # read in PSF output binary table from psfex
-    psfex_bintable = image.replace('.fits', '.psf')
-    with fits.open(psfex_bintable) as hdulist:
-        header = hdulist[1].header
-        data = hdulist[1].data[0][0][:]
-
-    # read in some header keyword values
-    polzero1 = header['POLZERO1']
-    polzero2 = header['POLZERO2']
-    polscal1 = header['POLSCAL1']
-    polscal2 = header['POLSCAL2']
-    poldeg = header['POLDEG1']
-    psf_fwhm = header['PSF_FWHM']
-    psf_samp = header['PSF_SAMP']
-    # [psf_size_config] is the size of the PSF as defined in the PSFex
-    # configuration file ([PSF_SIZE] parameter), which is the same as
-    # the size of the [data] array
-    psf_size_config = header['PSFAXIS1']
-    if verbose:
-        print ('polzero1                   ', polzero1)
-        print ('polscal1                   ', polscal1)
-        print ('polzero2                   ', polzero2)
-        print ('polscal2                   ', polscal2)
-        print ('order polynomial:          ', poldeg)
-        print ('PSF FWHM:                  ', psf_fwhm)
-        print ('PSF sampling size (pixels):', psf_samp)
-        print ('PSF size defined in config:', psf_size_config)
-        
-    # call centers_cutouts to determine centers
-    # and cutout regions of the full image
-    centers, cuts_ima, cuts_ima_fft, cuts_fft, sizes = centers_cutouts(subimage_size, ysize, xsize)
-    ysize_fft = subimage_size + 2*subimage_border
-    xsize_fft = subimage_size + 2*subimage_border
-
-    # For all images, the PSF was determined from the original image,
-    # while it will be applied to the images remapped/resampled to the
-    # reference frame. This reference frame is not necessarily that of
-    # one of the images. So the centers of the cutouts in the remapped
-    # images need to be mapped back to those in the original image to
-    # get the PSF from the proper coordinates.  Easiest to do this
-    # using astropy.wcs, which would also take care of any potential
-    # rotation and scaling.
-    
-    # first infer ra, dec corresponding to x, y pixel positions
-    # (centers[:,1] and centers[:,0], respectively, in the
-    # resampled image
-    wcs = WCS(image.replace('.fits','_resamp.fits'))
-    ra_temp, dec_temp = wcs.all_pix2world(centers[:,1], centers[:,0], 1)
-    # then convert ra, dec back to x, y in the original image
-    # using the .wcs file produced by Astrometry.net
-    wcs = WCS(image.replace('_wcs.fits','.wcs'))
-    centers[:,1], centers[:,0] = wcs.all_world2pix(ra_temp, dec_temp, 1)
-        
-    # [psf_size] is the PSF size in image pixels,
-    # i.e. [psf_size_config] multiplied by the PSF sampling (roughly
-    # 4-5 pixels per FWHM) which is automatically determined by PSFex
-    # (PSF_SAMPLING parameter in PSFex config file set to zero)
-    psf_size = int(np.ceil(psf_size_config * psf_samp))
-    # if this is odd, make it even - for the moment this is because
-    # the index range of the bigger image in which this psf is put
-    # ([psf_ima_center]) assumes this is even
-    if psf_size % 2 != 0:
-        psf_size += 1
-    # now change psf_samp slightly:
-    psf_samp_update = float(psf_size) / float(psf_size_config)
-    # [psf_ima] is the corresponding cube of PSF subimages
-    psf_ima = np.ndarray((nsubs,psf_size,psf_size), dtype='float32')
-    # [psf_ima_center] is [psf_ima] broadcast into images of xsize_fft
-    # x ysize_fft
-    psf_ima_center = np.ndarray((nsubs,ysize_fft,xsize_fft), dtype='float32')
-    # [psf_ima_shift] is [psf_ima_center] shifted - this is
-    # the input PSF image needed in the zogy function
-    psf_ima_shift = np.ndarray((nsubs,ysize_fft,xsize_fft), dtype='float32')
-    
-    # loop through nsubs and construct psf at the center of each
-    # subimage, using the output from PSFex that was run on the full
-    # image
-    for nsub in range(nsubs):
-        
-        x = (centers[nsub,1] - polzero1) / polscal1
-        y = (centers[nsub,0] - polzero2) / polscal2
-
-        if nsubs==1:
-            psf_ima_config = data[0]
+    par_val = par
+    if type(par) is dict:
+        if tel in par:
+            par_val = par[tel]
         else:
-            if poldeg==2:
-                psf_ima_config = data[0] + data[1] * x + data[2] * x**2 + \
-                          data[3] * y + data[4] * x * y + data[5] * y**2
-            elif poldeg==3:
-                psf_ima_config = data[0] + data[1] * x + data[2] * x**2 + data[3] * x**3 + \
-                          data[4] * y + data[5] * x * y + data[6] * x**2 * y + \
-                          data[7] * y**2 + data[8] * x * y**2 + data[9] * y**3
+            # cut off digits from [tel]
+            tel_base = ''.join([char for char in tel if char.isalpha()])
+            if tel_base in par:
+                par_val = par[tel_base]
 
-        if display:
-            # write this psf to fits
-            fits.writeto('psf_'+imtype+'_sub'+str(nsub)+'.fits', psf_ima_config, clobber=True)
-            #result = show_image(psf_ima_config)
-
-        # resample PSF image at image pixel scale
-        psf_ima_resized = ndimage.zoom(psf_ima_config, psf_samp_update)
-        psf_ima[nsub] = psf_ima_resized
-        if verbose and nsub==1:
-            print ('psf_samp, psf_samp_update', psf_samp, psf_samp_update)
-            print ('np.shape(psf_ima_config)', np.shape(psf_ima_config))
-            print ('np.shape(psf_ima)', np.shape(psf_ima))
-            print ('np.shape(psf_ima_resized)', np.shape(psf_ima_resized))
-            print ('psf_size ', psf_size)
-        if display:
-            # write this psf to fits
-            fits.writeto('psf_resized_'+imtype+'_sub'+str(nsub)+'.fits',
-                           psf_ima_resized, clobber=True)
-            #result = show_image(psf_ima_resized)
-
-        # normalize to unity
-        psf_ima_resized_norm = psf_ima_resized / np.sum(psf_ima_resized)
-            
-        # now place this resized and normalized PSF image at the
-        # center of an image with the same size as the fftimage
-        if ysize_fft % 2 != 0 or xsize_fft % 2 != 0:
-            print ('WARNING: image not even in both dimensions!')
-            
-        xcenter_fft, ycenter_fft = int(xsize_fft/2), int(ysize_fft/2)
-        if verbose and nsub==1:
-            print ('xcenter_fft, ycenter_fft ', xcenter_fft, ycenter_fft)
-            psf_ima_center[nsub,
-                           ycenter_fft-int(psf_size/2):ycenter_fft+int(psf_size/2),
-                           xcenter_fft-int(psf_size/2):xcenter_fft+int(psf_size/2)] \
-                           = psf_ima_resized_norm
-            
-        if display:
-            fits.writeto('psf_center_'+imtype+'_sub'+str(nsub)+'.fits',
-                           psf_ima_center[nsub], clobber=True)            
-            #result = show_image(psf_ima_center[nsub])
-
-        # perform fft shift
-        psf_ima_shift[nsub] = fft.fftshift(psf_ima_center[nsub])
-        # Eran's function:
-        #print np.shape(image_shift_fft(psf_ima_center[nsub], 1., 1.))
-        #psf_ima_shift[nsub] = image_shift_fft(psf_ima_center[nsub], 0., 0.)
-
-        #result = show_image(psf_ima_shift[nsub])
-
-    if timing: print ('wall-time spent in get_psf', time.time() - t)
-
-    return psf_ima_shift
-
-
-################################################################################
-
-def run_psfex_adapted (cat_in, file_config, cat_out):
-    
-    """Function that runs PSFEx on [cat_in] (which is a SExtractor output
-       catalog in FITS_LDAC format) using the configuration file
-       [file_config]"""
-
-    if timing: t = time.time()
-
-    if psf_sampling == 0:
-        # provide new PSF_SIZE based on psf_radius, which is 2 *
-        # [psf_radius] * FWHM / sampling factor. The sampling factor is
-        # automatically determined in PSFex, and is such that FWHM /
-        # sampling factor ~ 4-5, so:
-        size = int(psf_radius*9+0.5)
-        # make sure it's odd
-        if size % 2 == 0: size += 1
-        psf_size_config = str(size)+','+str(size)
-    else:
-        # use some reasonable default size
-        psf_size_config = '45,45'
-
-    if verbose:
-        print ('psf_size_config', psf_size_config)
-        
-    # run psfex from the unix command line
-    cmd = ['psfex', cat_in, '-c', file_config,'-OUTCAT_NAME', cat_out,
-           '-PSF_SIZE', psf_size_config, '-PSF_SAMPLING', str(psf_sampling)]
-    result = subprocess.call(cmd)    
-
-    if timing: print ('wall-time spent in run_psfex', time.time()-t)
-    
-
-################################################################################
-
-def run_coaddition(M, P, sigma, F, nimages):
-
-    """Function that calculates optimal co-added image (R) and its PSF
-       (RP) based on Eqs. 8 and 11 of Zackay & Ofek 2017b, based on
-       the inputs (shape):
-        - M (nimages, y, x): cube of background-subtracted images
-        - P (nimages, y, x): corresponding PSFs of the images
-        - sigma (nimages): standard deviation of background
-        - F (nimages): flux factors
-
-    """
-
-    if timing: t = time.time()
-
-    numerator = 0.
-    denominator2 = 0.
-    FR2 = 0.
-    
-    for j in range(nimages):
-        Mj_hat = fft.fft2(M[j])
-        Pj_hat = fft.fft2(P[j])
-        Pj_hat_conj = np.conj(Pj_hat)
-        Pj_hat2_abs = np.abs(Pj_hat**2)
-        sigmaj2 = sigma[j]**2
-        Fj = F[j]
-        Fj2 = F[j]**2
-
-        numerator += (Fj/sigmaj2) * Pj_hat_conj * Mj_hat 
-        denominator2 += (Fj2/sigmaj2) * Pj_hat2_abs
-        FR2 += (Fj2/sigmaj2)
-
-    denominator = np.sqrt(denominator2)
-    R_hat = numerator / denominator
-    R = np.real(fft.ifft2(R_hat))
-
-    PR_hat = denominator / np.sqrt(FR2)
-    PR = np.real(fft.ifft2(PR_hat))
-    
-    if timing:
-        print ('wall-time spent in optimal coaddition', time.time()-t)
-        #print ('peak memory used in run_ZOGY in GB', resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/1e9)
-
-    return R, PR
+    return par_val
 
 
 ################################################################################
@@ -3473,31 +3061,29 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description='build MeerLICHT/BlackGEM '
                                      'reference images')
-    parser.add_argument('--telescope', type=str, default='ML1',
-                        choices=['ML1', 'BG2', 'BG3', 'BG4'],
-                        help='telescope name (ML1, BG2, BG3 or BG4); '
-                        'default=\'ML1\'')
+    parser.add_argument('--telescope', type=str, default='BG',
+                        choices=['ML1', 'BG2', 'BG3', 'BG4', 'BG'],
+                        help='telescope name (ML1, BG2, BG3, BG4 or BG); if '
+                        'set to BG, files from any BG present in the tables of '
+                        '[fits_table_list] will be mixed into single reference '
+                        'image with prefix BG_, even if all those files happen '
+                        'to be from the same BG; default=\'BG\'')
 
-    parser.add_argument('--fits_table', type=str, default=None,
-                        help='name binary fits table containing header keywords '
-                        'MJD-OBS, OBJECT, FILTER, QC-FLAG, RA-CNTR, DEC-CNTR, '
-                        'PSF-SEE, LIMMAG and S-BKGSTD of the possible images '
-                        'to be included. If not provided, or the table does not '
-                        'exist (yet), a table is constructed from the available '
-                        'images and saved with this name.')
-
-    parser.add_argument('--table_only', type=str2bool, default=False,
-                        help='only prepare [fits_table]?; default=False')
+    parser.add_argument('--fits_table_list', type=str, default=None,
+                        help='list of one or more binary fits tables, '
+                        'containing header keywords MJD-OBS, OBJECT, FILTER, '
+                        'QC-FLAG, RA-CNTR, DEC-CNTR, PSF-SEE, LIMMAG and '
+                        'S-BKGSTD of the possible images to be included.')
 
     parser.add_argument('--date_start', type=str, default=None,
                         help='start date (noon) to include images, date string '
-                        '(e.g. yyyymmdd) or days relative to noon today (negative '
-                        'number); default=None')
+                        '(e.g. yyyymmdd) or days relative to noon today '
+                        '(negative number); default=None')
 
     parser.add_argument('--date_end', type=str, default=None,
                         help='end date (noon) to include images, date string '
-                        '(e.g. yyyymmdd) or days relative to noon today (negative '
-                        'number); default=None')
+                        '(e.g. yyyymmdd) or days relative to noon today '
+                        '(negative number); default=None')
 
     parser.add_argument('--field_IDs', type=str, default=None,
                         help='only consider images with this(these) field ID(s) '
@@ -3521,6 +3107,10 @@ if __name__ == "__main__":
     parser.add_argument('--seeing_max', type=float, default=None,
                         help='[arcsec] maximum seeing to consider; default=None')
 
+    parser.add_argument('--skip_zogy', type=str2bool, default=False,
+                        help='skip execution of zogy on resulting image?; '
+                        'default=False')
+
     parser.add_argument('--make_colfig', type=str2bool, default=False,
                         help='make color figures from uqi filters?; '
                         'default=False')
@@ -3530,8 +3120,8 @@ if __name__ == "__main__":
                         'default=\'uqi\'')
 
     parser.add_argument('--extension', type=str, default=None,
-                        help='extension to add to default reference folder name, '
-                        'e.g. _alt; default: None')
+                        help='extension to add to default reference folder '
+                        'name, e.g. _alt; default: None')
 
     parser.add_argument('--keep_tmp', default=None,
                         help='keep temporary directories')
@@ -3539,8 +3129,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     buildref (telescope = args.telescope,
-              fits_table = args.fits_table,
-              table_only = args.table_only,
+              fits_table_list = args.fits_table_list,
               date_start = args.date_start,
               date_end = args.date_end,
               field_IDs = args.field_IDs,
@@ -3548,6 +3137,7 @@ if __name__ == "__main__":
               go_deep = args.go_deep,
               qc_flag_max = args.qc_flag_max,
               seeing_max = args.seeing_max,
+              skip_zogy = args.skip_zogy,
               make_colfig = args.make_colfig,
               filters_colfig = args.filters_colfig,
               extension = args.extension,
