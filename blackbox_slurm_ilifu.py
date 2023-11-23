@@ -1,4 +1,3 @@
-
 import os
 import subprocess
 import glob
@@ -22,7 +21,7 @@ from astropy.io import ascii
 from astropy.time import Time
 from astropy.table import Table, vstack, unique
 
-from multiprocessing import Queue, Pool
+from multiprocessing import Queue
 
 import ephem
 from watchdog.observers.polling import PollingObserver
@@ -53,12 +52,12 @@ job_dir = '{}/Slurm'.format(genlog_dir)
 
 # MeerLICHT observatory settings
 obs_lat = -32.3799
-obs_lon = 20.8112           
+obs_lon = 20.8112
 obs_timezone = 'Africa/Johannesburg'
 
 
 def run_blackbox_slurm (date=None, nthreads=4, runtime='4:00:00'):
-    
+
     # create general logfile based on date/time
     genlogfile = '{}/{}_{}.log'.format(genlog_dir, tel,
                                        Time.now().strftime('%Y%m%d_%H%M%S'))
@@ -86,11 +85,15 @@ def run_blackbox_slurm (date=None, nthreads=4, runtime='4:00:00'):
         # have been processed
         if date != date_today:
             mode = 'day'
-            
-            
+
+
     # create list of all fits files already present in [read_path]
     read_path, date_eve = get_path(date, 'read')
+    # make sure read_path exists (e.g. if no bias frames were taken,
+    # it would not have been created by the transfer script)
+    os.makedirs(read_path, exist_ok=True)
     filenames = sorted(glob.glob('{}/{}'.format(read_path, '*fits*')))
+
 
     log.info('Slurm-processing in {} mode for evening date: {}'
              .format(mode, date_eve))
@@ -124,11 +127,11 @@ def run_blackbox_slurm (date=None, nthreads=4, runtime='4:00:00'):
 
     # create queue for submitting jobs
     queue = Queue()
-    
+
 
     # add files that are already present in the read_path
     # directory to the night queue, to reduce these first
-    for filename in filenames: 
+    for filename in filenames:
         queue.put(filename)
 
 
@@ -145,11 +148,14 @@ def run_blackbox_slurm (date=None, nthreads=4, runtime='4:00:00'):
     # detected by watchdog - as long as it is nighttime or the
     # queue is not empty yet
     jobnames = []
-    while ephem.now()-sunrise < ephem.hour or not queue.empty():
+    #while (ephem.now()-sunrise < 10*ephem.minute or not queue.empty() or
+    while (ephem.now()-sunrise < 0 or not queue.empty() or
+           # in night mode, also wait until all jobs are finished
+           (mode=='night' and len(list_active_jobs(jobnames)) > 0)):
 
         if queue.empty():
             if mode == 'night':
-                time.sleep(30)
+                time.sleep(10)
             else:
                 # in day mode, no additional files should be coming
                 # in, so can break out of while loop
@@ -158,7 +164,7 @@ def run_blackbox_slurm (date=None, nthreads=4, runtime='4:00:00'):
         else:
             filename = get_file (queue)
             if filename is not None:
-                
+
                 # Python command to execute
                 python_cmdstr = (
                     'python /Software/BlackBOX/blackbox.py --img_reduce True '
@@ -167,7 +173,7 @@ def run_blackbox_slurm (date=None, nthreads=4, runtime='4:00:00'):
 
                 log.info ('python command string to execute: {}'
                           .format(python_cmdstr))
-                
+
                 # process it through a SLURM batch job
                 jobname = filename.split('/')[-1].split('.fits')[0]
                 slurm_process (python_cmdstr, nthreads, runtime, jobname,
@@ -177,7 +183,7 @@ def run_blackbox_slurm (date=None, nthreads=4, runtime='4:00:00'):
                 jobnames.append(jobname)
 
 
-        
+
 
     log.info ('night has finished and queue is empty')
 
@@ -187,14 +193,14 @@ def run_blackbox_slurm (date=None, nthreads=4, runtime='4:00:00'):
     observer.join() #join observer
 
 
-    # now waiting until no more running jobs left
-    t0 = time.time()
-    # setting maximum wait time equal to the input [runtime]
-    wait_max = np.sum(np.array(runtime.split(':')).astype(int)
-                      *np.array([3600, 60, 1]))
-    nsec_wait = wait4jobs2finish (jobnames, t0, wait_max)
-    log.info ('waited for {:.0f}s for all individual jobs to finish'
-              .format(nsec_wait))
+    # now waiting until no more running jobs left setting maximum wait
+    # time equal to twice the input [runtime]
+    log.info ('checking if there are any running/pending jobs left')
+    wait_max = 2 * np.sum(np.array(runtime.split(':')).astype(int)
+                          *np.array([3600, 60, 1]))
+    nsec_wait = wait4jobs2finish (jobnames, wait_max=wait_max)
+    log.info ('waited for {:.2f} hours for all individual jobs to finish'
+              .format(nsec_wait/3600))
 
 
     # create master frames
@@ -203,18 +209,18 @@ def run_blackbox_slurm (date=None, nthreads=4, runtime='4:00:00'):
     # process masters through a SLURM batch job; could split this up
     # into several jobs, one for the master bias and one for each of
     # the master flats in a specific filter, but even with a single
-    # task this takes only about 5 minutes
-    jobname = 'masters_{}'.format(date_eve)
+    # task this takes only about 10-15 minutes
+    jobname_masters = 'masters_{}'.format(date_eve)
     slurm_process (python_cmdstr_master, nthreads=4, runtime='1:00:00',
-                   jobname=jobname, jobnight=jobnight, date_begin=date_begin)
-    jobnames.append(jobname)
+                   jobname=jobname_masters, jobnight=jobnight,
+                   date_begin=date_begin)
+    jobnames.append(jobname_masters)
 
 
-    # wait for masters to finish; could possibly avoid this by using a
-    # Slurm job that is dependent on the last non-master job finishing
-    t0 = time.time()
-    wait_max = 3600
-    nsec_wait = wait4jobs2finish (jobnames, t0, wait_max)
+    # wait for masters to finish; not really needed for the remaining
+    # tasks - preparing and sending the night report and adding last
+    # night's fits header keys to the big header tables
+    nsec_wait = wait4jobs2finish ([jobname_masters], wait_max=3600)
     log.info ('waited for {:.0f}s for masters to finish'.format(nsec_wait))
 
 
@@ -252,10 +258,17 @@ def run_blackbox_slurm (date=None, nthreads=4, runtime='4:00:00'):
             # add night's headers to header file
             fits_header = ('{}/Headers/{}_headers_{}.fits'
                            .format(data_dir, tel, cat_type))
+            path_full = '{}/{}'.format(red_dir, date_dir)
+            search_str = '_{}.fits'.format(cat_type)
+            end_str = ''
+
+
+            # cmd
             python_cmdstr = ('python -c \"import set_blackbox as set_bb; '
                              'from blackbox import add_headkeys; '
-                             'add_headkeys (\'{}\', \'{}\', \'{}\', \'{}\')\"'
-                             .format(date_dir, fits_header, cat_type, tel))
+                             'add_headkeys (\'{}\', \'{}\', \'{}\', \'{}\', \'{}\')\"'
+                             .format(path_full, fits_header,
+                                     search_str, end_str, tel))
 
             jobname = 'add_headkeys_{}_{}'.format(cat_type, date_eve)
             slurm_process (python_cmdstr, nthreads=1, runtime='0:30:00',
@@ -286,17 +299,18 @@ def run_blackbox_slurm (date=None, nthreads=4, runtime='4:00:00'):
 
 ################################################################################
 
-def wait4jobs2finish (jobnames, t0, wait_max):
+def wait4jobs2finish (jobnames, wait_max=3600):
 
-    # wait for 60s to make sure any recently submitted jobs have made
-    # it to the queue
-    time.sleep(60)
-    
+    # wait for a bit to make sure any recently submitted jobs have
+    # made it to the queue
+    t0 = time.time()
+    time.sleep(20)
+
     jobnames_run = jobnames.copy()
     while time.time()-t0 < wait_max:
 
         # only list jobs that are running or pending
-        jobnames_run = list_jobs (jobnames_run, status=['RUNNING', 'PENDING'])
+        jobnames_run = list_active_jobs (jobnames_run)
         njobs = len(jobnames_run)
 
         # if no more running or pending jobs, break
@@ -308,31 +322,35 @@ def wait4jobs2finish (jobnames, t0, wait_max):
         # wait for a while
         time.sleep(300)
 
+    else:
+        log.warning ('maximum wait time of {}s reached'.format(wait_max))
+
 
     return time.time()-t0
 
 
 ################################################################################
 
-def list_jobs (jobnames, status=['RUNNING', 'PENDING']):
+def list_active_jobs (jobnames, states=['RUNNING', 'PENDING']):
 
     jobnames_out = []
-    for job in jobnames:
-        if get_job_status(job) in status:
-            jobnames_out.append(job)
+    for jobname in jobnames:
+        state = get_job_state(jobname)
+        #log.info ('jobname: {}, state: {}'.format(jobname, state))
+        if state in states:
+            jobnames_out.append(jobname)
 
     return jobnames_out
 
 
 ################################################################################
 
-def get_job_status (jobname):
+def get_job_state (jobname):
 
-    # submit batch script
-    cmd = ('sacct -o JobName%-70,State -n --name {} | grep {} | tail -1'
-           .format(jobname, jobname))
+    cmd = ('/opt/slurm/bin/sacct -S now-12hours -E now -o State -n -X --name {} '
+           '| tail -1'.format(jobname))
     result = subprocess.run(cmd, shell=True, capture_output=True)
-    return result.stdout.decode('UTF-8').replace('\n','').strip().split(' ')[-1]
+    return result.stdout.decode('UTF-8').replace('\n','').strip()
 
 
 ################################################################################
@@ -342,7 +360,7 @@ def slurm_process (python_cmdstr, nthreads, runtime, jobname, jobnight,
                    reservation='meerlicht'):
 
     try:
-    
+
         # create SLURM batch job in date_eve subfolder of nightjobs
         # folder with name based on input jobname
         jobfile = '{}/{}.sh'.format(jobnight, jobname)
@@ -357,17 +375,25 @@ def slurm_process (python_cmdstr, nthreads, runtime, jobname, jobnight,
             f.write ('#SBATCH --job-name={}\n'.format(jobname))
             f.write ('\n')
             f.write ('#SBATCH --account={}\n'.format(account))
-            if date_begin is not None:
-                f.write ('#SBATCH --begin={}\n'.format(date_begin))
+
+            if False:
+                # temporarily using cephfs reservation
+                reservation='cephfs'
                 f.write ('#SBATCH --reservation={}\n'.format(reservation))
-                #f.write ('#SBATCH --nodelist={}\n'.format(nodelist))
+
             else:
-                f.write ('#SBATCH --partition=Main\n')
+                if date_begin is not None:
+                    f.write ('#SBATCH --begin={}\n'.format(date_begin))
+                    f.write ('#SBATCH --reservation={}\n'.format(reservation))
+                    #f.write ('#SBATCH --nodelist={}\n'.format(nodelist))
+                else:
+                    f.write ('#SBATCH --partition=Main\n')
 
             f.write ('\n')
+            f.write ('#SBATCH --open-mode=append')
             f.write ('#SBATCH --output={}/{}.out\n'.format(jobnight, jobname))
             f.write ('#SBATCH --error={}/{}.err\n'.format(jobnight, jobname))
-            f.write ('#SBATCH --mail-user=p.vreeswijk@astro.ru.nl\n')
+            f.write ('#SBATCH --mail-user=paul.vreeswijk@blackgem.org\n')
             f.write ('#SBATCH --mail-type=FAIL,TIME_LIMIT\n')
             f.write ('\n')
             f.write ('export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK\n')
@@ -397,7 +423,7 @@ def slurm_process (python_cmdstr, nthreads, runtime, jobname, jobnight,
                                            .replace('\n',''), jobfile))
         #log.info ('{}, jobfile: {}'.format(result, jobfile))
 
-        
+
         if False:
             # delete batch job
             log.info ('removing jobfile {}'.format(jobfile))
@@ -411,7 +437,7 @@ def slurm_process (python_cmdstr, nthreads, runtime, jobname, jobnight,
 
 
     return
-        
+
 
 ################################################################################
 
@@ -429,7 +455,7 @@ def get_path (date, dir_type):
         if '.' in date:
             # rounds date to microseconds as more digits cannot be
             # defined in the format (next line)
-            date = str(Time(date, format='isot')) 
+            date = str(Time(date, format='isot'))
             date_format = '%Y-%m-%dT%H:%M:%S.%f'
             high_noon = 'T12:00:00.0'
         else:
@@ -440,7 +466,7 @@ def get_path (date, dir_type):
         date_noon = date.split('T')[0]+high_noon
         date_local_noon = dt.datetime.strptime(date_noon, date_format).replace(
             tzinfo=gettz(obs_timezone))
-        if date_ut < date_local_noon: 
+        if date_ut < date_local_noon:
             # subtract day from date_only
             date = (date_ut - dt.timedelta(1)).strftime('%Y-%m-%d')
         else:
@@ -449,7 +475,7 @@ def get_path (date, dir_type):
     # this [date_eve] in format yyyymmdd is also returned
     date_eve = ''.join(e for e in date if e.isdigit())
     date_dir = '{}/{}/{}'.format(date_eve[0:4], date_eve[4:6], date_eve[6:8])
-        
+
 
     if dir_type == 'read':
         root_dir = raw_dir
@@ -457,14 +483,14 @@ def get_path (date, dir_type):
         root_dir = red_dir
     else:
         log.error ('[dir_type] not one of "read" or "write"')
-        
+
     path = '{}/{}'.format(root_dir, date_dir)
     if '//' in path:
         log.info ('replacing double slash in path name: {}'.format(path))
         path = path.replace('//','/')
-    
+
     return path, date_eve
-    
+
 
 ################################################################################
 
@@ -479,7 +505,7 @@ def get_file (queue):
 
     # get event from queue
     event = queue.get(True)
-    
+
     try:
         # get name of new file
         filename = str(event.src_path)
@@ -500,7 +526,7 @@ def get_file (queue):
 
         log.info ('{} is not a fits file; skipping it'.format(filename))
         filename = None
-            
+
     else:
 
         # if filename is a temporary rsync copy (default
@@ -522,7 +548,7 @@ def get_file (queue):
         time.sleep(1)
         nsleep = 0
         while time.time()-t0 < wait_max:
-                    
+
             try:
                 # read the file
                 data = read_hdulist(filename)
@@ -564,10 +590,10 @@ class FileWatcher(FileSystemEventHandler, object):
 
     :param queue: multiprocessing queue for new files
     :type queue: multiprocessing.Queue'''
-    
+
     def __init__(self, queue):
         self._queue = queue
-        
+
     def on_created(self, event):
         '''Action to take for new files.
 
@@ -578,10 +604,10 @@ class FileWatcher(FileSystemEventHandler, object):
 
 ################################################################################
 
-def read_hdulist (fits_file, get_data=True, get_header=False, 
+def read_hdulist (fits_file, get_data=True, get_header=False,
                   ext_name_indices=None, dtype=None, columns=None,
                   memmap=True):
-    
+
     """Function to read the data (if [get_data] is True) and/or header (if
     [get_header] is True) of the input [fits_file].  The fits file can
     be an image or binary table, and can be compressed (with the
@@ -614,16 +640,16 @@ def read_hdulist (fits_file, get_data=True, get_header=False,
     with fits.open(fits_file_read, memmap=memmap) as hdulist:
 
         n_exts = len(hdulist)
-        
+
         # if [ext_name_indices] is a range, or list or numpy ndarray
         # of integers, loop over these extensions and concatenate the
         # data into one astropy Table; it is assumed the extension
         # formats are identical to one another - this is used to read
         # specific extensions from e.g. the calibration catalog.
         if type(ext_name_indices) in [list, range, np.ndarray]:
-            
+
             for i_ext, ext in enumerate(ext_name_indices):
-                
+
                 # get header from first extension as they should be
                 # all identical, except for NAXIS2 (nrows)
                 if get_header and i_ext==0:
@@ -648,7 +674,7 @@ def read_hdulist (fits_file, get_data=True, get_header=False,
                         # these are incorrectly converted; therefore the
                         # conversion to a Table above
                         data = np.concatenate([data, data_temp])
-                        
+
         else:
             # otherwise read the extension defined by [ext_name_indices]
             # or simply the last extension
@@ -656,17 +682,17 @@ def read_hdulist (fits_file, get_data=True, get_header=False,
                 ext = ext_name_indices
             else:
                 ext = n_exts-1
-                
+
             if get_data:
                 data = hdulist[ext].data
                 # convert to [dtype] if it is defined
                 if dtype is not None:
                     data = data.astype(dtype, copy=False)
-                    
+
             if get_header:
                 header = hdulist[ext].header
 
-                    
+
     if columns is not None:
         # only return defined columns
         return [data[col] for col in columns if col in data.dtype.names]
@@ -690,7 +716,7 @@ def read_hdulist (fits_file, get_data=True, get_header=False,
 def main ():
 
     """Wrapper allowing [run_blackbox_slurm] to be run from the command line"""
-    
+
     parser = argparse.ArgumentParser(description='Run BlackBOX on ilifu Slurm '
                                      'cluster')
     parser.add_argument('--date', type=str, default=None,
@@ -712,4 +738,3 @@ def main ():
 
 if __name__ == "__main__":
     main()
-
