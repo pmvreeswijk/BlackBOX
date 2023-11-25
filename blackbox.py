@@ -25,15 +25,11 @@ import set_match2SSO as set_m2sso
 import match2SSO as m2sso
 
 # setting environment variable OMP_NUM_THREADS to number of threads,
-# (used by e.g. astroscrappy); needs to be done before numpy is
-# imported in [zogy].
-cpus_per_task = os.environ.get('SLURM_CPUS_PER_TASK')
-if cpus_per_task is None:
-    os.environ['OMP_NUM_THREADS'] = str(set_bb.nthreads)
-else:
-    # not really necessary - already done in cluster batch script
-    os.environ['OMP_NUM_THREADS'] = str(cpus_per_task)
-
+# (used by e.g. astroscrappy); use value from environment variable
+# SLURM_CPUS_PER_TASK if it is defined, otherwise set_bb.nthreads;
+# needs to be done before numpy is imported in [zogy]
+os.environ['OMP_NUM_THREADS'] = str(os.environ.get('SLURM_CPUS_PER_TASK',
+                                                   set_bb.nthreads))
 
 from zogy import *
 
@@ -106,8 +102,8 @@ except Exception as e:
 from google.cloud import storage
 
 
-__version__ = '1.2.1'
-keywords_version = '1.0.14'
+__version__ = '1.2.2'
+keywords_version = '1.2.2'
 
 #def init(l):
 #    global lock
@@ -154,19 +150,15 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     proc_mode = mode
 
     # define number of processes or tasks [nproc]; when running on the
-    # ilifu cluster the environment variable SLURM_NTASKS should be
-    # set through --ntasks-per-node in the sbatch script; otherwise
-    # use the value from the set_bb settings file
-    slurm_ntasks = os.environ.get('SLURM_NTASKS')
-    if slurm_ntasks is not None:
-        nproc = int(slurm_ntasks)
-    else:
-        nproc = int(get_par(set_bb.nproc,tel))
+    # ilifu/google slurm cluster the environment variable SLURM_NTASKS
+    # should be set through --ntasks-per-node in the sbatch script;
+    # otherwise use the value from the set_bb settings file
+    nproc = int(os.environ.get('SLURM_NTASKS', get_par(set_bb.nproc,tel)))
 
     # update nthreads in set_bb with value of environment variable
-    # 'OMP_NUM_THREADS' set at the top
-    if int(os.environ['OMP_NUM_THREADS']) != set_bb.nthreads:
-        set_bb.nthreads = int(os.environ['OMP_NUM_THREADS'])
+    # OMP_NUM_THREADS set at the top of this module
+    set_bb.nthreads = int(os.environ.get('OMP_NUM_THREADS', set_bb.nthreads))
+
 
     # update various parameters in set_bb if corresponding input
     # parameters are not None
@@ -1287,6 +1279,9 @@ def blackbox_reduce (filename):
             log.info ('tmp_path:    {}'.format(tmp_path))
             log.info ('ref_path:    {}'.format(ref_path))
 
+
+        # dealing with google cloud bucket?
+        google_cloud = (get_par(set_bb.raw_dir,tel)[0:5] == 'gs://')
 
         # general log file; not kept in google cloud mode
         if google_cloud:
