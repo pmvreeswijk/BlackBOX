@@ -1,4 +1,5 @@
 import os
+import set_zogy
 
 #===============================================================================
 # Number of processes and threads
@@ -112,26 +113,25 @@ all_2keep = ref_2keep + trans_extract_exts
 # Calibration files
 #===============================================================================
 
+# all calibration files are in the calibration folder defined in the
+# zogy settings file set_zogy
+cal_dir = set_zogy.cal_dir
+
 # name of Xtalk file created by Kerry
-bb_home = os.environ['BLACKBOXHOME']
-crosstalk_file = {'ML1': '{}/CalFiles/crosstalk_20180620.txt'.format(bb_home),
-                  'BG':  '{}/CalFiles/crosstalk_20180620.txt'.format(bb_home)}
+crosstalk_file = '{}/crosstalk_20180620.txt'.format(cal_dir)
 
 # name of initial bad pixel mask; filter dependence is added in
-# blackbox, instead of making these dictionaries with the filters as
-# keys.
-bad_pixel_mask = {'ML1': '{}/CalFiles/bpm_0p2_20200727.fits.fz'.format(bb_home),
-                  'BG3':  '{}/CalFiles/BG3_bpm_0p2_20230531.fits.fz'.format(bb_home),
-                  'BG4':  '{}/CalFiles/BG4_bpm_0p2_20230531.fits.fz'.format(bb_home)}
+# blackbox, e.g. ML1_bpm_r_0p2_20200727.fits.fz, instead of making
+# these dictionaries with the filters as keys.
+bad_pixel_mask = {'ML1': '{}/ML1_bpm_0p2_20200727.fits.fz'.format(cal_dir),
+                  'BG3':  '{}/BG3_bpm_0p2_20230531.fits.fz'.format(cal_dir),
+                  'BG4':  '{}/BG4_bpm_0p2_20230531.fits.fz'.format(cal_dir)}
 
 # name of ML/BG field definition file
-mlbg_fieldIDs = ('{}/CalFiles/MLBG_FieldIDs_Feb2022.fits'.format(bb_home))
+mlbg_fieldIDs = '{}/MLBG_FieldIDs_Feb2022.fits'.format(cal_dir)
 
 # name of file with non-linearity correcting spline
-nonlin_corr_file = {'ML1': '{}/CalFiles/nonlin_splines_20200501.pkl'
-                    .format(bb_home),
-                    'BG':  '{}/CalFiles/nonlin_splines_20200501.pkl'
-                    .format(bb_home)}
+nonlin_corr_file = '{}/nonlin_splines_20200501.pkl'.format(cal_dir)
 
 #===============================================================================
 # Cosmic ray and satellite trail detection
