@@ -54,18 +54,23 @@ voscan_poldeg = 3
 # Directory structure and files to keep
 #===============================================================================
 
-# directory name where [blackbox] is run and the default subdirectories
-run_dir_base = os.environ['DATAHOME']
-
-# temporary directory where data is reduced; ideally this is on a disk
-# with fast read/write speed - for the moment it is the same as
-# [run_dir_base], but could be anywhere
-tmp_dir_base = run_dir_base
-#tmp_dir_base = '/scratch3/users/pmv'
-#tmp_dir_base = '/dev/shm'
-
 # switch to keep tmp directories (True) or not (False)
 keep_tmp = False
+
+# name of telescope data base directory with the different
+# subdirectories defined further below
+run_dir_base = {'ML1': '/idia/projects/meerlicht', 'BG': os.environ['HOME']}
+
+# temporary directory where data is reduced; ideally this is on a disk
+# with fast read/write speed; for ML1, this is the same as run_dir_base
+tmp_dir_base = {'ML1': run_dir_base['ML1']}
+# for BlackGEM, it depends on whether tmp data is kept for inspection
+# or not
+if keep_tmp:
+    tmp_dir_base['BG'] = '{}/Slurm/tmp'.format(run_dir_base['BG'])
+else:
+    tmp_dir_base['BG'] = '/tmp'
+
 
 # the loop below creates dictionaries with keys ['ML1', 'BG2', 'BG3',
 # 'BG4'] for the different paths to the raw, red, log, ref and tmp
@@ -76,12 +81,12 @@ master_dir = {}
 
 # MeerLICHT directory structure
 for tel in ['ML1']:
-    run_dir[tel] = '{}/{}'.format(run_dir_base, tel)
+    run_dir[tel] = '{}/{}'.format(run_dir_base[tel], tel)
     raw_dir[tel] = '{}/raw'.format(run_dir[tel])
     red_dir[tel] = '{}/red'.format(run_dir[tel])
     log_dir[tel] = '{}/log'.format(run_dir[tel])
     ref_dir[tel] = '{}/ref'.format(run_dir[tel])
-    tmp_dir[tel] = '{}/{}/tmp'.format(tmp_dir_base, tel)
+    tmp_dir[tel] = '{}/{}/tmp'.format(tmp_dir_base[tel], tel)
     master_dir[tel] = red_dir[tel]
 
 # BlackGEM directory structure
@@ -89,7 +94,7 @@ for tel in ['BG2', 'BG3', 'BG4']:
     raw_dir[tel] = 'gs://blackgem-raw/{}'.format(tel)
     red_dir[tel] = 'gs://blackgem-red/{}'.format(tel)
     ref_dir[tel] = 'gs://blackgem-ref'
-    tmp_dir[tel] = '{}/{}/tmp'.format(tmp_dir_base, tel)
+    tmp_dir[tel] = '{}/{}/tmp'.format(tmp_dir_base['BG'], tel)
     master_dir[tel] = 'gs://blackgem-masters/{}'.format(tel)
 
 
