@@ -390,7 +390,7 @@ def slurm_process (python_cmdstr, nthreads, runtime, jobname, jobnight,
                     f.write ('#SBATCH --partition=Main\n')
 
             f.write ('\n')
-            f.write ('#SBATCH --open-mode=append')
+            f.write ('#SBATCH --open-mode=append\n')
             f.write ('#SBATCH --output={}/{}.out\n'.format(jobnight, jobname))
             f.write ('#SBATCH --error={}/{}.err\n'.format(jobnight, jobname))
             f.write ('#SBATCH --mail-user=paul.vreeswijk@blackgem.org\n')
@@ -411,6 +411,7 @@ def slurm_process (python_cmdstr, nthreads, runtime, jobname, jobnight,
                      '/idia/projects/meerlicht/Containers/ML_latest.sif {}\n'
                      .format(python_cmdstr))
             f.write ('\n')
+
 
 
         # make batch script executable
