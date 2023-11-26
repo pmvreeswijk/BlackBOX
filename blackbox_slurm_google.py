@@ -49,12 +49,13 @@ __version__ = '0.6'
 # Slurm login node through the usual set_zogy and set_blackbox
 # settings files; at least not at ilifu, at Google this module could
 # be run in a singularity container so that these settings are
-# availabel
+# available
 raw_dir = {}
 red_dir = {}
 tmp_dir = {}
 
-tels_running = ['BG3', 'BG4']
+#tels_running = ['BG2', 'BG3', 'BG4']
+tels_running = ['BG4']
 for tel in tels_running:
     raw_dir[tel] = 'gs://blackgem-raw/{}'.format(tel)
     red_dir[tel] = 'gs://blackgem-red/{}'.format(tel)
@@ -250,9 +251,8 @@ def run_blackbox_slurm (date=None, telescope=None, runtime='4:00:00'):
                 tel = filename.split('/')[-1][0:3]
 
                 # Python command to execute
-                # CHECK!!! - BBtest needs to be updated to /Software/Blackbox/
                 python_cmdstr = (
-                    'python ~/BBtest/blackbox.py --telescope {} '
+                    'python /Software/BlackBOX/blackbox.py --telescope {} '
                     '--img_reduce True --cat_extract True --trans_extract True '
                     '--force_reproc_new False --image {}'
                     .format(tel, filename))
@@ -308,7 +308,7 @@ def run_blackbox_slurm (date=None, telescope=None, runtime='4:00:00'):
     jobname_masters = {}
     for tel in tels_running:
         if telescope in tel:
-            python_cmdstr_master = ('python ~/BBtest/blackbox.py '
+            python_cmdstr_master = ('python /Software/BlackBOX/blackbox.py '
                                     '--telescope {} --master_date {}'
                                     .format(tel, date_eve))
             # process masters through a SLURM batch job; could split
@@ -1348,10 +1348,10 @@ def make_dir (path, empty=False):
         if isdir(path) and empty:
             shutil.rmtree(path)
 
-        # do not check if directory exists, just try to make it; changed this
-        # after racing condition occurred on the ilifu Slurm cluster when
-        # reducing flatfields, where different tasks need to make the same
-        # directory
+        # do not check if directory exists, just make it; changed this
+        # after racing condition occurred on the ilifu Slurm cluster
+        # when reducing flatfields, where different tasks need to make
+        # the same directory
         os.makedirs(path, exist_ok=True)
 
 
@@ -1364,7 +1364,7 @@ def main ():
 
     """Wrapper allowing [run_blackbox_slurm] to be run from the command line"""
 
-    parser = argparse.ArgumentParser(description='Run BlackBOX on ilifu Slurm '
+    parser = argparse.ArgumentParser(description='Run BlackBOX on Google Slurm '
                                      'cluster')
     parser.add_argument('--date', type=str, default=None,
                         help='date to process (yyyymmdd, yyyy-mm-dd, yyyy/mm/dd '
