@@ -2932,11 +2932,11 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
 
     # collect biases, darks, flats and science frames in different lists
     #bias_list = glob.glob('{}/bias/{}*.fits*'.format(full_path, tel))
-    bias_list = list_files('{}/bias/{}'.format(full_path,tel),search_str='.fits')
+    bias_list = list_files('{}/bias/{}_20'.format(full_path,tel),search_str='.fits')
     #dark_list = glob.glob('{}/dark/{}*.fits*'.format(full_path, tel))
-    dark_list = list_files('{}/dark/{}'.format(full_path,tel),search_str='.fits')
+    dark_list = list_files('{}/dark/{}_20'.format(full_path,tel),search_str='.fits')
     #flat_list = glob.glob('{}/flat/{}*.fits*'.format(full_path, tel))
-    flat_list = list_files('{}/flat/{}'.format(full_path,tel),search_str='.fits')
+    flat_list = list_files('{}/flat/{}_20'.format(full_path,tel),search_str='.fits')
     #object_list = glob.glob('{}/{}*_red.fits*'.format(full_path, tel))
     object_list = list_files('{}/{}'.format(full_path,tel),search_str='_red.fits')
 
