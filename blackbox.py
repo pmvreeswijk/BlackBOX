@@ -98,9 +98,6 @@ except Exception as e:
     log.warning ('exception was raised while testing \'tnow.ut1\' at start of '
                  'blackbox; issue with IERS file?: {}'.format(e))
 
-# in case google cloud is being used
-from google.cloud import storage
-
 
 __version__ = '1.2.2'
 keywords_version = '1.2.2'
