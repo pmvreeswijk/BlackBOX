@@ -1277,17 +1277,6 @@ def blackbox_reduce (filename):
             log.info ('ref_path:    {}'.format(ref_path))
 
 
-        # dealing with google cloud bucket?
-        google_cloud = (get_par(set_bb.raw_dir,tel)[0:5] == 'gs://')
-
-        # general log file; not kept in google cloud mode
-        if google_cloud:
-            genlogfile = None
-
-
-        header['LOG'] = (str(genlogfile).split('/')[-1], 'name general '
-                         'logfile')
-
         # image log file
         header['LOG-IMA'] = (logfile.split('/')[-1], 'name image logfile')
 
