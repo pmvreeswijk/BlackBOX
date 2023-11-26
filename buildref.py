@@ -14,6 +14,9 @@ logFormatter = logging.Formatter(logfmt, datefmt)
 logging.Formatter.converter = time.gmtime #convert time in logger to UTC
 log = logging.getLogger()
 
+# set_br is needed in definition of OMP_NUM_THREADS below
+import set_buildref as set_br
+
 # setting environment variable OMP_NUM_THREADS to number of threads;
 # use value from environment variable SLURM_CPUS_PER_TASK if it is
 # defined, otherwise set_br.nthreads; needs to be done before numpy is
@@ -23,7 +26,6 @@ os.environ['OMP_NUM_THREADS'] = str(os.environ.get('SLURM_CPUS_PER_TASK',
 
 import numpy as np
 
-import set_buildref as set_br
 import zogy
 import set_zogy
 import blackbox as bb
