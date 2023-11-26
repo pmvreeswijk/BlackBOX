@@ -15,28 +15,24 @@ log = logging.getLogger()
 
 import set_buildref as set_br
 
-# setting environment variable OMP_NUM_THREADS to number of threads,
-# (used by e.g. astroscrappy); needs to be done before numpy is
-# imported in [zogy]. However, do not set it when running a job on the
-# ilifu cluster as it is set in the job script and that value would
-# get overwritten here
-cpus_per_task = os.environ.get('SLURM_CPUS_PER_TASK')
-if cpus_per_task is None:
-    os.environ['OMP_NUM_THREADS'] = str(set_br.nthreads)
-else:
-    # not really necessary - already done in cluster batch script
-    os.environ['OMP_NUM_THREADS'] = str(cpus_per_task)
+# setting environment variable OMP_NUM_THREADS to number of threads;
+# use value from environment variable SLURM_CPUS_PER_TASK if it is
+# defined, otherwise set_br.nthreads; needs to be done before numpy is
+# imported in [zogy]
+os.environ['OMP_NUM_THREADS'] = str(os.environ.get('SLURM_CPUS_PER_TASK',
+                                                   set_br.nthreads))
 
-
-from multiprocessing import Pool
-
-import aplpy
+import numpy as np
 
 import zogy
 import set_zogy
 import blackbox as bb
 import set_blackbox as set_bb
 import qc
+
+from multiprocessing import Pool
+
+import aplpy
 
 
 __version__ = '0.9.0'
@@ -92,19 +88,14 @@ def buildref (telescope=None, fits_table_list=None, date_start=None,
     deep = go_deep
 
     # define number of processes or tasks [nproc]; when running on the
-    # ilifu cluster the environment variable SLURM_NTASKS should be
-    # set through --ntasks-per-node in the sbatch script; otherwise
-    # use the value from the set_br settings file
-    slurm_ntasks = os.environ.get('SLURM_NTASKS')
-    if slurm_ntasks is not None:
-        nproc = int(slurm_ntasks)
-    else:
-        nproc = int(get_par(set_br.nproc,tel))
+    # ilifu/google slurm cluster the environment variable SLURM_NTASKS
+    # should be set through --ntasks-per-node in the sbatch script;
+    # otherwise use the value from the set_br settings file
+    nproc = int(os.environ.get('SLURM_NTASKS', get_par(set_br.nproc,tel)))
 
-    # update nthreads in set_br with value of environment variable
-    # 'OMP_NUM_THREADS' set at the top
-    if int(os.environ['OMP_NUM_THREADS']) != set_br.nthreads:
-        set_br.nthreads = int(os.environ['OMP_NUM_THREADS'])
+    # update nthreads in set_bb with value of environment variable
+    # OMP_NUM_THREADS set at the top of this module
+    set_br.nthreads = int(os.environ.get('OMP_NUM_THREADS', set_br.nthreads))
 
 
     if keep_tmp is not None:
