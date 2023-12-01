@@ -100,7 +100,7 @@ except Exception as e:
 
 
 __version__ = '1.2.2'
-keywords_version = '1.2.2'
+keywords_version = '1.0.14'
 
 #def init(l):
 #    global lock
