@@ -397,7 +397,7 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
         comment = 'dummy catalog without sources?'
 
     #if make_dumcat:
-    header.set ('{}DUMCAT'.format(prefix), make_dumcat, 'dummy {} catalog '
+    header.set ('{}DUMCAT'.format(prefix), make_dumcat, 'dummy {}catalog '
                 'without sources?'.format(label), after=prev_key)
 
 
