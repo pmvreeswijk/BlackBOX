@@ -5206,7 +5206,7 @@ def set_header(header, filename):
                       .format(header['AZIMUTH'], az))
 
         edit_head(header, 'AZIMUTH', value=float(az),
-                  comments='[deg] Telescope azimuth (N=0;E=90; based on RA/DEC)')
+                  comments='[deg] Telescope azimuth (N=0;E=90, based on RA/DEC)')
 
 
 
