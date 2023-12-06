@@ -2,6 +2,7 @@ import os
 import subprocess
 import glob
 import argparse
+import multiprocessing as mp
 
 # set up log
 import logging
@@ -20,8 +21,6 @@ import astropy.io.fits as fits
 from astropy.io import ascii
 from astropy.time import Time
 from astropy.table import Table, vstack, unique
-
-from multiprocessing import Queue
 
 import ephem
 from watchdog.observers.polling import PollingObserver
@@ -126,7 +125,7 @@ def run_blackbox_slurm (date=None, nthreads=4, runtime='4:00:00'):
 
 
     # create queue for submitting jobs
-    queue = Queue()
+    queue = mp.Queue()
 
 
     # add files that are already present in the read_path
@@ -407,7 +406,7 @@ def slurm_process (python_cmdstr, nthreads, runtime, jobname, jobnight,
             f.write ('\n')
             f.write ('/software/common/singularity/3.9.1/bin/singularity exec '
                      '--bind /idia/projects/meerlicht '
-                     '--env ZOGY_CALDIR=/idia/projects/meerlicht/CalFiles '
+                     '--env MLBG_CALDIR=/idia/projects/meerlicht/CalFiles '
                      '/idia/projects/meerlicht/Containers/ML_latest.sif {}\n'
                      .format(python_cmdstr))
             f.write ('\n')
