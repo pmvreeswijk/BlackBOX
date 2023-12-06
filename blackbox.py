@@ -4,6 +4,11 @@ import pickle
 import copy
 import tempfile
 
+
+#import multiprocessing as mp
+#mp_ctx = mp.get_context('spawn')
+
+
 # set up log
 import logging
 import time
@@ -36,7 +41,6 @@ from zogy import *
 import re   # Regular expression operations
 import glob # Unix style pathname pattern expansion
 
-from multiprocessing import Pool, Manager, Lock, Queue, Array, set_start_method
 
 from datetime import datetime, timedelta
 from dateutil.tz import gettz
@@ -99,12 +103,8 @@ except Exception as e:
                  'blackbox; issue with IERS file?: {}'.format(e))
 
 
-__version__ = '1.2.2'
+__version__ = '1.2.3'
 keywords_version = '1.0.14'
-
-#def init(l):
-#    global lock
-#    lock = l
 
 
 ################################################################################
@@ -296,10 +296,12 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
             date = read_path.split('/')[-3:]
 
 
-    # create global lock instance that can be used in [blackbox_reduce] for
-    # certain blocks/functions to be accessed by one process at a time
+    # create global lock instance that can be used in
+    # [blackbox_reduce] for certain blocks/functions to be accessed by
+    # one process at a time
     global lock
-    lock = Lock()
+    # use function from zogy to use same mp start method
+    lock = get_mp_Lock()
 
 
     # for both day and night mode, create list of all
@@ -386,8 +388,10 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
         sunrise = obs.next_rising(ephem.Sun())
 
 
-        # create queue for submitting jobs
-        queue = Queue()
+        # create queue for submitting jobs; use function from zogy to
+        # use same mp start method
+        queue = get_mp_Queue()
+
 
         # add files that are already present in the read_path
         # directory to the night queue, to reduce these first
@@ -402,7 +406,8 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
         # create pool of workers
         results = []
-        pool = Pool(nproc)
+        # use function from zogy to use same mp start method
+        pool = get_mp_Pool(nproc)
 
 
         # start monitoring [read_path] for incoming files
@@ -5121,6 +5126,11 @@ def set_header(header, filename):
     height = get_par(set_zogy.obs_height,tel)
 
 
+    # this keyword is added later on by Astrometry.net
+    #edit_head(header, 'EQUINOX', value='None',
+    #          comments='[yr] equatorial coordinates definition')
+
+
     if 'RA' in header and 'DEC' in header:
 
         # RA
@@ -5148,6 +5158,11 @@ def set_header(header, filename):
                   comments='[deg] Telescope right ascension (ICRS)')
         edit_head(header, 'DEC', value=dec_icrs,
                   comments='[deg] Telescope declination (ICRS)')
+
+
+        # this keyword is added later on by Astrometry.net
+        #edit_head(header, 'EQUINOX', value=2000.0,
+        #          comments='[yr] Equatorial coordinates definition')
 
 
         # for ML1, the RA and DEC were incorrectly referring to the
@@ -5183,7 +5198,7 @@ def set_header(header, filename):
                       .format(header['ALTITUDE'], alt))
 
         edit_head(header, 'ALTITUDE', value=float(alt),
-                  comments='[deg] Telescope altitude')
+                  comments='[deg] Telescope altitude (based on RA/DEC)')
 
         if 'AZIMUTH' in header:
             log.info ('AZIMUTH in raw header: {:.2f}, value calculated using '
@@ -5191,7 +5206,7 @@ def set_header(header, filename):
                       .format(header['AZIMUTH'], az))
 
         edit_head(header, 'AZIMUTH', value=float(az),
-                  comments='[deg] Telescope azimuth (N=0;E=90)')
+                  comments='[deg] Telescope azimuth (N=0;E=90; based on RA/DEC)')
 
 
 
@@ -5483,6 +5498,11 @@ def set_header(header, filename):
                     'FOCUSAMT', 'OWNERGNM', 'OWNERGID', 'OWNERID',
                     'AZ-REF', 'ALT-REF', 'CCDFULLH', 'CCDFULLW', 'RADECSYS',
                     'RA-TEL', 'DEC-TEL']
+    if 'BG' in tel:
+        # no dome orientation for BlackGEM
+        keys_2remove.append('DOMEAZ')
+
+
     for key in keys_2remove:
         if key in header:
             log.info ('removing keyword {}'.format(key))
