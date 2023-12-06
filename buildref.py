@@ -3,6 +3,11 @@ import re
 import fnmatch
 import argparse
 
+
+#import multiprocessing as mp
+#mp_ctx = mp.get_context('spawn')
+
+
 # set up log
 import logging
 import time
@@ -32,12 +37,10 @@ import blackbox as bb
 import set_blackbox as set_bb
 import qc
 
-from multiprocessing import Pool
-
 import aplpy
 
 
-__version__ = '0.9.0'
+__version__ = '0.9.1'
 
 
 ################################################################################
@@ -654,12 +657,12 @@ def buildref (telescope=None, fits_table_list=None, date_start=None,
         # arrange each process to call [prep_ref] to prepare the
         # reference image for a particular field and filter
         # combination, using the [imcombine] function
-        result = pool_func_lists (prep_ref, list_of_imagelists, obj_list,
-                                  filt_list, radec_list, imagesize_list,
-                                  nfiles_list, limmag_proj_list,
-                                  combine_type_list, A_swarp_list,
-                                  nsigma_clip_list, [skip_zogy] * len(obj_list),
-                                  nproc=nproc)
+        result = zogy.pool_func_lists (prep_ref, list_of_imagelists, obj_list,
+                                       filt_list, radec_list, imagesize_list,
+                                       nfiles_list, limmag_proj_list,
+                                       combine_type_list, A_swarp_list,
+                                       nsigma_clip_list,
+                                       [skip_zogy] * len(obj_list), nproc=nproc)
 
 
 
@@ -726,34 +729,6 @@ def set_date (date, start=True):
             mjd = bb.date2mjd ('{}'.format(date), time_str='12:00')
 
     return mjd
-
-
-################################################################################
-
-def pool_func_lists (func, list_of_imagelists, *args, nproc=1):
-
-    try:
-        results = []
-        pool = Pool(nproc)
-        for nlist, filelist in enumerate(list_of_imagelists):
-            args_temp = [filelist]
-            for arg in args:
-                args_temp.append(arg[nlist])
-
-            results.append(pool.apply_async(func, args_temp))
-
-        pool.close()
-        pool.join()
-        results = [r.get() for r in results]
-        #    log.info ('result from pool.apply_async: {}'.format(results))
-        return results
-
-    except Exception as e:
-        #log.exception (traceback.format_exc())
-        log.exception ('exception was raised during [pool.apply_async({})]: '
-                       '{}'.format(func, e))
-
-        raise RuntimeError
 
 
 ################################################################################
