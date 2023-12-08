@@ -728,7 +728,7 @@ def create_masters (master_date, run_fpack=True, run_create_jpg=True, nproc=1):
     # use [pool_func] to process list of masters; pick_alt is set to
     # False as there is no need to look for an alternative master flat
     list_fits_master = pool_func (master_prep, list_masters, data_shape, True,
-                                  False, tel, nproc=nproc)
+                                  False, tel, proc_mode, nproc=nproc)
 
 
 
@@ -1432,7 +1432,7 @@ def blackbox_reduce (filename):
                                                            date_eve)
             fits_mbias = master_prep (fits_master, data.shape,
                                       get_par(set_bb.create_master,tel),
-                                      tel=tel)
+                                      tel=tel, proc_mode=proc_mode)
 
         except Exception as e:
             #log.exception(traceback.format_exc())
@@ -1511,7 +1511,7 @@ def blackbox_reduce (filename):
                                                                date_eve)
                 fits_mdark = master_prep (fits_master, data.shape,
                                           get_par(set_bb.create_master,tel),
-                                          tel=tel)
+                                          tel=tel, proc_mode=proc_mode)
 
             except Exception as e:
                 #log.exception(traceback.format_exc())
@@ -1574,7 +1574,7 @@ def blackbox_reduce (filename):
                                                               date_eve, filt)
             fits_mflat = master_prep (fits_master, data.shape,
                                       get_par(set_bb.create_master,tel),
-                                      tel=tel)
+                                      tel=tel, proc_mode=proc_mode)
 
         except Exception as e:
             #log.exception(traceback.format_exc())
@@ -3935,7 +3935,7 @@ def mask_header(data_mask, header_mask):
 ################################################################################
 
 def master_prep (fits_master, data_shape, create_master, pick_alt=True,
-                 tel=None):
+                 tel=None, proc_mode=None):
 
     """function to create a master calibration file [fits_master] with
        shape [data_shape] if it does not already exist and does not
