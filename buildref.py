@@ -1,7 +1,12 @@
 import os
+import subprocess
+import shutil
+import argparse
+import traceback
+import collections
+import itertools
 import re
 import fnmatch
-import argparse
 
 
 #import multiprocessing as mp
@@ -31,6 +36,17 @@ os.environ['OMP_NUM_THREADS'] = str(os.environ.get('SLURM_CPUS_PER_TASK',
 
 import numpy as np
 
+import astropy.io.fits as fits
+from astropy.io import ascii
+from astropy.wcs import WCS
+from astropy.table import Table, vstack
+from astropy.stats import sigma_clipped_stats
+from astropy.time import Time
+from astropy.coordinates import Angle
+from astropy import units as u
+
+from scipy import ndimage
+
 import zogy
 import set_zogy
 import blackbox as bb
@@ -48,8 +64,8 @@ __version__ = '0.9.1'
 def buildref (telescope=None, fits_table_list=None, date_start=None,
               date_end=None, field_IDs=None, filters=None, go_deep=None,
               qc_flag_max=None, seeing_max=None, skip_zogy=False,
-              make_colfig=False, filters_colfig='iqu', extension=None,
-              keep_tmp=None):
+              make_colfig=False, filters_colfig='iqu', mode_ref=False,
+              results_dir=None, extension=None, keep_tmp=None):
 
 
     """Module to consider one specific or all available field IDs within a
@@ -83,7 +99,7 @@ def buildref (telescope=None, fits_table_list=None, date_start=None,
     """
 
     global tel, max_qc_flag, max_seeing, start_date, end_date
-    global time_refstart, ext, deep
+    global time_refstart, ext, deep, dir_results, ref_mode
     tel = telescope
     max_qc_flag = qc_flag_max
     max_seeing = seeing_max
@@ -91,6 +107,9 @@ def buildref (telescope=None, fits_table_list=None, date_start=None,
     end_date = date_end
     ext = extension
     deep = go_deep
+    dir_results = results_dir
+    ref_mode = mode_ref
+
 
     # define number of processes or tasks [nproc]; when running on the
     # ilifu/google slurm cluster the environment variable SLURM_NTASKS
@@ -124,7 +143,12 @@ def buildref (telescope=None, fits_table_list=None, date_start=None,
     log.info ('make_colfig:         {}'.format(make_colfig))
     if make_colfig:
         log.info ('filters_colfig:      {}'.format(filters_colfig))
-    log.info ('folder extension:    {}'.format(extension))
+
+    log.info ('mode_ref:            {}'.format(mode_ref))
+    if not mode_ref:
+        log.info ('results_dir          {}'.format(results_dir))
+        log.info ('subfolder extension: {}'.format(extension))
+
 
 
     t0 = time.time()
@@ -154,8 +178,6 @@ def buildref (telescope=None, fits_table_list=None, date_start=None,
 
 
 
-
-
     # check if table contains any entries
     if len(table)==0:
         log.error ('no entries in tables in [fits_table_list]; exiting')
@@ -177,7 +199,7 @@ def buildref (telescope=None, fits_table_list=None, date_start=None,
     # ---------------------------------------
     mask = np.array([tel in fn for fn in table['FILENAME']])
     table = table[mask]
-    log.info ('{} files left (telescope cut)'.format(len(table)))
+    log.info ('{} files left ({} telescope cut)'.format(len(table), tel))
 
 
     # filter table entries based on date, field_ID, filter, qc-flag and seeing
@@ -887,14 +909,17 @@ def header2table (filenames):
 def prep_colfig (field_ID, filters):
 
     # determine reference directory and file
-    ref_path = '{}/{:0>5}'.format(get_par(set_bb.ref_dir,tel), field_ID)
-    if deep:
-        ref_path = ref_path.replace('/ref/', '/deep/')
+    if ref_mode:
+        # set according to definition in setttings file
+        ref_path = '{}/{:0>5}'.format(get_par(set_bb.ref_dir,tel), field_ID)
+    else:
+        # set to input parameter results_dir = global parameter dir_results
+        ref_path = '{}/{:0>5}'.format(dir_results, field_ID)
 
-    # for the moment, add _alt to this path to separate it from
-    # existing reference images
-    if ext is not None:
-        ref_path = '{}{}'.format(ref_path, ext)
+        # add extension to field_ID subfolder
+        if ext is not None:
+            ref_path = '{}{}'.format(ref_path, ext)
+
 
     # header keyword to use for scaling (e.g. PC-ZP or LIMMAG)
     key = 'LIMMAG'
@@ -906,12 +931,12 @@ def prep_colfig (field_ID, filters):
 
     for filt in filters:
 
-        image = '{}/{}_{}_red.fits'.format(ref_path, tel, filt)
+        image = '{}/{}_{:0>5}_{}_red.fits'.format(ref_path, tel, field_ID, filt)
         exists, image = bb.already_exists(image, get_filename=True)
 
         if not exists:
             log.info ('{} does not exist; not able to prepare color '
-                      'figure for field_ID {}'.format(image, field_ID))
+                      'figure for field_ID {:0>5}'.format(image, field_ID))
             return
         else:
 
@@ -931,7 +956,7 @@ def prep_colfig (field_ID, filters):
                 images_zp.append(header[key])
             else:
                 log.info ('missing header keyword {}; not able to '
-                          'prepare color figure for field_ID {}'
+                          'prepare color figure for field_ID {:0>5}'
                           .format(key, field_ID))
                 return
 
@@ -947,7 +972,7 @@ def prep_colfig (field_ID, filters):
     vmax_b = f_max * images_std[2]
 
     # make color figure
-    colfig = '{}/{}_{}_{}.png'.format(ref_path, tel, field_ID, filters)
+    colfig = '{}/{}_{:0>5}_{}.png'.format(ref_path, tel, field_ID, filters)
     aplpy.make_rgb_image(images_rgb, colfig,
                          vmin_r=vmin_r, vmax_r=vmax_r,
                          vmin_g=vmin_g, vmax_g=vmax_g,
@@ -960,7 +985,7 @@ def ref_already_exists (ref_path, tel, field_ID, filt, get_filename=False):
 
     # list files in ref_path with search string [tel]_[fieldID]_[filt]
     # and ending with _red.fits.fz
-    list_ref = bb.list_files(ref_path, search_str='{}_{}_{}_'
+    list_ref = bb.list_files(ref_path, search_str='{}_{:0>5}_{}_'
                              .format(tel, field_ID, filt),
                              end_str='_red.fits.fz')
 
@@ -972,8 +997,8 @@ def ref_already_exists (ref_path, tel, field_ID, filt, get_filename=False):
         exists = True
         filename = list_ref[-1]
         if len(list_ref) > 1:
-            log.warning ('multiple reference images with the same field {}'
-                         'and filter {} combination present in {}:\n{}\n'
+            log.warning ('multiple reference images with the same field ID/'
+                         'filter combination {:0>5}/{} present in {}:\n{}\n'
                          'returning the last one'
                          .format(field_ID, filt, ref_path, list_ref))
 
@@ -990,25 +1015,31 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
 
 
     # determine and create reference directory
-    ref_path = '{}/{:0>5}'.format(get_par(set_bb.ref_dir,tel), field_ID)
-    # in deep mode, change this path to the deep folder
-    if deep:
-        ref_path = ref_path.replace('/ref/', '/deep/')
+    if ref_mode:
+        # set according to definition in setttings file
+        ref_path = '{}/{:0>5}'.format(get_par(set_bb.ref_dir,tel), field_ID)
+    else:
+        # set to input parameter results_dir = global parameter dir_results
+        ref_path = '{}/{:0>5}'.format(dir_results, field_ID)
 
+        # add extension to field_ID subfolder
+        if ext is not None:
+            ref_path = '{}{}'.format(ref_path, ext)
+
+
+    # create folder
     bb.make_dir (ref_path)
 
 
     # name of output file, including full path
-    if not deep:
-        ref_fits_out = '{}/{}_{}_red.fits'.format(ref_path, tel, filt)
-    else:
-        ref_fits_out = '{}/{}_{}_{}_red.fits'.format(ref_path, tel, field_ID,
-                                                     filt)
+    ref_fits_out = '{}/{}_{:0>5}_{}_red.fits'.format(ref_path, tel,
+                                                     field_ID, filt)
 
 
     # if reference image already exists, check if images used are the
     # same as the input [imagelist]
-    exists, ref_fits_tmp = ref_already_exists (ref_fits_out, get_filename=True)
+    exists, ref_fits_tmp = ref_already_exists (ref_path, tel, field_ID, filt,
+                                               get_filename=True)
     if exists:
 
         if False:
@@ -1046,23 +1077,16 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
                 # same sets of images, return
                 log.info ('imagelist_new: {}'.format(imagelist_new))
                 log.info ('imagelist_used: {}'.format(imagelist_used))
-                log.info ('reference image of {} in filter {} with same '
+                log.info ('reference image of {:0>5} in filter {} with same '
                              'set of images already present; skipping'
                              .format(field_ID, filt))
                 return
 
 
     # prepare temporary folder
-    if not deep:
-        tmp_path = ('{}/{:0>5}/{}'
-                    .format(get_par(set_bb.tmp_dir,tel), field_ID,
-                            ref_fits_out.split('/')[-1].replace('.fits','')))
-    else:
-        # slightly different in deep mode
-        tmp_path = ('{}/{:0>5}_deep/{}'
-                    .format(get_par(set_bb.tmp_dir,tel), field_ID,
-                            ref_fits_out.split('/')[-1].replace('.fits','')))
-
+    tmp_path = ('{}/{:0>5}/{}'
+                .format(get_par(set_bb.tmp_dir,tel), field_ID,
+                        ref_fits_out.split('/')[-1].replace('.fits','')))
     bb.make_dir (tmp_path, empty=True)
 
 
@@ -1088,8 +1112,8 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
     # check if sufficient images available to combine
     if len(imagelist) == 0:
 
-        log.error ('no images available to combine for field ID {} in filter {}'
-                   .format(field_ID, filt))
+        log.error ('no images available to combine for field ID {:0>5} '
+                   'in filter {}'.format(field_ID, filt))
         bb.clean_tmp(tmp_path, get_par(set_br.keep_tmp,tel))
         bb.close_log(log, logfile)
         return
@@ -1098,8 +1122,9 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
 
 
         if len(imagelist) == 1:
-            log.warning ('only a single image available for field ID {} in filter {}'
-                         '; using it as the reference image'.format(field_ID, filt))
+            log.warning ('only a single image available for field ID {:0>5} in '
+                         'filter {}; using it as the reference image'
+                         .format(field_ID, filt))
 
 
         # run imcombine
@@ -2137,7 +2162,8 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
                             refimage, image, image_remap,
                             (image_size,image_size), config=swarp_cfg,
                             resample='N', resample_dir=tempdir,
-                            resample_suffix=resample_suffix, nthreads=nthreads)
+                            resample_suffix=resample_suffix, nthreads=nthreads,
+                            tel=tel, set_zogy=set_zogy)
 
                     except Exception as e:
                         #log.exception(traceback.format_exc())
@@ -2170,7 +2196,7 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
                         resample_suffix=resample_suffix,
                         dtype=data_mask.dtype.name,
                         value_edge=mask_value['edge'], nthreads=nthreads,
-                        oversampling=0)
+                        oversampling=0, tel=tel, set_zogy=set_zogy)
 
                 except Exception as e:
                     #log.exception(traceback.format_exc())
@@ -3038,10 +3064,10 @@ if __name__ == "__main__":
                         'to be from the same BG; default=\'BG\'')
 
     parser.add_argument('--fits_table_list', type=str, default=None,
-                        help='list of one or more binary fits tables, '
-                        'containing header keywords MJD-OBS, OBJECT, FILTER, '
-                        'QC-FLAG, RA-CNTR, DEC-CNTR, PSF-SEE, LIMMAG and '
-                        'S-BKGSTD of the possible images to be included.')
+                        help='list of one or more (comma-separated) binary fits '
+                        'tables, containing header keywords MJD-OBS, OBJECT, '
+                        'FILTER, QC-FLAG, RA-CNTR, DEC-CNTR, PSF-SEE, LIMMAG '
+                        'and S-BKGSTD of the possible images to be included.')
 
     parser.add_argument('--date_start', type=str, default=None,
                         help='start date (noon) to include images, date string '
@@ -3065,8 +3091,7 @@ if __name__ == "__main__":
 
     parser.add_argument('--go_deep', type=str2bool, default=False,
                         help='use all images available (i.e. neglect values of '
-                        '[set_buildref.limmag_target]) and save in \'deep\' '
-                        'instead of \'ref\' folder')
+                        '[set_buildref.limmag_target])')
 
     parser.add_argument('--qc_flag_max', type=str, default='orange',
                         choices=['green', 'yellow', 'orange', 'red'],
@@ -3087,17 +3112,31 @@ if __name__ == "__main__":
                         help='set of 3 filters to use for RGB color figures; '
                         'default=\'uqi\'')
 
+    parser.add_argument('--mode_ref', type=str2bool, default=False,
+                        help='original reference image mode, where results are '
+                        'saved in reference folder defined in settings file; '
+                        'if set to False, [results_dir] is used for the output '
+                        'folder; default=False')
+
+    parser.add_argument('--results_dir', type=str, default='.',
+                        help='output directory with resulting images, separated '
+                        'in subfolders equal to the field IDs; only relevant if '
+                        '[mode_ref] is False; default: \'.\'')
+
     parser.add_argument('--extension', type=str, default=None,
-                        help='extension to add to default reference folder '
-                        'name, e.g. _alt; default: None')
+                        help='extension to add to default field ID subfolder; '
+                        'only relevant if [mode_ref] is False; default=None')
 
     parser.add_argument('--keep_tmp', default=None,
                         help='keep temporary directories')
 
     args = parser.parse_args()
 
+    # make sure fits_table_list is a list
+    fits_table_list = args.fits_table_list.split(',')
+
     buildref (telescope = args.telescope,
-              fits_table_list = args.fits_table_list,
+              fits_table_list = fits_table_list,
               date_start = args.date_start,
               date_end = args.date_end,
               field_IDs = args.field_IDs,
@@ -3108,6 +3147,8 @@ if __name__ == "__main__":
               skip_zogy = args.skip_zogy,
               make_colfig = args.make_colfig,
               filters_colfig = args.filters_colfig,
+              mode_ref = args.mode_ref,
+              results_dir = args.results_dir,
               extension = args.extension,
               keep_tmp = args.keep_tmp)
 
