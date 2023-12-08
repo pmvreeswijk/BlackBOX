@@ -1412,7 +1412,8 @@ def blackbox_reduce (filename):
             # call [run_qc_check] to update header with any QC flags
             run_qc_check (header, tel)
             # write fits
-            fits_out = write_fits (fits_out, data.astype('float32'), header)
+            fits_out = write_fits (fits_out, data.astype('float32'), header,
+                                   tel=tel)
             # close down logging and leave
             close_log(log, logfile)
 
@@ -1489,7 +1490,8 @@ def blackbox_reduce (filename):
             # call [run_qc_check] to update header with any QC flags
             run_qc_check (header, tel)
             # write fits
-            fits_out = write_fits (fits_out, data.astype('float32'), header)
+            fits_out = write_fits (fits_out, data.astype('float32'), header,
+                                   tel=tel)
             # close down logging and leave
             close_log(log, logfile)
 
@@ -1554,7 +1556,8 @@ def blackbox_reduce (filename):
             # call [run_qc_check] to update header with any QC flags
             run_qc_check (header, tel)
             # write fits
-            fits_out = write_fits (fits_out, data.astype('float32'), header)
+            fits_out = write_fits (fits_out, data.astype('float32'), header,
+                                   tel=tel)
             # close down logging and leave
             close_log(log, logfile)
 
@@ -4526,7 +4529,7 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True,
             # write fits
             fits_master = write_fits (
                 fits_master, master_median.astype('float32'), header_master,
-                master=True)
+                master=True, tel=tel)
 
 
     if get_par(set_zogy.timing,tel):
@@ -6272,8 +6275,8 @@ def sort_files(read_path, search_str, recursive=False):
 
 ################################################################################
 
-def write_fits (fits_out, data, header, overwrite=True,
-                run_fpack=True, run_create_jpg=True, master=False):
+def write_fits (fits_out, data, header, overwrite=True, run_fpack=True,
+                run_create_jpg=True, master=False, tel=None):
 
 
     mem_use (label='write_fits at start')
