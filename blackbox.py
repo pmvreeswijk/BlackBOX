@@ -728,7 +728,7 @@ def create_masters (master_date, run_fpack=True, run_create_jpg=True, nproc=1):
     # use [pool_func] to process list of masters; pick_alt is set to
     # False as there is no need to look for an alternative master flat
     list_fits_master = pool_func (master_prep, list_masters, data_shape, True,
-                                  False, nproc=nproc)
+                                  False, tel, nproc=nproc)
 
 
 
@@ -1431,7 +1431,8 @@ def blackbox_reduce (filename):
             fits_master = '{}/bias/{}_bias_{}.fits'.format(master_path, tel,
                                                            date_eve)
             fits_mbias = master_prep (fits_master, data.shape,
-                                      get_par(set_bb.create_master,tel))
+                                      get_par(set_bb.create_master,tel),
+                                      tel=tel)
 
         except Exception as e:
             #log.exception(traceback.format_exc())
@@ -1509,7 +1510,8 @@ def blackbox_reduce (filename):
                 fits_master = '{}/dark/{}_dark_{}.fits'.format(master_path, tel,
                                                                date_eve)
                 fits_mdark = master_prep (fits_master, data.shape,
-                                          get_par(set_bb.create_master,tel))
+                                          get_par(set_bb.create_master,tel),
+                                          tel=tel)
 
             except Exception as e:
                 #log.exception(traceback.format_exc())
@@ -1571,7 +1573,8 @@ def blackbox_reduce (filename):
             fits_master = '{}/flat/{}_flat_{}_{}.fits'.format(master_path, tel,
                                                               date_eve, filt)
             fits_mflat = master_prep (fits_master, data.shape,
-                                      get_par(set_bb.create_master,tel))
+                                      get_par(set_bb.create_master,tel),
+                                      tel=tel)
 
         except Exception as e:
             #log.exception(traceback.format_exc())
@@ -3931,7 +3934,8 @@ def mask_header(data_mask, header_mask):
 
 ################################################################################
 
-def master_prep (fits_master, data_shape, create_master, pick_alt=True):
+def master_prep (fits_master, data_shape, create_master, pick_alt=True,
+                 tel=None):
 
     """function to create a master calibration file [fits_master] with
        shape [data_shape] if it does not already exist and does not
