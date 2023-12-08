@@ -853,15 +853,20 @@ def create_jpg (filename):
 
             imgtype = header['IMAGETYP'].lower()
             file_str = image_jpg.split('/')[-1].split('.jpg')[0]
-            if imgtype == 'object':
-                title = ('file:{}   object:{}   filter:{}   exptime:{:.1f}s   '
-                         'QC flag:{}'.format(file_str, header['OBJECT'],
-                                             header['FILTER'], header['EXPTIME'],
-                                             header['QC-FLAG']))
-            else:
-                title = ('file:{}   imgtype:{}   filter:{}   QC flag:{}'
-                         .format(file_str, header['IMAGETYP'], header['FILTER'],
-                                 header['QC-FLAG']))
+            title = 'file:{}   '.format(file_str)
+
+            title_dict = {'object': ['OBJECT', 'FILTER', 'EXPTIME', 'QC-FLAG'],
+                        'bias': ['IMAGETYP', 'FILTER', 'QC-FLAG'],
+                        'dark': ['IMAGETYP', 'FILTER', 'QC-FLAG'],
+                        'flat': ['IMAGETYP', 'FILTER', 'EXPTIME', 'QC-FLAG']}
+
+            for key in title_dict[imgtype]:
+                if key in header:
+                    if key == 'EXPTIME':
+                        title += '{}:{:.1f}s   '.format(key.lower(), header[key])
+                    else:
+                        title += '{}:{}   '.format(key.lower(), header[key])
+
 
             pixelcoords = True
             if pixelcoords:
