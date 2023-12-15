@@ -200,12 +200,14 @@ def buildref (telescope=None, fits_hdrtable_list=None, date_start=None,
     if ascii_inputfiles is not None:
 
         # read ascii file
-        table_inputfiles = Table.read(ascii_inputfiles, format='ascii',
-                                      data_start=0)
+        table_in = Table.read(ascii_inputfiles, format='ascii', data_start=0,
+                              names=['FILENAME'])
 
         # select corresponding entries from table
-        mask = np.array([fn in table_inputfiles['col1']
-                         for fn in table['FILENAME']])
+        filenames_short = [fn.split('/')[-1].split('_red.fits.fz')[0]
+                           for fn in table['FILENAME']]
+        mask = np.array([any(fn in el for el in table_in['FILENAME'])
+                         for fn in filenames_short])
         table = table[mask]
         log.info ('{} files left (ascii_inputfiles cut)'.format(len(table)))
 
