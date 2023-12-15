@@ -61,9 +61,9 @@ __version__ = '0.9.1'
 
 ################################################################################
 
-def buildref (telescope=None, fits_table_list=None, date_start=None,
-              date_end=None, field_IDs=None, filters=None, go_deep=None,
-              qc_flag_max=None, seeing_max=None, skip_zogy=False,
+def buildref (telescope=None, fits_hdrtable_list=None, date_start=None,
+              date_end=None, field_IDs=None, filters=None, ascii_inputfiles=None,
+              go_deep=None, qc_flag_max=None, seeing_max=None, skip_zogy=False,
               make_colfig=False, filters_colfig='iqu', mode_ref=False,
               results_dir=None, extension=None, keep_tmp=None):
 
@@ -159,9 +159,9 @@ def buildref (telescope=None, fits_table_list=None, date_start=None,
     # previously also included possiblity to prepare this table, but
     # not needed anymore as header tables are ready to be used
 
-    if fits_table_list is not None:
+    if fits_hdrtable_list is not None:
 
-        for it, fits_table in enumerate(fits_table_list):
+        for it, fits_table in enumerate(fits_hdrtable_list):
 
             if zogy.isfile(fits_table):
 
@@ -180,7 +180,7 @@ def buildref (telescope=None, fits_table_list=None, date_start=None,
 
     # check if table contains any entries
     if len(table)==0:
-        log.error ('no entries in tables in [fits_table_list]; exiting')
+        log.error ('no entries in tables in [fits_hdrtable_list]; exiting')
         logging.shutdown()
         return
 
@@ -193,6 +193,22 @@ def buildref (telescope=None, fits_table_list=None, date_start=None,
     # catalog
     table['FILENAME'] = ['{}_red.fits.fz'.format(fn.split('_red')[0])
                          for fn in table['FILENAME']]
+
+
+    # if specific files to be used are listed in [ascii_inputfiles],
+    # limit the table to those
+    if ascii_inputfiles is not None:
+
+        # read ascii file
+        table_inputfiles = Table.read(ascii_inputfiles, format='ascii',
+                                      data_start=0)
+
+        # select corresponding entries from table
+        mask = np.array([fn in table_inputfiles['col1']
+                         for fn in table['FILENAME']])
+        table = table[mask]
+        log.info ('{} files left (ascii_inputfiles cut)'.format(len(table)))
+
 
 
     # filter table entries based on telescope
@@ -3057,13 +3073,13 @@ if __name__ == "__main__":
                                      'reference images')
     parser.add_argument('--telescope', type=str, default='BG',
                         choices=['ML1', 'BG2', 'BG3', 'BG4', 'BG'],
-                        help='telescope name (ML1, BG2, BG3, BG4 or BG); if '
-                        'set to BG, files from any BG present in the tables of '
-                        '[fits_table_list] will be mixed into single reference '
-                        'image with prefix BG_, even if all those files happen '
-                        'to be from the same BG; default=\'BG\'')
+                        help='telescope name (ML1, BG2, BG3, BG4 or BG); if set '
+                        'to BG, files from any BG present in the tables of '
+                        '[fits_hdrtable_list] will be mixed into single '
+                        'reference image with prefix BG_, even if all those '
+                        'files happen to be from the same BG; default=\'BG\'')
 
-    parser.add_argument('--fits_table_list', type=str, default=None,
+    parser.add_argument('--fits_hdrtable_list', type=str, default=None,
                         help='list of one or more (comma-separated) binary fits '
                         'tables, containing header keywords MJD-OBS, OBJECT, '
                         'FILTER, QC-FLAG, RA-CNTR, DEC-CNTR, PSF-SEE, LIMMAG '
@@ -3088,6 +3104,15 @@ if __name__ == "__main__":
 
     parser.add_argument('--filters', type=str, default=None,
                         help='only consider this(these) filter(s), e.g. uqi')
+
+    parser.add_argument('--ascii_inputfiles', type=str, default=None,
+                        help='name of ASCII file with the specific reduced '
+                        'image filenames to be used in the co-addition; the '
+                        'filenames are assumed to be in the first column '
+                        'without any header/column name info and need to '
+                        'include the part [telescope]_yyyymmdd_hhmmss; if '
+                        'their full names are used they need to end in '
+                        '_red.fits.fz; default=None')
 
     parser.add_argument('--go_deep', type=str2bool, default=False,
                         help='use all images available (i.e. neglect values of '
@@ -3132,15 +3157,16 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    # make sure fits_table_list is a list
-    fits_table_list = args.fits_table_list.split(',')
+    # make sure fits_hdrtable_list is a list
+    fits_hdrtable_list = args.fits_hdrtable_list.split(',')
 
     buildref (telescope = args.telescope,
-              fits_table_list = fits_table_list,
+              fits_hdrtable_list = fits_hdrtable_list,
               date_start = args.date_start,
               date_end = args.date_end,
               field_IDs = args.field_IDs,
               filters = args.filters,
+              ascii_inputfiles = args.ascii_inputfiles,
               go_deep = args.go_deep,
               qc_flag_max = args.qc_flag_max,
               seeing_max = args.seeing_max,
