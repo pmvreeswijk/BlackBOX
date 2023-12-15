@@ -547,6 +547,7 @@ def slurm_process (python_cmdstr, partition, runtime, jobname, jobnight):
             f.write ('\n')
             f.write ('/opt/apps/singularity/3.11.0/bin/singularity exec '
                      #'--env PYTHONPATH="/home/sa_105685508700717199458/BBtest:\$PYTHONPATH" '
+                     '--env MLBG_CALDIR=/home/sa_105685508700717199458/CalFiles '
                      '/home/sa_105685508700717199458/Containers/MLBG_latest.sif '
                      '{}\n'.format(python_cmdstr))
             f.write ('\n')
