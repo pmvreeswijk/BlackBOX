@@ -3124,13 +3124,13 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
 
     #cat_list = glob.glob('{}/{}*_red_cat.fits'.format(full_path, tel))
     cat_list = list_files('{}/{}'.format(full_path, tel),
-                          end_str='_red_cat.fits')
+                          end_str='_red_cat_hdr.fits')
     body += ('# full-source cats: {} ({} red-flagged)\n'.format(
         len(cat_list), count_redflags(cat_list)))
 
     #trans_list = glob.glob('{}/{}*_red_trans.fits'.format(full_path, tel))
     trans_list = list_files('{}/{}'.format(full_path, tel),
-                            end_str='_red_trans.fits')
+                            end_str='_red_trans_hdr.fits')
     body += ('# transient cats:   {} ({} red-flagged)\n'.format(
         len(trans_list), count_redflags(trans_list, key='TQC-FLAG')))
 
