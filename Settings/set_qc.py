@@ -178,6 +178,7 @@ qc_range = {
         'NBIAS'   : {'default':'None', 'val_type': 'min_max', 'val_range': [ (10,50), (7,9), (5,6) ], 'key_type': 'mbias', 'pos': True , 'comment': 'number of bias frames combined'},
         'MBMEAN'  : {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 5) ],                'key_type': 'mbias', 'pos': False, 'comment': '[e-] mean master bias'},
         'MBRDN'   : {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 5) ],                'key_type': 'mbias', 'pos': True , 'comment': '[e-] sigma (STD) master bias'},
+        'MB-NDAYS': {'default':'None', 'val_type': 'min_max', 'val_range': [ (0,3), (3,7), (7,30) ],  'key_type': 'mbias', 'pos': True , 'comment': '[days] time between image and master bias used'},
 
         # individual flats (these keywords should not end up in dummy catalogs: keytype should not be equal to 'full' or 'trans')
         # from STA Test Report: FWC in ADU range from 34 to 52k counts (bias-subtracted), so take 30k counts as upper limit
@@ -204,6 +205,7 @@ qc_range = {
         'MFMEDSEC': {'default':'None', 'val_type': 'sigma',   'val_range': [ (         1,  0.001) ],            'key_type': 'mflat', 'pos': False, 'comment': 'median master flat over STATSEC'},
         'MFSTDSEC': {'default':'None', 'val_type': 'sigma',   'val_range': [ (         0,   0.01) ],            'key_type': 'mflat', 'pos': True , 'comment': 'sigma (STD) master flat over STATSEC'},
         'FLATDITH': {'default':'None', 'val_type': 'bool',    'val_range': [ True ],                            'key_type': 'mflat', 'pos': False, 'comment': 'majority of flats were dithered'},
+        'MF-NDAYS': {'default':'None', 'val_type': 'min_max', 'val_range': [ (0,3), (3,7), (7,30) ],            'key_type': 'mflat', 'pos': True , 'comment': '[days] time between image and master flat used'},
 
         # general
         'AIRMASS' : {'default':'None', 'val_type': 'min_max', 'val_range': [ (1,2), (2,2.5), (2.5, 2.95) ],     'key_type': 'full', 'pos': True , 'comment': 'Airmass (based on RA, DEC, DATE-OBS)'},
@@ -431,6 +433,7 @@ qc_range = {
         'NBIAS'   : {'default':'None', 'val_type': 'min_max', 'val_range': [ (10,50), (7,9), (5,6) ], 'key_type': 'mbias', 'pos': True , 'comment': 'number of bias frames combined'},
         'MBMEAN'  : {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 5) ],                'key_type': 'mbias', 'pos': False, 'comment': '[e-] mean master bias'},
         'MBRDN'   : {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 5) ],                'key_type': 'mbias', 'pos': True , 'comment': '[e-] sigma (STD) master bias'},
+        'MB-NDAYS': {'default':'None', 'val_type': 'min_max', 'val_range': [ (0,3), (3,7), (7,30) ],  'key_type': 'mbias', 'pos': True , 'comment': '[days] time between image and master bias used'},
 
         # individual flats (these keywords should not end up in dummy catalogs: keytype should not be equal to 'full' or 'trans')
         # from STA Test Report: FWC in ADU range from 28.6k to 36k counts (bias-subtracted), so take 25k counts as upper limit
@@ -457,6 +460,7 @@ qc_range = {
         'MFMEDSEC': {'default':'None', 'val_type': 'sigma',   'val_range': [ (         1,  0.001) ],            'key_type': 'mflat', 'pos': False, 'comment': 'median master flat over STATSEC'},
         'MFSTDSEC': {'default':'None', 'val_type': 'sigma',   'val_range': [ (         0,   0.01) ],            'key_type': 'mflat', 'pos': True , 'comment': 'sigma (STD) master flat over STATSEC'},
         'FLATDITH': {'default':'None', 'val_type': 'bool',    'val_range': [ True ],                            'key_type': 'mflat', 'pos': False, 'comment': 'majority of flats were dithered'},
+        'MF-NDAYS': {'default':'None', 'val_type': 'min_max', 'val_range': [ (0,3), (3,7), (7,30) ],            'key_type': 'mflat', 'pos': True , 'comment': '[days] time between image and master flat used'},
 
         # general
         'AIRMASS' : {'default':'None', 'val_type': 'min_max', 'val_range': [ (1,2), (2,2.5), (2.5, 2.95) ],     'key_type': 'full', 'pos': True , 'comment': 'Airmass (based on RA, DEC, DATE-OBS)'},
@@ -683,6 +687,7 @@ qc_range = {
         'NBIAS'   : {'default':'None', 'val_type': 'min_max', 'val_range': [ (10,50), (7,9), (5,6) ], 'key_type': 'mbias', 'pos': True , 'comment': 'number of bias frames combined'},
         'MBMEAN'  : {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 5) ],                'key_type': 'mbias', 'pos': False, 'comment': '[e-] mean master bias'},
         'MBRDN'   : {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 5) ],                'key_type': 'mbias', 'pos': True , 'comment': '[e-] sigma (STD) master bias'},
+        'MB-NDAYS': {'default':'None', 'val_type': 'min_max', 'val_range': [ (0,3), (3,7), (7,30) ],  'key_type': 'mbias', 'pos': True , 'comment': '[days] time between image and master bias used'},
 
         # individual flats (these keywords should not end up in dummy catalogs: keytype should not be equal to 'full' or 'trans')
         # from STA Test Report: FWC in ADU range from 33,500 to 37,700 counts (bias-subtracted); let's take 30k counts as upper limit
@@ -690,12 +695,13 @@ qc_range = {
         #'RSTDSEC' : {'default':'None', 'val_type': 'sigma', 'val_range': [ (0, 0.01) ],              'key_type': None, 'pos': True , 'comment': 'relative sigma (STD) flat over STATSEC'},
         #'FLATRSTD': {'default':'None', 'val_type': 'sigma', 'val_range': [ (0,0.025),(0,0.026),(0,0.027)], 'key_type': None, 'pos': True , 'comment': 'relative sigma (STD) flat'},
 
+        # increased max yellow and orange value of i- and z-band flats with 0.01 and 0.02, respectively, on 2024-01-03 because this value has increased since around 17 November 2023
         'RDIF-MAX': {'default':'None', 'val_type': 'min_max', 'val_range': {'u': [ (0, 0.030), (0, 0.035), (0, 0.040) ],
                                                                             'g': [ (0, 0.018), (0, 0.019), (0, 0.020) ],
                                                                             'q': [ (0, 0.018), (0, 0.020), (0, 0.022) ],
                                                                             'r': [ (0, 0.017), (0, 0.018), (0, 0.019) ],
-                                                                            'i': [ (0, 0.020), (0, 0.023), (0, 0.026) ],
-                                                                            'z': [ (0, 0.045), (0, 0.050), (0, 0.055) ]}, 'key_type': 'flat', 'pos': True , 'comment': '(max(subs)-min(subs)) / (max(subs)+min(subs))'},
+                                                                            'i': [ (0, 0.020), (0, 0.033), (0, 0.046) ],
+                                                                            'z': [ (0, 0.045), (0, 0.060), (0, 0.075) ]}, 'key_type': 'flat', 'pos': True , 'comment': '(max(subs)-min(subs)) / (max(subs)+min(subs))'},
 
         'RSTD-MAX': {'default':'None', 'val_type': 'min_max', 'val_range': {'u': [ (0, 0.06) ],
                                                                             'g': [ (0, 0.06) ],
@@ -709,6 +715,7 @@ qc_range = {
         'MFMEDSEC': {'default':'None', 'val_type': 'sigma',   'val_range': [ (         1,  0.001) ],            'key_type': 'mflat', 'pos': False, 'comment': 'median master flat over STATSEC'},
         'MFSTDSEC': {'default':'None', 'val_type': 'sigma',   'val_range': [ (         0,   0.01) ],            'key_type': 'mflat', 'pos': True , 'comment': 'sigma (STD) master flat over STATSEC'},
         'FLATDITH': {'default':'None', 'val_type': 'bool',    'val_range': [ True ],                            'key_type': 'mflat', 'pos': False, 'comment': 'majority of flats were dithered'},
+        'MF-NDAYS': {'default':'None', 'val_type': 'min_max', 'val_range': [ (0,3), (3,7), (7,30) ],            'key_type': 'mflat', 'pos': True , 'comment': '[days] time between image and master flat used'},
 
         # general
         'AIRMASS' : {'default':'None', 'val_type': 'min_max', 'val_range': [ (1,2), (2,2.5), (2.5, 2.95) ],     'key_type': 'full', 'pos': True , 'comment': 'Airmass (based on RA, DEC, DATE-OBS)'},
@@ -716,7 +723,7 @@ qc_range = {
 
         # cosmics/satellites
         'NCOSMICS': {'default':'None', 'val_type': 'min_max', 'val_range': [ (3,50), (2,100), (0,500) ],        'key_type': 'full', 'pos': True , 'comment': '[/s] number of cosmic rays identified'},
-        'NSATS'   : {'default':'None', 'val_type': 'min_max', 'val_range': [ (0,10), (10,20), (20,100) ],         'key_type': 'full', 'pos': True , 'comment': 'number of satellite trails identified'},
+        'NSATS'   : {'default':'None', 'val_type': 'min_max', 'val_range': [ (0,10), (10,20), (20,100) ],       'key_type': 'full', 'pos': True , 'comment': 'number of satellite trails identified'},
 
         # SExtractor
         'S-NOBJ'  : {'default':'None', 'val_type': 'skip',    'val_range': [ (4e3,1e4), (3e3,2e5), (1e3,1e7) ], 'key_type': 'full', 'pos': True , 'comment': 'number of objects detected by SExtractor'},
