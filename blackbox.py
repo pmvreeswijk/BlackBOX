@@ -103,7 +103,7 @@ except Exception as e:
                  'blackbox; issue with IERS file?: {}'.format(e))
 
 
-__version__ = '1.2.3'
+__version__ = '1.2.4'
 keywords_version = '1.0.14'
 
 
@@ -2286,18 +2286,18 @@ def blackbox_reduce (filename):
 
 
     # if original filename contains ADC, save any *dRADEC* files from
-    # tmp to /idia/projects/meerlicht/ADCtests/tel_yyyymmdd folders
-    # CHECK!!!
+    # tmp to /idia/projects/meerlicht/ADCtests/tel_yyyymmdd or
+    # /home/sa_105685508700717199458/ADCtests/tel_yyyymmdd folders
     if 'adc' in filename.lower() and tel in ['ML1', 'BG2', 'BG3', 'BG4']:
 
         if tel == 'ML1':
             dest_dir = ('/idia/projects/meerlicht/ADCtests/{}_{}'
                         .format(tel, date_eve))
         else:
-            dest_dir = ('~/ADCtests/{}_{}'.format(tel, date_eve))
+            dest_dir = ('/home/sa_105685508700717199458/ADCtests/{}_{}'
+                        .format(tel, date_eve))
 
-
-        #dest_dir = ('/idia/projects/meerlicht/ADCtests/LambdaEff')
+        # make directory
         make_dir (dest_dir)
 
 
