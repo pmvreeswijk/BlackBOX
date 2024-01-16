@@ -82,7 +82,7 @@ qc_range = {
                                                                          'z': [ True, False ]},      'key_type': 'full', 'pos': False, 'comment': 'corrected for master fringe map?'},
         'MFRING-F': {'default':'None', 'val_type': 'skip', 'val_range': None,                        'key_type': 'full', 'pos': False, 'comment': 'name of master fringe map applied'},
         'COSMIC-P': {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'key_type': 'full', 'pos': False, 'comment': 'corrected for cosmics rays?'},
-        'SAT-P'   : {'default': False, 'val_type': 'bool', 'val_range': [ True, False ],             'key_type': 'full', 'pos': False, 'comment': 'processed for satellite trails?'},
+        'SAT-P'   : {'default': False, 'val_type': 'skip', 'val_range': [ True, False ],             'key_type': 'full', 'pos': False, 'comment': 'processed for satellite trails?'},
         'S-P'     : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'key_type': 'full', 'pos': False, 'comment': 'successfully processed by SExtractor?'},
         'A-P'     : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'key_type': 'full', 'pos': False, 'comment': 'successfully processed by Astrometry.net?'},
         'PSF-P'   : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'key_type': 'full', 'pos': False, 'comment': 'successfully processed by PSFEx?'},
@@ -216,8 +216,8 @@ qc_range = {
         'NSATS'   : {'default':'None', 'val_type': 'min_max', 'val_range': [ (0,10), (10,20), (20,100) ],         'key_type': 'full', 'pos': True , 'comment': 'number of satellite trails identified'},
 
         # SExtractor
-        'S-NOBJ'  : {'default':'None', 'val_type': 'skip',    'val_range': [ (4e3,1e4), (3e3,2e5), (1e3,1e7) ], 'key_type': 'full', 'pos': True , 'comment': 'number of objects detected by SExtractor'},
-        'NOBJECTS': {'default':'None', 'val_type': 'min_max', 'val_range': [ (4e3,1e5), (1e3,3e5), (1e2,1e7) ], 'key_type': 'full', 'pos': True , 'comment': 'number of >= [NSIGMA]-sigma objects'},
+        'S-NOBJ'  : {'default':'None', 'val_type': 'skip',    'val_range': [ (4e3,1e7), (3e3,1e7), (1e3,1e7) ], 'key_type': 'full', 'pos': True , 'comment': 'number of objects detected by SExtractor'},
+        'NOBJECTS': {'default':'None', 'val_type': 'min_max', 'val_range': [ (4e3,1e7), (1e3,1e7), (1e2,1e7) ], 'key_type': 'full', 'pos': True , 'comment': 'number of >= [NSIGMA]-sigma objects'},
         'S-SEEING': {'default':'None', 'val_type': 'min_max', 'val_range': [ (1.5,4), (1,5), (0.5,7) ],         'key_type': 'full', 'pos': True , 'comment': '[arcsec] SExtractor seeing estimate'},
         'S-SEESTD': {'default':'None', 'val_type': 'skip',    'val_range':  {'u': [ (0.1,0.3) ],
                                                                              'g': [ (0.1,0.1) ],
@@ -231,13 +231,13 @@ qc_range = {
         'S-BKGSTD': {'default':'None', 'val_type': 'skip',    'val_range': [ (15,10) ],                         'key_type': 'full', 'pos': True , 'comment': '[e-] sigma (STD) background full image'},
 
         # Astrometry.net
-        'A-PSCALE': {'default':'None', 'val_type': 'sigma',   'val_range': [ (0.5642, 0.0001) ],                'key_type': 'full', 'pos': True , 'comment': '[arcsec/pix] pixel scale WCS solution'},
+        'A-PSCALE': {'default':'None', 'val_type': 'sigma',   'val_range': [ (0.5642, 0.00015) ],               'key_type': 'full', 'pos': True , 'comment': '[arcsec/pix] pixel scale WCS solution'},
         'A-ROT'   : {'default':'None', 'val_type': 'min_max', 'val_range': [ (-91,-89), (-93,-87), (-180,180) ], 'key_type': 'full', 'pos': False, 'comment': '[deg] rotation WCS solution (E of N for "up")'},
 
         'A-CAT-F' : {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full', 'pos': False, 'comment': 'astrometric catalog'},
-        'A-NAST'  : {'default':'None', 'val_type': 'min_max', 'val_range': [ (5e2,1e4), (100, 3e4), (20, 1e5) ],'key_type': 'full', 'pos': True , 'comment': 'number of brightest stars used for WCS'},
-        'A-DRA'   : {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 0.02)],                       'key_type': 'full', 'pos': False, 'comment': '[arcsec] dRA median offset to astrom. catalog'},
-        'A-DDEC'  : {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 0.02)],                       'key_type': 'full', 'pos': False, 'comment': '[arcsec] dDEC median offset to astrom. catalog'},
+        'A-NAST'  : {'default':'None', 'val_type': 'min_max', 'val_range': [ (5e2,1e4), (100, 3e4), (20, 1e5) ], 'key_type': 'full', 'pos': True , 'comment': 'number of brightest stars used for WCS'},
+        'A-DRA'   : {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 0.02)],                        'key_type': 'full', 'pos': False, 'comment': '[arcsec] dRA median offset to astrom. catalog'},
+        'A-DDEC'  : {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 0.02)],                        'key_type': 'full', 'pos': False, 'comment': '[arcsec] dDEC median offset to astrom. catalog'},
         'A-DRASTD': {'default':'None', 'val_type': 'sigma',   'val_range': {'u': [ (0.06, 0.04) ],
                                                                             'g': [ (0.03, 0.02) ],
                                                                             'q': [ (0.03, 0.02) ],
@@ -253,18 +253,18 @@ qc_range = {
                                                                             'z': [ (0.03, 0.02) ]},             'key_type': 'full', 'pos': True , 'comment': '[arcsec] dDEC sigma (STD) offset'},
 
         # PSFEx
-        'PSF-NOBJ': {'default':'None', 'val_type': 'min_max', 'val_range': [ (500,2e4), (100,5e4), (10,2e5) ],  'key_type': 'full', 'pos': True , 'comment': 'number of accepted PSF stars'},
-        'PSF-CHI2': {'default':'None', 'val_type': 'sigma',   'val_range': [ (1, 0.1) ],                        'key_type': 'full', 'pos': True , 'comment': 'final reduced chi-squared PSFEx fit'},
+        'PSF-NOBJ': {'default':'None', 'val_type': 'min_max', 'val_range': [ (500,2e5), (100,2e5), (10,2e5) ],  'key_type': 'full', 'pos': True , 'comment': 'number of accepted PSF stars'},
+        'PSF-CHI2': {'default':'None', 'val_type': 'sigma',   'val_range': [ (1.0, 0.1) ],                      'key_type': 'full', 'pos': True , 'comment': 'final reduced chi-squared PSFEx fit'},
         'PSF-SEE' : {'default':'None', 'val_type': 'min_max', 'val_range': [ (1.5,4), (1,5), (0.5,7) ],         'key_type': 'full', 'pos': True , 'comment': '[arcsec] image seeing inferred by PSFEx'},
 
         # photometric calibration (PC)
         'PC-CAT-F': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full', 'pos': False, 'comment': 'photometric catalog'},
-        'PC-NCAL' : {'default':'None', 'val_type': 'min_max', 'val_range': [ (50, 1e3), (20, 1e4), (5,1e5) ],   'key_type': 'full', 'pos': True , 'comment': 'number of brightest photcal stars used'},
+        'PC-NCAL' : {'default':'None', 'val_type': 'min_max', 'val_range': [ (50, 1e5), (20, 1e5), (5,1e5) ],   'key_type': 'full', 'pos': True , 'comment': 'number of brightest photcal stars used'},
 
-        'PC-ZP'   : {'default':'None', 'val_type': 'min_max', 'val_range': {'u': [ (22.1, 22.7), (21.4, 23.4), (0, 30) ],
+        'PC-ZP'   : {'default':'None', 'val_type': 'min_max', 'val_range': {'u': [ (22.0, 22.6), (21.3, 23.3), (0, 30) ],
                                                                             'g': [ (23.0, 23.6), (22.3, 24.3), (0, 30) ],
                                                                             'q': [ (23.5, 24.1), (22.8, 24.8), (0, 30) ],
-                                                                            'r': [ (22.6, 23.2), (21.9, 23.9), (0, 30) ],
+                                                                            'r': [ (22.5, 23.1), (21.8, 23.8), (0, 30) ],
                                                                             'i': [ (22.0, 22.6), (21.3, 23.3), (0, 30) ],
                                                                             'z': [ (21.1, 21.7), (20.4, 22.4), (0, 30) ]}, 'key_type': 'full', 'pos': True , 'comment': '[mag] zeropoint=m_AB+2.5*log10(flux[e-/s])+A*k'},
         # previously using sigma method
@@ -410,7 +410,7 @@ qc_range = {
                                                                          'z': [ True, False ]},      'key_type': 'full', 'pos': False, 'comment': 'corrected for master fringe map?'},
         'MFRING-F': {'default':'None', 'val_type': 'skip', 'val_range': None,                        'key_type': 'full', 'pos': False, 'comment': 'name of master fringe map applied'},
         'COSMIC-P': {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'key_type': 'full', 'pos': False, 'comment': 'corrected for cosmics rays?'},
-        'SAT-P'   : {'default': False, 'val_type': 'bool', 'val_range': [ True, False ],             'key_type': 'full', 'pos': False, 'comment': 'processed for satellite trails?'},
+        'SAT-P'   : {'default': False, 'val_type': 'skip', 'val_range': [ True, False ],             'key_type': 'full', 'pos': False, 'comment': 'processed for satellite trails?'},
         'S-P'     : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'key_type': 'full', 'pos': False, 'comment': 'successfully processed by SExtractor?'},
         'A-P'     : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'key_type': 'full', 'pos': False, 'comment': 'successfully processed by Astrometry.net?'},
         'PSF-P'   : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'key_type': 'full', 'pos': False, 'comment': 'successfully processed by PSFEx?'},
@@ -471,8 +471,8 @@ qc_range = {
         'NSATS'   : {'default':'None', 'val_type': 'min_max', 'val_range': [ (0,10), (10,20), (20,100) ],       'key_type': 'full', 'pos': True , 'comment': 'number of satellite trails identified'},
 
         # SExtractor
-        'S-NOBJ'  : {'default':'None', 'val_type': 'skip',    'val_range': [ (4e3,1e4), (3e3,2e5), (1e3,1e7) ], 'key_type': 'full', 'pos': True , 'comment': 'number of objects detected by SExtractor'},
-        'NOBJECTS': {'default':'None', 'val_type': 'min_max', 'val_range': [ (4e3,1e5), (1e3,3e5), (1e2,1e7) ], 'key_type': 'full', 'pos': True , 'comment': 'number of >= [NSIGMA]-sigma objects'},
+        'S-NOBJ'  : {'default':'None', 'val_type': 'skip',    'val_range': [ (4e3,1e7), (3e3,1e7), (1e3,1e7) ], 'key_type': 'full', 'pos': True , 'comment': 'number of objects detected by SExtractor'},
+        'NOBJECTS': {'default':'None', 'val_type': 'min_max', 'val_range': [ (4e3,1e7), (1e3,1e7), (1e2,1e7) ], 'key_type': 'full', 'pos': True , 'comment': 'number of >= [NSIGMA]-sigma objects'},
         'S-SEEING': {'default':'None', 'val_type': 'min_max', 'val_range': [ (0.5,2), (0.5,4), (0.5,7) ],       'key_type': 'full', 'pos': True , 'comment': '[arcsec] SExtractor seeing estimate'},
         'S-SEESTD': {'default':'None', 'val_type': 'skip',    'val_range':  {'u': [ (0.1,0.3) ],
                                                                              'g': [ (0.1,0.1) ],
@@ -486,11 +486,11 @@ qc_range = {
         'S-BKGSTD': {'default':'None', 'val_type': 'skip',    'val_range': [ (15,10) ],                         'key_type': 'full', 'pos': True , 'comment': '[e-] sigma (STD) background full image'},
 
         # Astrometry.net
-        'A-PSCALE': {'default':'None', 'val_type': 'sigma',   'val_range': [ (0.5645, 0.0001) ],                 'key_type': 'full', 'pos': True , 'comment': '[arcsec/pix] pixel scale WCS solution'},
-        'A-ROT'   : {'default':'None', 'val_type': 'min_max', 'val_range': [ (89,91), (87,93), (-180,180) ],     'key_type': 'full', 'pos': False, 'comment': '[deg] rotation WCS solution (E of N for "up")'},
+        'A-PSCALE': {'default':'None', 'val_type': 'sigma',   'val_range': [ (0.5645, 0.00015) ],               'key_type': 'full', 'pos': True , 'comment': '[arcsec/pix] pixel scale WCS solution'},
+        'A-ROT'   : {'default':'None', 'val_type': 'min_max', 'val_range': [ (89,91), (87,93), (-180,180) ],    'key_type': 'full', 'pos': False, 'comment': '[deg] rotation WCS solution (E of N for "up")'},
 
         'A-CAT-F' : {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full', 'pos': False, 'comment': 'astrometric catalog'},
-        'A-NAST'  : {'default':'None', 'val_type': 'min_max', 'val_range': [ (5e2,1e4), (100, 3e4), (20, 1e5) ],'key_type': 'full', 'pos': True , 'comment': 'number of brightest stars used for WCS'},
+        'A-NAST'  : {'default':'None', 'val_type': 'min_max', 'val_range': [ (5e2,1e4), (100, 3e4), (20, 1e5) ], 'key_type': 'full', 'pos': True , 'comment': 'number of brightest stars used for WCS'},
         'A-DRA'   : {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 0.02)],                        'key_type': 'full', 'pos': False, 'comment': '[arcsec] dRA median offset to astrom. catalog'},
         'A-DDEC'  : {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 0.02)],                        'key_type': 'full', 'pos': False, 'comment': '[arcsec] dDEC median offset to astrom. catalog'},
         'A-DRASTD': {'default':'None', 'val_type': 'sigma',   'val_range': {'u': [ (0.06, 0.04) ],
@@ -508,13 +508,13 @@ qc_range = {
                                                                             'z': [ (0.03, 0.02) ]},             'key_type': 'full', 'pos': True , 'comment': '[arcsec] dDEC sigma (STD) offset'},
 
         # PSFEx
-        'PSF-NOBJ': {'default':'None', 'val_type': 'min_max', 'val_range': [ (500,2e4), (100,5e4), (10,2e5) ],  'key_type': 'full', 'pos': True , 'comment': 'number of accepted PSF stars'},
-        'PSF-CHI2': {'default':'None', 'val_type': 'sigma',   'val_range': [ (1, 0.1) ],                        'key_type': 'full', 'pos': True , 'comment': 'final reduced chi-squared PSFEx fit'},
+        'PSF-NOBJ': {'default':'None', 'val_type': 'min_max', 'val_range': [ (500,2e5), (100,2e5), (10,2e5) ],  'key_type': 'full', 'pos': True , 'comment': 'number of accepted PSF stars'},
+        'PSF-CHI2': {'default':'None', 'val_type': 'sigma',   'val_range': [ (1.1, 0.2) ],                      'key_type': 'full', 'pos': True , 'comment': 'final reduced chi-squared PSFEx fit'},
         'PSF-SEE' : {'default':'None', 'val_type': 'min_max', 'val_range': [ (0.5,2), (0.5,4), (0.5,7) ],       'key_type': 'full', 'pos': True , 'comment': '[arcsec] image seeing inferred by PSFEx'},
 
         # photometric calibration (PC)
         'PC-CAT-F': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full', 'pos': False, 'comment': 'photometric catalog'},
-        'PC-NCAL' : {'default':'None', 'val_type': 'min_max', 'val_range': [ (50, 1e3), (20, 1e4), (5,1e5) ],   'key_type': 'full', 'pos': True , 'comment': 'number of brightest photcal stars used'},
+        'PC-NCAL' : {'default':'None', 'val_type': 'min_max', 'val_range': [ (50, 1e5), (20, 1e5), (5,1e5) ],   'key_type': 'full', 'pos': True , 'comment': 'number of brightest photcal stars used'},
 
         'PC-ZP'   : {'default':'None', 'val_type': 'min_max', 'val_range': {'u': [ (22.1, 22.7), (21.4, 23.4), (0, 30) ],
                                                                             'g': [ (23.0, 23.6), (22.3, 24.3), (0, 30) ],
@@ -664,7 +664,7 @@ qc_range = {
                                                                          'z': [ True, False ]},      'key_type': 'full', 'pos': False, 'comment': 'corrected for master fringe map?'},
         'MFRING-F': {'default':'None', 'val_type': 'skip', 'val_range': None,                        'key_type': 'full', 'pos': False, 'comment': 'name of master fringe map applied'},
         'COSMIC-P': {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'key_type': 'full', 'pos': False, 'comment': 'corrected for cosmics rays?'},
-        'SAT-P'   : {'default': False, 'val_type': 'bool', 'val_range': [ True, False ],             'key_type': 'full', 'pos': False, 'comment': 'processed for satellite trails?'},
+        'SAT-P'   : {'default': False, 'val_type': 'skip', 'val_range': [ True, False ],             'key_type': 'full', 'pos': False, 'comment': 'processed for satellite trails?'},
         'S-P'     : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'key_type': 'full', 'pos': False, 'comment': 'successfully processed by SExtractor?'},
         'A-P'     : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'key_type': 'full', 'pos': False, 'comment': 'successfully processed by Astrometry.net?'},
         'PSF-P'   : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'key_type': 'full', 'pos': False, 'comment': 'successfully processed by PSFEx?'},
@@ -726,8 +726,8 @@ qc_range = {
         'NSATS'   : {'default':'None', 'val_type': 'min_max', 'val_range': [ (0,10), (10,20), (20,100) ],       'key_type': 'full', 'pos': True , 'comment': 'number of satellite trails identified'},
 
         # SExtractor
-        'S-NOBJ'  : {'default':'None', 'val_type': 'skip',    'val_range': [ (4e3,1e4), (3e3,2e5), (1e3,1e7) ], 'key_type': 'full', 'pos': True , 'comment': 'number of objects detected by SExtractor'},
-        'NOBJECTS': {'default':'None', 'val_type': 'min_max', 'val_range': [ (4e3,1e5), (1e3,3e5), (1e2,1e7) ], 'key_type': 'full', 'pos': True , 'comment': 'number of >= [NSIGMA]-sigma objects'},
+        'S-NOBJ'  : {'default':'None', 'val_type': 'skip',    'val_range': [ (4e3,1e7), (3e3,1e7), (1e3,1e7) ], 'key_type': 'full', 'pos': True , 'comment': 'number of objects detected by SExtractor'},
+        'NOBJECTS': {'default':'None', 'val_type': 'min_max', 'val_range': [ (4e3,1e7), (1e3,1e7), (1e2,1e7) ], 'key_type': 'full', 'pos': True , 'comment': 'number of >= [NSIGMA]-sigma objects'},
         'S-SEEING': {'default':'None', 'val_type': 'min_max', 'val_range': [ (0.5,2), (0.5,4), (0.5,7) ],       'key_type': 'full', 'pos': True , 'comment': '[arcsec] SExtractor seeing estimate'},
         'S-SEESTD': {'default':'None', 'val_type': 'skip',    'val_range':  {'u': [ (0.1,0.3) ],
                                                                              'g': [ (0.1,0.1) ],
@@ -741,13 +741,13 @@ qc_range = {
         'S-BKGSTD': {'default':'None', 'val_type': 'skip',    'val_range': [ (15,10) ],                         'key_type': 'full', 'pos': True , 'comment': '[e-] sigma (STD) background full image'},
 
         # Astrometry.net
-        'A-PSCALE': {'default':'None', 'val_type': 'sigma',   'val_range': [ (0.5643, 0.0001) ],                 'key_type': 'full', 'pos': True , 'comment': '[arcsec/pix] pixel scale WCS solution'},
-        'A-ROT'   : {'default':'None', 'val_type': 'min_max', 'val_range': [ (89,91), (87,93), (-180,180) ],     'key_type': 'full', 'pos': False, 'comment': '[deg] rotation WCS solution (E of N for "up")'},
+        'A-PSCALE': {'default':'None', 'val_type': 'sigma',   'val_range': [ (0.5644, 0.00015) ],               'key_type': 'full', 'pos': True , 'comment': '[arcsec/pix] pixel scale WCS solution'},
+        'A-ROT'   : {'default':'None', 'val_type': 'min_max', 'val_range': [ (89,91), (87,93), (-180,180) ],    'key_type': 'full', 'pos': False, 'comment': '[deg] rotation WCS solution (E of N for "up")'},
 
         'A-CAT-F' : {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full', 'pos': False, 'comment': 'astrometric catalog'},
-        'A-NAST'  : {'default':'None', 'val_type': 'min_max', 'val_range': [ (5e2,1e4), (100, 3e4), (20, 1e5) ],'key_type': 'full', 'pos': True , 'comment': 'number of brightest stars used for WCS'},
-        'A-DRA'   : {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 0.02)],                       'key_type': 'full', 'pos': False, 'comment': '[arcsec] dRA median offset to astrom. catalog'},
-        'A-DDEC'  : {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 0.02)],                       'key_type': 'full', 'pos': False, 'comment': '[arcsec] dDEC median offset to astrom. catalog'},
+        'A-NAST'  : {'default':'None', 'val_type': 'min_max', 'val_range': [ (5e2,1e4), (100, 3e4), (20, 1e5) ], 'key_type': 'full', 'pos': True , 'comment': 'number of brightest stars used for WCS'},
+        'A-DRA'   : {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 0.02)],                        'key_type': 'full', 'pos': False, 'comment': '[arcsec] dRA median offset to astrom. catalog'},
+        'A-DDEC'  : {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 0.02)],                        'key_type': 'full', 'pos': False, 'comment': '[arcsec] dDEC median offset to astrom. catalog'},
         'A-DRASTD': {'default':'None', 'val_type': 'sigma',   'val_range': {'u': [ (0.06, 0.04) ],
                                                                             'g': [ (0.03, 0.02) ],
                                                                             'q': [ (0.03, 0.02) ],
@@ -763,20 +763,20 @@ qc_range = {
                                                                             'z': [ (0.03, 0.02) ]},             'key_type': 'full', 'pos': True , 'comment': '[arcsec] dDEC sigma (STD) offset'},
 
         # PSFEx
-        'PSF-NOBJ': {'default':'None', 'val_type': 'min_max', 'val_range': [ (500,2e4), (100,5e4), (10,2e5) ],  'key_type': 'full', 'pos': True , 'comment': 'number of accepted PSF stars'},
-        'PSF-CHI2': {'default':'None', 'val_type': 'sigma',   'val_range': [ (1, 0.1) ],                        'key_type': 'full', 'pos': True , 'comment': 'final reduced chi-squared PSFEx fit'},
+        'PSF-NOBJ': {'default':'None', 'val_type': 'min_max', 'val_range': [ (500,2e5), (100,2e5), (10,2e5) ],  'key_type': 'full', 'pos': True , 'comment': 'number of accepted PSF stars'},
+        'PSF-CHI2': {'default':'None', 'val_type': 'sigma',   'val_range': [ (1.1, 0.2) ],                      'key_type': 'full', 'pos': True , 'comment': 'final reduced chi-squared PSFEx fit'},
         'PSF-SEE' : {'default':'None', 'val_type': 'min_max', 'val_range': [ (0.5,2), (0.5,4), (0.5,7) ],       'key_type': 'full', 'pos': True , 'comment': '[arcsec] image seeing inferred by PSFEx'},
 
         # photometric calibration (PC)
         'PC-CAT-F': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full', 'pos': False, 'comment': 'photometric catalog'},
-        'PC-NCAL' : {'default':'None', 'val_type': 'min_max', 'val_range': [ (50, 1e3), (20, 1e4), (5,1e5) ],   'key_type': 'full', 'pos': True , 'comment': 'number of brightest photcal stars used'},
+        'PC-NCAL' : {'default':'None', 'val_type': 'min_max', 'val_range': [ (50, 1e5), (20, 1e5), (5,1e5) ],   'key_type': 'full', 'pos': True , 'comment': 'number of brightest photcal stars used'},
 
-        'PC-ZP'   : {'default':'None', 'val_type': 'min_max', 'val_range': {'u': [ (22.1, 22.7), (21.4, 23.4), (0, 30) ],
-                                                                            'g': [ (23.0, 23.6), (22.3, 24.3), (0, 30) ],
-                                                                            'q': [ (23.5, 24.1), (22.8, 24.8), (0, 30) ],
-                                                                            'r': [ (22.6, 23.2), (21.9, 23.9), (0, 30) ],
-                                                                            'i': [ (22.0, 22.6), (21.3, 23.3), (0, 30) ],
-                                                                            'z': [ (21.1, 21.7), (20.4, 22.4), (0, 30) ]}, 'key_type': 'full', 'pos': True , 'comment': '[mag] zeropoint=m_AB+2.5*log10(flux[e-/s])+A*k'},
+        'PC-ZP'   : {'default':'None', 'val_type': 'min_max', 'val_range': {'u': [ (21.5, 22.1), (20.8, 22.8), (0, 30) ],
+                                                                            'g': [ (22.5, 23.1), (21.8, 23.8), (0, 30) ],
+                                                                            'q': [ (23.4, 24.0), (22.7, 24.7), (0, 30) ],
+                                                                            'r': [ (22.5, 23.1), (21.8, 23.8), (0, 30) ],
+                                                                            'i': [ (22.3, 22.9), (21.6, 23.6), (0, 30) ],
+                                                                            'z': [ (21.4, 22.0), (20.7, 22.7), (0, 30) ]}, 'key_type': 'full', 'pos': True , 'comment': '[mag] zeropoint=m_AB+2.5*log10(flux[e-/s])+A*k'},
         # previously using sigma method
         #'PC-ZP'   : {'default':'None', 'val_type': 'sigma',   'val_range': {'u': [ (22.4, 0.15) ],
         #                                                                    'g': [ (23.3, 0.15) ],
