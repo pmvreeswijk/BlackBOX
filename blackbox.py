@@ -6413,7 +6413,14 @@ def copy_file (src_file, dest, move=False, verbose=True):
         if not move:
             shutil.copy2(src_file, dest)
         else:
-            shutil.move(src_file, dest)
+            try:
+                # if destination file already exists, this moving
+                # attempt may lead to an error
+                shutil.move(src_file, dest)
+            except:
+                # in case of an error, copy it over instead, which
+                # will overwrite the existing file
+                shutil.copy2(src_file, dest)
 
     else:
 
