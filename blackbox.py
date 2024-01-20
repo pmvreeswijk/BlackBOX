@@ -570,7 +570,7 @@ class FileWatcher(FileSystemEventHandler, object):
 
 ################################################################################
 
-def create_masters (master_date, run_fpack=True, run_create_jpg=True, nproc=1):
+def create_masters (master_date, run_fpack=True, nproc=1):
 
     if get_par(set_zogy.timing,tel):
         t = time.time()
@@ -729,27 +729,6 @@ def create_masters (master_date, run_fpack=True, run_create_jpg=True, nproc=1):
     # False as there is no need to look for an alternative master flat
     list_fits_master = pool_func (master_prep, list_masters, data_shape, True,
                                   False, tel, proc_mode, nproc=nproc)
-
-
-
-    # N.B.: fpacking and jpegging is already done inside master_prep
-    if False:
-
-        # use [pool_func] to fpack masters just created
-        list_masters_existing = [f for f in list_masters if isfile(f)]
-        if run_fpack:
-            log.info ('fpacking master frames')
-            results = pool_func (fpack, list_masters_existing, nproc=nproc)
-
-
-        # use [pool_func] to create jpgs
-        if run_create_jpg:
-            log.info ('creating jpg images')
-            if run_fpack:
-                list_masters_existing = ['{}.fz'.format(f)
-                                         for f in list_masters_existing]
-
-            results = pool_func (create_jpg, list_masters_existing, nproc=nproc)
 
 
     if get_par(set_zogy.timing,tel):
@@ -2771,6 +2750,15 @@ def call_match2SSO(filename, tel):
 ################################################################################
 
 def update_cathead (filename, header):
+
+    if False:
+        # !!!CHECK!!! temporarily, make a copy of the filename to be updated
+        shutil.copy2(filename, filename.replace('.fits', '_copy.fits'))
+
+        # also record input header
+        header.tofile(filename.replace('.fits', '_copy_header.fits'), overwrite=True)
+
+
 
     with fits.open(filename, 'update', memmap=True) as hdulist:
         # if existing header is minimal (practically only table
@@ -6413,14 +6401,19 @@ def copy_file (src_file, dest, move=False, verbose=True):
         if not move:
             shutil.copy2(src_file, dest)
         else:
-            try:
-                # if destination file already exists, this moving
-                # attempt may lead to an error
-                shutil.move(src_file, dest)
-            except:
-                # in case of an error, copy it over instead, which
-                # will overwrite the existing file
-                shutil.copy2(src_file, dest)
+
+            # if destination file already exists, remove it; since
+            # input [dest] can be a file or directory, need to
+            # reconstruct the filename with two possibilities
+            fn1 = dest
+            fn2 = os.path.join(dest, src_file.split('/')[-1])
+            for fn in [fn1, fn2]:
+                if os.path.isfile(fn):
+                    log.info ('{} already exists; removing it'.format(fn))
+                    os.remove(fn)
+
+            # move
+            shutil.move(src_file, dest)
 
     else:
 
