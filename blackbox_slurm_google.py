@@ -82,6 +82,10 @@ smtp_server = 'smtp-relay.gmail.com'
 port = 465
 use_SSL = True
 
+# home and calibration folder on Google slurm login node account
+home_dir = '/home/sa_105685508700717199458'
+cal_dir = os.path.join(home_dir, 'CalFiles')
+
 
 ################################################################################
 
@@ -99,6 +103,17 @@ def run_blackbox_slurm (date=None, telescope=None, runtime='4:00:00'):
 
     # mode is night by default
     mode = 'night'
+
+
+    # read field ID table including number of expected Gaia sources
+    mlbg_fieldIDs = '{}/MLBG_FieldIDs_Feb2022.fits'.format(cal_dir)
+    table_grid = Table.read(mlbg_fieldIDs, memmap=True)
+
+    # create ngaia dictionary with keys int(field_id) and
+    # ngaia as values
+    ngaia_dict = {}
+    for i, field_id in enumerate(table_grid['field_id']):
+        ngaia_dict[field_id] = table_grid['ngaia'][i]
 
 
     # if date is not specified, set it to the date of the last local
@@ -265,8 +280,33 @@ def run_blackbox_slurm (date=None, telescope=None, runtime='4:00:00'):
                 if np.any([s in filename.lower()
                            for s in ['bias','flat','dark']]):
                     partition = 'pc1gb8'
+
                 else:
+                    # for object images, use different partitions for
+                    # fields with low and high number of expected gaia
+                    # sources; default partition:
                     partition = 'pc2gb16'
+
+                    # extract field from filename; not very robust,
+                    # will break if Abot changes definition of raw
+                    # filenames
+                    field_id = filename.split('_')[-11]
+
+                    try:
+                        # try converting to integer
+                        field_id = int(field_id)
+                        # check if between 1 and 17000
+                        if field_id > 1 and field_id < 17000:
+                            # infer estimated number of gaia sources in field
+                            ngaia = ngaia_dict[field_id]
+                            if ngaia > 2e5:
+                                # use different partition
+                                partition = 'pc4gb32'
+
+                    except:
+                        log.warning ('exception occurred when inferring ngaia '
+                                     'for {}; using default partition {}'
+                                     .format(filename, partition))
 
 
                 # process it through a SLURM batch job
@@ -547,9 +587,8 @@ def slurm_process (python_cmdstr, partition, runtime, jobname, jobnight):
             f.write ('\n')
             f.write ('/opt/apps/singularity/3.11.0/bin/singularity exec '
                      #'--env PYTHONPATH="/home/sa_105685508700717199458/BBtest:\$PYTHONPATH" '
-                     '--env MLBG_CALDIR=/home/sa_105685508700717199458/CalFiles '
-                     '/home/sa_105685508700717199458/Containers/MLBG_latest.sif '
-                     '{}\n'.format(python_cmdstr))
+                     '--env MLBG_CALDIR={} {}/Containers/MLBG_latest.sif {}\n'
+                     .format(cal_dir, home_dir, python_cmdstr))
             f.write ('\n')
 
 
