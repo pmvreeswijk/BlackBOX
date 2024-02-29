@@ -385,6 +385,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
         obs = ephem.Observer()
         obs.lat = str(get_par(set_zogy.obs_lat,tel))
         obs.lon = str(get_par(set_zogy.obs_lon,tel))
+        obs.elevation = get_par(set_zogy.obs_height,tel)
         sunrise = obs.next_rising(ephem.Sun())
 
 
@@ -2458,7 +2459,7 @@ def verify_header (filename, htypes=None):
         'WINDDIR':  {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':True},
         'SITELAT':  {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':True},
         'SITELONG': {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':True},
-        'ELEVATIO': {'htype':'raw', 'dtype':int,   'DB':True,  'None_OK':True},
+        'ELEVATIO': {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':True},
         #'WEATIME':  {'htype':'raw', 'dtype':str,   'DB':False, 'None_OK':True},
         'FILTER':   {'htype':'raw', 'dtype':str,   'DB':True,  'None_OK':False},
         #'FILTERID': {'htype':'raw', 'dtype':str,   'DB':False, 'None_OK':True},
@@ -2743,7 +2744,8 @@ def call_match2SSO(filename, tel):
     # run match2SSO on catalogue
     if isfile(fits_for_m2sso):
         m2sso.run_match2SSO(tel=tel, mode='night', cat2process=fits_for_m2sso,
-                            date2process=None, list2process=None, logname=None)
+                            date2process=None, list2process=None, logname=None,
+                            overwrite=False)
     return
 
 
@@ -2752,32 +2754,42 @@ def call_match2SSO(filename, tel):
 def update_cathead (filename, header):
 
     if False:
-        # !!!CHECK!!! temporarily, make a copy of the filename to be updated
-        shutil.copy2(filename, filename.replace('.fits', '_copy.fits'))
+        # CHECK!!! temporarily making copy of transient
+        # catalog before header is updated
+        shutil.copy2(filename, filename.replace('.fits', '_tmpcopy.fits'))
+        # also save fits header
+        hdulist = fits.HDUList(fits.PrimaryHDU(header=header))
+        hdulist.writeto(filename.replace('.fits', '_tmphdr.fits'))
 
-        # also record input header
-        header.tofile(filename.replace('.fits', '_copy_header.fits'), overwrite=True)
 
+    use_fitsio = False
+    if use_fitsio:
+        with fitsio.FITS(filename, 'rw') as hdulist:
+            hdulist[-1].write_keys(dict(header))
 
+        # read updated header - used below - with astropy
+        header_update = read_hdulist(filename, get_data=False, get_header=True)
 
-    with fits.open(filename, 'update', memmap=True) as hdulist:
-        # if existing header is minimal (practically only table
-        # columns), which can be the case if zogy.optimal_subtraction
-        # did not reach the end (due to an issue in the transient
-        # extraction) and QC-FLAG is not red (in which case a dummy
-        # catalog with header would have been created before this
-        # function is called), then add the full input [header] to it;
-        # FORMAT-P is only in header if end of
-        # zogy.optimal_subtraction was reached
-        if 'FORMAT-P' not in hdulist[-1].header:
-            hdulist[-1].header += header
-        else:
-            for key in header:
-                if ('QC' in key or 'DUMCAT' in key or 'RAOFF' in key or
-                    'DECOFF' in key):
-                    hdulist[-1].header[key] = (header[key], header.comments[key])
+    else:
 
-        header_update = hdulist[-1].header
+        with fits.open(filename, 'update', memmap=True) as hdulist:
+            # if existing header is minimal (practically only table
+            # columns), which can be the case if zogy.optimal_subtraction
+            # did not reach the end (due to an issue in the transient
+            # extraction) and QC-FLAG is not red (in which case a dummy
+            # catalog with header would have been created before this
+            # function is called), then add the full input [header] to it;
+            # FORMAT-P is only in header if end of
+            # zogy.optimal_subtraction was reached
+            if 'FORMAT-P' not in hdulist[-1].header:
+                hdulist[-1].header += header
+            else:
+                for key in header:
+                    if ('QC' in key or 'DUMCAT' in key or 'RAOFF' in key or
+                        'DECOFF' in key):
+                        hdulist[-1].header[key] = (header[key], header.comments[key])
+
+            header_update = hdulist[-1].header
 
 
     # in case of transient catalog, also update the trans_light header
@@ -2807,6 +2819,10 @@ def update_cathead (filename, header):
                     output_verify='ignore')
 
 
+    mem_use (label='update_cathead')
+    return
+
+
 ################################################################################
 
 def update_imhead (filename, header, create_hdrfile=True):
@@ -2834,6 +2850,8 @@ def update_imhead (filename, header, create_hdrfile=True):
         hdulist.writeto(filename.replace('.fz','').replace('.fits', '_hdr.fits'),
                         overwrite=True, output_verify='ignore')
 
+
+    mem_use (label='update_imhead')
     return
 
 
@@ -4643,14 +4661,13 @@ def get_nearest_master (date_eve, imgtype, fits_master, filt=None):
         nfiles = len(file_list)
 
 
-        # list of evening dates corresponding to file_list
-        list_date_eve = [''.join(f.split('/')[-5:-2]) for f in file_list]
-
-
         # find file that is closest in time to [date_eve]
         if nfiles > 0:
-            #mjds = np.array([date2mjd(file_list[i].split('/')[-1].split('_')[1])
-            #                 for i in range(nfiles)])
+
+            # list of evening dates corresponding to file_list
+            list_date_eve = [''.join(f.split('/')[-5:-2]) for f in file_list]
+
+            # mjds
             mjds = np.array([date2mjd(date) for date in list_date_eve])
 
             # these mjds corresponding to the very start of the day
