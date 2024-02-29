@@ -68,7 +68,7 @@ tmp_dir_base = {'ML1': run_dir_base['ML1']}
 # for BlackGEM, it depends on whether tmp data is kept for inspection
 # or not
 if keep_tmp:
-    tmp_dir_base['BG'] = '{}/Slurm/tmp'.format(run_dir_base['BG'])
+    tmp_dir_base['BG'] = '{}/RunBlackBOX/tmp'.format(run_dir_base['BG'])
 else:
     tmp_dir_base['BG'] = '/tmp'
 
@@ -94,8 +94,9 @@ for tel in ['ML1']:
 for tel in ['BG2', 'BG3', 'BG4']:
     raw_dir[tel] = 'gs://blackgem-raw/{}'.format(tel)
     red_dir[tel] = 'gs://blackgem-red/{}'.format(tel)
+    #red_dir[tel] = '/home/sa_105685508700717199458/BBtest/{}'.format(tel)
     ref_dir[tel] = 'gs://blackgem-ref'
-    tmp_dir[tel] = '{}/{}/tmp'.format(tmp_dir_base['BG'], tel)
+    tmp_dir[tel] = '{}/{}'.format(tmp_dir_base['BG'], tel)
     master_dir[tel] = 'gs://blackgem-masters/{}'.format(tel)
 
 
