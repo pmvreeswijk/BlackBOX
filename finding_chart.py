@@ -308,8 +308,8 @@ def main():
     offset = size_pix / 20
     # length in fraction of image size
     length = size_pix / 20
-    # width in fraction of length, at least 1.5 pixels
-    width = min(max(size_pix/100, 1), 3)
+    # width in fraction of length, maximum of 5
+    width = size_pix / 150
     ax.add_patch(patches.Rectangle ((x1+offset, y1-width/2), length, width,
                                     fc='black', ec='white'))
     ax.add_patch(patches.Rectangle ((x1-width/2, y1+offset), width, length,
