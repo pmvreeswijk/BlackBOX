@@ -158,23 +158,39 @@ def buildref (telescope=None, fits_hdrtable_list=None, date_start=None,
     # ---------------------------------------------------------------
     # previously also included possiblity to prepare this table, but
     # not needed anymore as header tables are ready to be used
+    if fits_hdrtable_list is None:
 
-    if fits_hdrtable_list is not None:
+        # refer to the existing header tables for both ML and BG
+        if tel == 'ML1':
 
-        for it, fits_table in enumerate(fits_hdrtable_list):
+            fits_hdrtable_list = ['/idia/projects/meerlicht/Headers/ML1_headers_cat.fits']
 
-            if zogy.isfile(fits_table):
+        else:
 
-                log.info ('reading header table: {}'.format(fits_table))
-                table_tmp = Table.read(fits_table)
-                if it==0:
-                    table = table_tmp
-                else:
-                    # stack tables
-                    table = vstack([table, table_tmp])
+            # for BG, loop telescopes and add header table if needed
+            fits_hdrtable_list = []
+            for tel_tmp in ['BG2', 'BG3', 'BG4']:
+                if tel in tel_tmp:
+                    fits_hdrtable_list.append(
+                        'gs://blackgem-hdrtables/{}/{}_headers_cat.fits'
+                        .format(tel_tmp))
 
+
+    # read header fits files into table
+    for it, fits_table in enumerate(fits_hdrtable_list):
+
+        if zogy.isfile(fits_table):
+
+            log.info ('reading header table: {}'.format(fits_table))
+            table_tmp = Table.read(fits_table)
+            if it==0:
+                table = table_tmp
             else:
-                log.warning ('{} not found'.format(fits_table))
+                # stack tables
+                table = vstack([table, table_tmp])
+
+        else:
+            log.warning ('{} not found'.format(fits_table))
 
 
 
@@ -1934,6 +1950,11 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
     header_out['RA'] = (ra_center, '[deg] telescope right ascension')
     header_out['DEC'] = (dec_center, '[deg] telescope declination')
 
+    # also add RA-CNTR and DEC-CNTR to header, as these are expected
+    # by at least the force_phot module
+    header_out['RA-CNTR'] = (ra_center, '[deg] RA (ICRS) at image center')
+    header_out['DEC-CNTR'] = (dec_center, '[deg] DEC (ICRS) at image center')
+
     # with gain, readnoise, saturation level, exptime and mjd-obs
     gain_eff, rdnoise_eff, saturate_eff, exptime_eff, mjd_obs_eff = calc_headers(
         combine_type, imtable)
@@ -1949,6 +1970,7 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
     header_out.set('DATE-OBS', date_obs, 'average date of observation',
                    after='EXPTIME')
     header_out.set('MJD-OBS', mjd_obs_eff, '[days] average MJD', after='DATE-OBS')
+
 
     # this line below could be added to allow a combined image to
     # serve as input to the new image in zogy.py, but this is only
@@ -3085,7 +3107,9 @@ if __name__ == "__main__":
                         help='list of one or more (comma-separated) binary fits '
                         'tables, containing header keywords MJD-OBS, OBJECT, '
                         'FILTER, QC-FLAG, RA-CNTR, DEC-CNTR, PSF-SEE, LIMMAG '
-                        'and S-BKGSTD of the possible images to be included.')
+                        'and S-BKGSTD of the possible images to be included; '
+                        'if left to default of None, the catalog header tables '
+                        'available for ML and BG will be used')
 
     parser.add_argument('--date_start', type=str, default=None,
                         help='start date (noon) to include images, date string '
