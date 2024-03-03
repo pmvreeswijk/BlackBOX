@@ -103,7 +103,7 @@ except Exception as e:
                  'blackbox; issue with IERS file?: {}'.format(e))
 
 
-__version__ = '1.2.4'
+__version__ = '1.2.5'
 keywords_version = '1.0.14'
 
 
@@ -242,7 +242,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
 
 
-    mem_use (label='run_blackbox at start')
+    mem_use (label='in run_blackbox at start')
 
 
     # create master bias, dark and/or flat if [master_date] is specified
@@ -344,7 +344,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
         if nproc==1 or image is not None:
 
             # if only 1 process is requested, or [image] input
-            # parameter is not None, run it witout multiprocessing;
+            # parameter is not None, run it without multiprocessing;
             # this will allow images to be shown on the fly if
             # [set_zogy.display] is set to True; something that is not
             # allowed (at least not on a macbook) when
@@ -352,7 +352,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
             log.warning ('running with single processor')
             filenames_reduced = []
             for filename in filenames:
-                filenames_reduced.append(blackbox_reduce(filename))
+                filenames_reduced.append(try_blackbox_reduce(filename))
 
         else:
             # use [pool_func] to process list of files
@@ -904,11 +904,54 @@ def try_blackbox_reduce (filename):
 
     try:
         filename_reduced = blackbox_reduce (filename)
+
     except:
         filename_reduced = None
         raise WrapException()
 
+    finally:
+
+        # in case of exception in blackbox_reduce, make sure to close
+        # the log and remove the tmp folder
+        if filename_reduced is None:
+
+            fn_red = get_filename_red (filename)
+            tmp_path = '{}/{}'.format(get_par(set_bb.tmp_dir,tel), fn_red)
+
+            # close the log
+            logfile = '{}/{}.log'.format(tmp_path, fn_red)
+            close_log(log, logfile)
+
+            # running in the google cloud?
+            #google_cloud = (filename[0:5]=='gs://')
+
+            # remove tmp folder if not keeping tmp files; not so
+            # urgent for MeerLICHT and provides opportunity to inspect
+            # the tmp folder to find out what went wrong exactly if
+            # google_cloud:
+            clean_tmp (tmp_path, get_par(set_bb.keep_tmp,tel))
+
+
     return filename_reduced
+
+
+################################################################################
+
+def get_filename_red (fits_raw):
+
+    """determine reduced filename from raw fits header"""
+
+    # read header
+    header = read_hdulist(fits_raw, get_data=False, get_header=True)
+
+    # UT date (yyyymmdd) and time (hhmmss)
+    utdate, uttime = get_date_time(header)
+
+    # reduced filename without the full path nor fits extension
+    filename_red = '{}_{}_{}'.format(tel, utdate, uttime)
+
+
+    return filename_red
 
 
 ################################################################################
@@ -923,7 +966,11 @@ def blackbox_reduce (filename):
 
     if get_par(set_zogy.timing,tel):
         t_blackbox_reduce = time.time()
-        mem_use (label='blackbox_reduce at start')
+        mem_use (label='in blackbox_reduce at start')
+
+
+    # running in the google cloud?
+    google_cloud = (filename[0:5]=='gs://')
 
 
     # just read the header for the moment
@@ -1146,6 +1193,16 @@ def blackbox_reduce (filename):
     # name of the reduced image without the .fits extension.
     tmp_path = '{}/{}'.format(get_par(set_bb.tmp_dir,tel),
                               fits_out.split('/')[-1].replace('.fits',''))
+
+    if False:
+        # if running in the google cloud and not keep tmp files, clean up
+        # tmp base folder, in case another job - which could be from
+        # another telescope - left some files behind
+        if google_cloud and get_par(set_bb.keep_tmp,tel):
+            shutil.rmtree(get_par(set_bb.tmp_dir_base,tel))
+
+
+    # make tmp folder
     make_dir (tmp_path, empty=True)
 
 
@@ -1276,8 +1333,8 @@ def blackbox_reduce (filename):
         except:
             log.exception('problem reading image {}; leaving function '
                           'blackbox_reduce'.format(filename))
-            clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel))
             close_log(log, logfile)
+            clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel))
             return None
 
 
@@ -1757,9 +1814,9 @@ def blackbox_reduce (filename):
                 if tel=='ML1' and '_trans.fits' in list_2keep:
                     create_symlinks (new_base, obj, filt)
 
-            # remove tmp folder
-            clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel))
+            # close log and remove tmp folder
             close_log(log, logfile)
+            clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel))
             return fits_out
 
 
@@ -1788,16 +1845,16 @@ def blackbox_reduce (filename):
             copy_files2keep(tmp_base, new_base,
                             get_par(set_bb.img_reduce_exts,tel),
                             move=(not get_par(set_bb.keep_tmp,tel)))
-            clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel))
             close_log(log, logfile)
+            clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel))
             return fits_out
 
         else:
 
             # even if reduction steps were skipped, tmp folder is
             # still present
-            clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel))
             close_log(log, logfile)
+            clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel))
             return None
 
 
@@ -1856,8 +1913,8 @@ def blackbox_reduce (filename):
                           'transient catalog is a dummy; nothing left to do for '
                           '{}'.format(filename))
 
-            clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel))
             close_log(log, logfile)
+            clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel))
 
             if do_reduction:
                 return fits_out
@@ -2062,8 +2119,8 @@ def blackbox_reduce (filename):
 
                 #clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel))
                 # keeping tmp folder to be able to help understand exception
-                clean_tmp(tmp_path, True)
                 close_log(log, logfile)
+                clean_tmp(tmp_path, True)
                 return None
 
             else:
@@ -2185,8 +2242,8 @@ def blackbox_reduce (filename):
 
                 #clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel))
                 # keeping tmp folder to be able to help understand exception
-                clean_tmp(tmp_path, True)
                 close_log(log, logfile)
+                clean_tmp(tmp_path, True)
                 return None
 
             else:
@@ -2303,8 +2360,8 @@ def blackbox_reduce (filename):
     if get_par(set_zogy.timing,tel):
         log_timing_memory (t0=t_blackbox_reduce, label='blackbox_reduce at end')
 
-    clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel))
     close_log(log, logfile)
+    clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel))
 
     return fits_out
 
@@ -2819,7 +2876,7 @@ def update_cathead (filename, header):
                     output_verify='ignore')
 
 
-    mem_use (label='update_cathead')
+    mem_use (label='in update_cathead')
     return
 
 
@@ -2851,7 +2908,7 @@ def update_imhead (filename, header, create_hdrfile=True):
                         overwrite=True, output_verify='ignore')
 
 
-    mem_use (label='update_imhead')
+    mem_use (label='in update_imhead')
     return
 
 
@@ -3710,7 +3767,7 @@ def cosmics_corr (data, header, data_mask, header_mask):
     if get_par(set_zogy.timing,tel):
         t = time.time()
 
-    mem_use (label='cosmics_corr at start')
+    mem_use (label='in cosmics_corr at start')
 
 
     # set satlevel to infinite, as input [data_mask] already contains
@@ -3781,7 +3838,7 @@ def cosmics_corr (data, header, data_mask, header_mask):
 
 
 
-    mem_use (label='cosmics_corr just after astroscrappy')
+    mem_use (label='in cosmics_corr just after astroscrappy')
 
     # from astroscrappy 'manual': To reproduce the most similar
     # behavior to the original LA Cosmic (written in IRAF), set inmask
@@ -6289,7 +6346,7 @@ def write_fits (fits_out, data, header, overwrite=True, run_fpack=True,
                 run_create_jpg=True, master=False, tel=None):
 
 
-    mem_use (label='write_fits at start')
+    mem_use (label='in write_fits at start')
 
 
     # add time stamp of file creation to header
@@ -6387,7 +6444,7 @@ def write_fits (fits_out, data, header, overwrite=True, run_fpack=True,
                              .format(tmp_path, e))
 
 
-    mem_use (label='write_fits at end')
+    mem_use (label='in write_fits at end')
 
     return fits_out
 
