@@ -22,9 +22,9 @@ from astropy.coordinates import Angle, SkyCoord
 from astropy.time import Time
 from astropy.wcs import WCS
 from astropy.visualization import ZScaleInterval as zscale
-from astropy.visualization.wcsaxes import WCSAxes
+#from astropy.visualization.wcsaxes import WCSAxes
 import astropy.units as u
-from astropy.visualization.wcsaxes import add_scalebar
+#from astropy.visualization.wcsaxes import add_scalebar
 
 from scipy import ndimage
 
@@ -266,7 +266,6 @@ def main():
 
 
     # scale bar
-    #add_scalebar (ax, 1*u.arcmin, label=None, corner='top left')
     scale = np.array([1,2,3,5,10,30])
     bar_size_init = args.size_arcmin/5
     unit = 'arcmin'
