@@ -319,9 +319,9 @@ def run_blackbox_slurm (date=None, telescope=None, runtime='4:00:00'):
                 jobnames.append(jobname)
 
 
-                # sleep for a couple of seconds to avoid submitting
-                # jobs at the same time
-                time.sleep(3)
+                # sleep for a bit to avoid submitting jobs at the same
+                # time
+                time.sleep(1)
 
 
 
