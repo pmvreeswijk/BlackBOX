@@ -49,6 +49,7 @@ from astropy.coordinates import Angle, SkyCoord, FK5, ICRS, get_body
 from astropy.time import Time
 from astropy import units as u
 from astropy.visualization import ZScaleInterval as zscale
+from astropy.visualization import astropy_mpl_style
 
 import astroscrappy
 from acstools.satdet import detsat, make_mask
@@ -61,7 +62,12 @@ from watchdog.events import FileSystemEventHandler
 from qc import qc_check, run_qc_check
 import platform
 
-import aplpy
+
+import matplotlib
+import matplotlib.pyplot as plt
+plt.style.use(astropy_mpl_style)
+matplotlib.rcParams.update({'font.size': 10})
+
 
 # due to regular problems with downloading default IERS file (needed
 # to compute UTC-UT1 corrections for e.g. sidereal time computation),
@@ -816,13 +822,13 @@ def fpack (filename):
 
 ################################################################################
 
-def create_jpg (filename):
+def create_jpg (filename, cmap='gray', ext='jpg'):
 
     """Create jpg image from fits"""
 
     try:
 
-        image_jpg = '{}.jpg'.format(filename.split('.fits')[0])
+        image_jpg = '{}.{}'.format(filename.split('.fits')[0], ext)
 
         if not isfile(image_jpg):
 
@@ -830,6 +836,7 @@ def create_jpg (filename):
 
             # read input image
             data, header = read_hdulist(filename, get_header=True)
+
 
             imgtype = header['IMAGETYP'].lower()
             file_str = image_jpg.split('/')[-1].split('.jpg')[0]
@@ -848,20 +855,18 @@ def create_jpg (filename):
                         title += '{}:{}   '.format(key.lower(), header[key])
 
 
-            pixelcoords = True
-            if pixelcoords:
-                f = aplpy.FITSFigure(data)
-            else:
-                f = aplpy.FITSFigure(filename)
 
-            vmin, vmax = zscale().get_limits(data)
-            f.show_colorscale(cmap='gray', vmin=vmin, vmax=vmax)
-            f.add_colorbar()
-            f.set_title(title)
-            #f.add_grid()
-            #f.set_theme('pretty')
-            f.save(image_jpg, adjust_bbox=False)
-            f.close()
+            fig = plt.figure(figsize=(8.27,8.27))
+            vmin, vmax = zscale(contrast=0.5).get_limits(data)
+            plt.imshow(data, cmap=cmap, vmin=vmin, vmax=vmax, origin='lower')
+            plt.colorbar(fraction=0.046, pad=0.04)
+            plt.title(title, fontsize=10)
+            plt.xlabel('X (pixels)')
+            plt.ylabel('Y (pixels)')
+            plt.grid(None)
+            plt.tight_layout()
+            plt.savefig(image_jpg, dpi=175)
+            plt.close()
 
 
     except Exception as e:
@@ -2029,9 +2034,8 @@ def blackbox_reduce (filename):
         #    log.info ('removing existing {}'.format(file_2remove))
         #    os.remove(file_2remove)
         remove_files(files_2remove, verbose=True)
-
-
         lock.release()
+
 
 
     # if cat_extract is True while img_reduce is False, delete the jpg
@@ -2821,6 +2825,12 @@ def update_cathead (filename, header):
 
     use_fitsio = False
     if use_fitsio:
+        # played with fitsio to update headers in an attempt to use
+        # less disk space: astropy appears to make a copy when
+        # updating the file. However, the fitsio headers are slightly
+        # different from before, and would need to update all of the
+        # headers, also in zogy.py, which is too much hassle for the
+        # advantage, at least for now
         with fitsio.FITS(filename, 'rw') as hdulist:
             hdulist[-1].write_keys(dict(header))
 
@@ -2831,20 +2841,22 @@ def update_cathead (filename, header):
 
         with fits.open(filename, 'update', memmap=True) as hdulist:
             # if existing header is minimal (practically only table
-            # columns), which can be the case if zogy.optimal_subtraction
-            # did not reach the end (due to an issue in the transient
-            # extraction) and QC-FLAG is not red (in which case a dummy
-            # catalog with header would have been created before this
-            # function is called), then add the full input [header] to it;
-            # FORMAT-P is only in header if end of
-            # zogy.optimal_subtraction was reached
+            # columns), which can be the case if
+            # zogy.optimal_subtraction did not reach the end (due to
+            # an issue in the transient extraction) and QC-FLAG is not
+            # red (in which case a dummy catalog with header would
+            # have been created before this function is called), then
+            # add the full input [header] to it; FORMAT-P is only in
+            # header if end of zogy.optimal_subtraction was reached
             if 'FORMAT-P' not in hdulist[-1].header:
                 hdulist[-1].header += header
             else:
                 for key in header:
                     if ('QC' in key or 'DUMCAT' in key or 'RAOFF' in key or
                         'DECOFF' in key):
-                        hdulist[-1].header[key] = (header[key], header.comments[key])
+                        hdulist[-1].header[key] = (header[key],
+                                                   header.comments[key])
+
 
             header_update = hdulist[-1].header
 
@@ -2877,6 +2889,7 @@ def update_cathead (filename, header):
 
 
     mem_use (label='in update_cathead')
+
     return
 
 
@@ -6625,7 +6638,7 @@ def unzip(imgname, put_lock=True, timeout=None):
 
     elif '.fz' in imgname:
         log.info ('funpacking {}'.format(imgname))
-        subprocess.run(['funpack','-D',imgname])
+        subprocess.run(['funpack', '-D', imgname])
         imgname = imgname.replace('.fz','')
 
     if put_lock:

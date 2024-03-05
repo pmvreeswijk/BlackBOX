@@ -53,8 +53,6 @@ import blackbox as bb
 import set_blackbox as set_bb
 import qc
 
-import aplpy
-
 
 __version__ = '0.9.1'
 
@@ -140,9 +138,9 @@ def buildref (telescope=None, fits_hdrtable_list=None, date_start=None,
     log.info ('filters:             {}'.format(filters))
     log.info ('qc_flag_max:         {}'.format(qc_flag_max))
     log.info ('seeing_max:          {}'.format(seeing_max))
-    log.info ('make_colfig:         {}'.format(make_colfig))
-    if make_colfig:
-        log.info ('filters_colfig:      {}'.format(filters_colfig))
+    #log.info ('make_colfig:         {}'.format(make_colfig))
+    #if make_colfig:
+    #    log.info ('filters_colfig:      {}'.format(filters_colfig))
 
     log.info ('mode_ref:            {}'.format(mode_ref))
     if not mode_ref:
@@ -3155,9 +3153,9 @@ if __name__ == "__main__":
                         help='skip execution of zogy on resulting image?; '
                         'default=False')
 
-    parser.add_argument('--make_colfig', type=str2bool, default=False,
-                        help='make color figures from uqi filters?; '
-                        'default=False')
+    #parser.add_argument('--make_colfig', type=str2bool, default=False,
+    #                    help='make color figures from uqi filters?; '
+    #                    'default=False')
 
     parser.add_argument('--filters_colfig', type=str, default='iqu',
                         help='set of 3 filters to use for RGB color figures; '
@@ -3197,7 +3195,7 @@ if __name__ == "__main__":
               qc_flag_max = args.qc_flag_max,
               seeing_max = args.seeing_max,
               skip_zogy = args.skip_zogy,
-              make_colfig = args.make_colfig,
+              #make_colfig = args.make_colfig,
               filters_colfig = args.filters_colfig,
               mode_ref = args.mode_ref,
               results_dir = args.results_dir,
