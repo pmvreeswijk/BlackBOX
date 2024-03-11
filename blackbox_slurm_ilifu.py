@@ -49,6 +49,11 @@ genlog_dir = '{}/{}/log'.format(data_dir, tel)
 # folder in which to run/save jobs and logs for the nightly processing
 job_dir = '{}/Slurm'.format(genlog_dir)
 
+# calibration folder and field grid file
+cal_dir = '{}/CalFiles'.format(data_dir)
+mlbg_fieldIDs = '{}/MLBG_FieldIDs_Feb2022_nGaia.fits'.format(cal_dir)
+
+
 # MeerLICHT observatory settings
 obs_lat = -32.3799
 obs_lon = 20.8112
@@ -68,6 +73,17 @@ def run_blackbox_slurm (date=None, nthreads=4, runtime='4:00:00'):
 
     # mode is night by default
     mode = 'night'
+
+
+    # read field ID table including number of expected Gaia sources
+    table_grid = Table.read(mlbg_fieldIDs, memmap=True)
+
+    # create ngaia dictionary with keys int(field_id) and
+    # ngaia as values
+    ngaia_dict = {}
+    for i, field_id in enumerate(table_grid['field_id']):
+        ngaia_dict[field_id] = table_grid['ngaia'][i]
+
 
     # if date is not specified, set it to the date of the last local
     # noon; so just before 12:00 SAST yesterday's date will be used
@@ -173,6 +189,38 @@ def run_blackbox_slurm (date=None, nthreads=4, runtime='4:00:00'):
                 log.info ('python command string to execute: {}'
                           .format(python_cmdstr))
 
+
+                # use single thread for calibration files
+                if np.any([s in filename.lower()
+                           for s in ['bias','flat','dark']]):
+                    nthreads = 1
+
+                else:
+                    # for object images, if field contains many Gaia
+                    # sources, use more threads
+                    try:
+                        # extract field ID from header
+                        hdr = read_hdulist(filename, get_data=False,
+                                           get_header=True)
+                        if 'OBJECT' in hdr:
+                            field_id = int(header['OBJECT'])
+                            # set nthreads depending on ngaia
+                            ngaia = ngaia_dict[field_id]
+                            if 5e5 < ngaia <= 1e6:
+                                nthreads = 6
+                            elif ngaia > 1e6:
+                                nthreads = 8
+
+                            log.info ('estimated # Gaia sources in field ({}): '
+                                      '{}; using {} threads for {}'
+                                      .format(field_id, ngaia, nthreads,
+                                              filename))
+                    except:
+                        log.warning ('exception occurred when inferring ngaia '
+                                     'for {}; using default nthreads ({})'
+                                     .format(filename, nthreads))
+
+
                 # process it through a SLURM batch job
                 jobname = filename.split('/')[-1].split('.fits')[0]
                 slurm_process (python_cmdstr, nthreads, runtime, jobname,
@@ -258,8 +306,11 @@ def run_blackbox_slurm (date=None, nthreads=4, runtime='4:00:00'):
             fits_header = ('{}/Headers/{}_headers_{}.fits'
                            .format(data_dir, tel, cat_type))
             path_full = '{}/{}'.format(red_dir, date_dir)
-            search_str = '_{}.fits'.format(cat_type)
             end_str = ''
+            if cat_type == 'cat':
+                search_str = '_red_{}.fits'.format(cat_type)
+            else:
+                search_str = '_{}.fits'.format(cat_type)
 
 
             # cmd
@@ -406,9 +457,9 @@ def slurm_process (python_cmdstr, nthreads, runtime, jobname, jobnight,
             f.write ('\n')
             f.write ('/software/common/singularity/3.9.1/bin/singularity exec '
                      '--bind /idia/projects/meerlicht '
-                     '--env MLBG_CALDIR=/idia/projects/meerlicht/CalFiles '
+                     '--env MLBG_CALDIR={} '
                      '/idia/projects/meerlicht/Containers/ML_latest.sif {}\n'
-                     .format(python_cmdstr))
+                     .format(cal_dir, python_cmdstr))
             f.write ('\n')
 
 
