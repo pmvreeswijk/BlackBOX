@@ -85,6 +85,7 @@ use_SSL = True
 # home and calibration folder on Google slurm login node account
 home_dir = '/home/sa_105685508700717199458'
 cal_dir = os.path.join(home_dir, 'CalFiles')
+mlbg_fieldIDs = '{}/MLBG_FieldIDs_Feb2022_nGaia.fits'.format(cal_dir)
 
 
 ################################################################################
@@ -106,7 +107,6 @@ def run_blackbox_slurm (date=None, telescope=None, runtime='4:00:00'):
 
 
     # read field ID table including number of expected Gaia sources
-    mlbg_fieldIDs = '{}/MLBG_FieldIDs_Feb2022.fits'.format(cal_dir)
     table_grid = Table.read(mlbg_fieldIDs, memmap=True)
 
     # create ngaia dictionary with keys int(field_id) and
@@ -287,26 +287,30 @@ def run_blackbox_slurm (date=None, telescope=None, runtime='4:00:00'):
                     # sources; default partition:
                     partition = 'pc2gb16'
 
-                    # extract field from filename; not very robust,
-                    # will break if Abot changes definition of raw
-                    # filenames
-                    field_id = filename.split('_')[-11]
 
+                    # if field contains many Gaia sources, use
+                    # different partition
                     try:
-                        # try converting to integer
-                        field_id = int(field_id)
-                        # check if between 1 and 17000
-                        if field_id > 1 and field_id < 17000:
-                            # infer estimated number of gaia sources in field
+                        # extract field ID from header
+                        hdr = read_hdulist(filename, get_data=False,
+                                           get_header=True)
+                        if 'OBJECT' in hdr:
+                            field_id = int(header['OBJECT'])
+                            # set partition depending on ngaia
                             ngaia = ngaia_dict[field_id]
                             if ngaia > 2e5:
                                 # use different partition
                                 partition = 'pc4gb32'
 
+                            log.info ('estimated # Gaia sources in field ({}): '
+                                      '{}; using partition {} for {}'
+                                      .format(field_id, ngaia, partition,
+                                              filename))
                     except:
                         log.warning ('exception occurred when inferring ngaia '
-                                     'for {}; using default partition {}'
+                                     'for {}; using default partition ({})'
                                      .format(filename, partition))
+
 
 
                 # process it through a SLURM batch job
@@ -385,9 +389,14 @@ def run_blackbox_slurm (date=None, telescope=None, runtime='4:00:00'):
                     if cat_type in ['bias', 'flat']:
                         search_str = '/{}/{}_20'.format(cat_type, tel)
                         end_str = '.fits.fz'
+                    elif cat_type == 'cat':
+                        search_str = '_red_{}.fits'.format(cat_type)
+                        end_str = ''
                     else:
                         search_str = '_{}.fits'.format(cat_type)
                         end_str = ''
+
+
 
                     # cmd
                     python_cmdstr = ('python -c \"import set_blackbox as set_bb;'
