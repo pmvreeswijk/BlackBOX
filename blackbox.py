@@ -109,7 +109,7 @@ except Exception as e:
                  'blackbox; issue with IERS file?: {}'.format(e))
 
 
-__version__ = '1.2.5'
+__version__ = '1.3.1'
 keywords_version = '1.0.14'
 
 
@@ -459,7 +459,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
 
     if get_par(set_zogy.timing,tel):
-        log_timing_memory (t0=t_run_blackbox, label='run_blackbox at very end')
+        log_timing_memory (t0=t_run_blackbox, label='in run_blackbox at very end')
 
 
     logging.shutdown()
@@ -739,7 +739,7 @@ def create_masters (master_date, run_fpack=True, nproc=1):
 
 
     if get_par(set_zogy.timing,tel):
-        log_timing_memory (t0=t, label='create_masters')
+        log_timing_memory (t0=t, label='in create_masters')
 
 
     return
@@ -949,11 +949,15 @@ def get_filename_red (fits_raw):
     # read header
     header = read_hdulist(fits_raw, get_data=False, get_header=True)
 
+    # use [set_header] to update raw header so that also DATE-OBS
+    # is updated to be mid-exposure time
+    header = set_header(header, fits_raw)
+
     # UT date (yyyymmdd) and time (hhmmss)
     utdate, uttime = get_date_time(header)
 
     # reduced filename without the full path nor fits extension
-    filename_red = '{}_{}_{}'.format(tel, utdate, uttime)
+    filename_red = '{}_{}_{}_red'.format(tel, utdate, uttime)
 
 
     return filename_red
@@ -1768,10 +1772,9 @@ def blackbox_reduce (filename):
         fits.writeto(new_fits_mask, data_mask.astype('uint8'), header_mask,
                      overwrite=True)
 
-        # also write separate header fits file
-        hdulist = fits.HDUList(fits.PrimaryHDU(header=header))
-        hdulist.writeto(new_fits.replace('.fits', '_hdr.fits'), overwrite=True)
-
+        # also write separate header fits file - done just below the QC check
+        #hdulist = fits.HDUList(fits.PrimaryHDU(header=header))
+        #hdulist.writeto(new_fits.replace('.fits', '_hdr.fits'), overwrite=True)
 
 
         # check quality control
@@ -1785,8 +1788,9 @@ def blackbox_reduce (filename):
                           .format(key, header[key], new_fits))
                 header_update[key] = (header[key], header.comments[key])
 
-        # update fits header and separate header file
-        update_imhead (new_fits, header_update)
+
+        # update fits header and create separate header file
+        update_imcathead (new_fits, header_update, create_hdrfile=True)
 
 
         # if header of object image contains a red flag, create dummy
@@ -2006,8 +2010,8 @@ def blackbox_reduce (filename):
                     else:
                         break
 
-            # update fits header and separate header file
-            update_imhead (new_fits, header_update)
+            # update fits header and create separate header file
+            update_imcathead (new_fits, header_update, create_hdrfile=True)
 
 
         elif get_par(set_bb.trans_extract,tel):
@@ -2100,9 +2104,14 @@ def blackbox_reduce (filename):
                 nthreads=set_bb.nthreads, telescope=tel,
                 keep_tmp=get_par(set_bb.keep_tmp,tel))
 
+
+            # strip header from image- or table-dependent keywords
+            header_new.strip()
+
             # add offset between RA/DEC-CNTR coords and ML/BG field
             # definition to the header
             radec_offset (header_new, filename)
+
 
         except Exception as e:
             #log.exception(traceback.format_exc())
@@ -2156,7 +2165,9 @@ def blackbox_reduce (filename):
                     # update full-source catalog header with latest
                     # qc-flags; transient catalog not needed
                     log.info ('updating new catalog header with QC flags')
-                    update_cathead (fits_tmp_cat, header_new)
+                    log.info ('header_new: {}'.format(header_new))
+                    update_imcathead (fits_tmp_cat, header_new,
+                                      create_hdrfile=True)
 
 
                 # update reduced image header with extended header
@@ -2164,7 +2175,7 @@ def blackbox_reduce (filename):
                 # also when there is a red flag - not needed for
                 # catalog header as the dummy catalogs _cat.fits and
                 # _trans.fits will be created in function [qc]
-                update_imhead (new_fits, header_new)
+                update_imcathead (new_fits, header_new, create_hdrfile=True)
 
 
     else:
@@ -2220,9 +2231,15 @@ def blackbox_reduce (filename):
                 nthreads=set_bb.nthreads, telescope=tel,
                 keep_tmp=get_par(set_bb.keep_tmp,tel))
 
+
+            # strip headers from image- or table-dependent keywords
+            header_new.strip()
+            header_trans.strip()
+
             # add offset between RA/DEC-CNTR coords and ML/BG field
             # definition to the new header
             radec_offset (header_new, filename)
+
 
         except Exception as e:
             #log.exception(traceback.format_exc())
@@ -2266,11 +2283,16 @@ def blackbox_reduce (filename):
                     log.info ('updating new catalog header with QC flags')
                     # update full-source catalog fits header with latest
                     # qc-flags
-                    update_cathead (fits_tmp_cat, header_new)
+                    update_imcathead (fits_tmp_cat, header_new,
+                                      create_hdrfile=True)
 
 
-                # same for transient catalog
-                header_newtrans = header_new+header_trans
+                # same for transient catalog; N.B. header.strip() will
+                # strip header in place, and return None, so use
+                # header.copy(strip=True) to return stripped header
+                header_newtrans = header_new.copy()
+                header_newtrans.update(header_trans)
+
                 tqc_flag = run_qc_check (header_newtrans, tel,
                                          check_key_type='trans')
                 if qc_flag=='red' or tqc_flag=='red':
@@ -2283,13 +2305,34 @@ def blackbox_reduce (filename):
                 else:
                     # update transient catalog header with latest qc-flags
                     log.info ('updating trans catalog header with QC flags')
-                    update_cathead (fits_tmp_trans, header_newtrans)
+                    try:
+                        # first try using astropy
+                        update_imcathead (fits_tmp_trans, header_newtrans,
+                                          create_hdrfile=True, use_fitsio=False)
+                    except Exception as e:
+                        # in case of an exception due to a very large
+                        # transient catalog, resort to fitsio
+                        log.info ('exception occurred while updating transient '
+                                  'catalog {} using astropy; now trying with '
+                                  'fitsio: {}'.format(fits_tmp_trans, e))
+                        update_imcathead (fits_tmp_trans, header_newtrans,
+                                          create_hdrfile=True, use_fitsio=True)
+
+
+                    # also update the trans_light header
+                    fits_tmp_light = fits_tmp_trans.replace('.fits',
+                                                            '_light.fits')
+                    if isfile(fits_tmp_light):
+                        update_imcathead (fits_tmp_light, header_newtrans)
+                    else:
+                        log.warn ('{} does not exist'.format(fits_tmp_light))
+
 
 
                 # update reduced new image header with extended header
                 # from ZOGY's optimal_subtraction; no need to update
                 # the ref image header
-                update_imhead (new_fits, header_new)
+                update_imcathead (new_fits, header_new, create_hdrfile=True)
 
 
 
@@ -2362,7 +2405,8 @@ def blackbox_reduce (filename):
 
 
     if get_par(set_zogy.timing,tel):
-        log_timing_memory (t0=t_blackbox_reduce, label='blackbox_reduce at end')
+        log_timing_memory (t0=t_blackbox_reduce,
+                           label='in blackbox_reduce at end')
 
     close_log(log, logfile)
     clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel))
@@ -2814,6 +2858,9 @@ def call_match2SSO(filename, tel):
 
 def update_cathead (filename, header):
 
+    """obsolete: replaced by zogy.update_imcathead"""
+
+
     if False:
         # CHECK!!! temporarily making copy of transient
         # catalog before header is updated
@@ -2897,6 +2944,8 @@ def update_cathead (filename, header):
 
 def update_imhead (filename, header, create_hdrfile=True):
 
+    """obsolete: replaced by zogy.update_imcathead"""
+
     # update image header with extended header from ZOGY's
     # optimal_subtraction
 
@@ -2929,6 +2978,8 @@ def update_imhead (filename, header, create_hdrfile=True):
 
 def copy_header (fits_dest, header_src):
 
+    """obsolete: replaced by zogy.update_imcathead"""
+
     """function to copy header of [fits_src] to [fits_dest]; all keywords
        starting from [key_start] are first removed from the header of
        [fits_dest], and then the corresponding keywords are copied
@@ -2959,6 +3010,8 @@ def copy_header (fits_dest, header_src):
 ################################################################################
 
 def process_keys (hdr_dest, hdr_src=None, key_start='BUNIT'):
+
+    """obsolete: replaced by zogy.update_imcathead"""
 
     # if hdr_src is not defined, loop through hdr_dest to delete the
     # keywords; if it is, loop through the hdr_src keys to copy them
@@ -3459,7 +3512,7 @@ def get_flatstats (data, header, data_mask, tel=None):
 
 
     if get_par(set_zogy.timing,tel):
-        log_timing_memory (t0=t, label='get_flatstats')
+        log_timing_memory (t0=t, label='in get_flatstats')
 
     return
 
@@ -3622,8 +3675,7 @@ def copy_files2keep (src_base, dest_base, ext2keep, move=True, run_fpack=True):
                                         # processed by zogy
                                         log.info ('updating fits header of {}'
                                                   .format(dest_file_fz))
-                                        update_imhead (dest_file_fz, header_src,
-                                                       create_hdrfile=False)
+                                        update_imcathead (dest_file_fz, header_src)
 
                             else:
                                 log.info ('data of existing image {} is '
@@ -3768,7 +3820,7 @@ def sat_detect (data, header, data_mask, header_mask, tmp_path, nbin=2):
 
 
     if get_par(set_zogy.timing,tel):
-        log_timing_memory (t0=t, label='sat_detect')
+        log_timing_memory (t0=t, label='in sat_detect')
 
     return data_mask
 
@@ -3879,7 +3931,7 @@ def cosmics_corr (data, header, data_mask, header_mask):
 
 
     if get_par(set_zogy.timing,tel):
-        log_timing_memory (t0=t, label='cosmics_corr')
+        log_timing_memory (t0=t, label='in cosmics_corr')
 
     return data, data_mask
 
@@ -3970,7 +4022,7 @@ def mask_init (data, header, filt, imgtype):
 
 
     if get_par(set_zogy.timing,tel):
-        log_timing_memory (t0=t, label='mask_init')
+        log_timing_memory (t0=t, label='in mask_init')
 
     return data_mask.astype('uint8'), header_mask
 
@@ -4614,7 +4666,7 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True,
 
 
     if get_par(set_zogy.timing,tel):
-        log_timing_memory (t0=t, label='master_prep')
+        log_timing_memory (t0=t, label='in master_prep')
 
 
     return fits_master
@@ -4764,7 +4816,7 @@ def get_nearest_master (date_eve, imgtype, fits_master, filt=None):
 
 
     if get_par(set_zogy.timing,tel):
-        log_timing_memory (t0=t, label='get_nearest_master')
+        log_timing_memory (t0=t, label='in get_nearest_master')
 
 
     return par2return
@@ -5534,7 +5586,7 @@ def set_header(header, filename):
         telescop = 'MeerLICHT-1'
     if tel[0:2]=='BG':
         origin = 'BlackGEM, La Silla, ESO'
-        mpc_code = '809'
+        mpc_code = 'X17'
         telescop = 'BlackGEM-{}'.format(tel[2:])
 
     edit_head(header, 'ORIGIN', value=origin, comments='Origin of data')
@@ -5942,7 +5994,7 @@ def os_corr (data, header, imgtype, xbin=1, ybin=1, data_limit=2000, tel=None):
 
 
     if get_par(set_zogy.timing,tel):
-        log_timing_memory (t0=t, label='os_corr')
+        log_timing_memory (t0=t, label='in os_corr')
 
     return data_out
 
@@ -6065,7 +6117,7 @@ def xtalk_corr (data, crosstalk_file):
 
 
     if get_par(set_zogy.timing,tel):
-        log_timing_memory (t0=t, label='xtalk_corr')
+        log_timing_memory (t0=t, label='in xtalk_corr')
 
     return data
 
@@ -6113,7 +6165,7 @@ def nonlin_corr(data, nonlin_corr_file):
 
 
     if get_par(set_zogy.timing,tel):
-        log_timing_memory (t0=t, label='nonlin_corr')
+        log_timing_memory (t0=t, label='in nonlin_corr')
 
     return data
 
@@ -6141,7 +6193,7 @@ def gain_corr(data, header, tel=None):
                                              'channel {}'.format(i_chan+1))
 
     if get_par(set_zogy.timing,tel):
-        log_timing_memory (t0=t, label='gain_corr')
+        log_timing_memory (t0=t, label='in gain_corr')
 
     return data
 
