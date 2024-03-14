@@ -90,7 +90,8 @@ mlbg_fieldIDs = '{}/MLBG_FieldIDs_Feb2022_nGaia.fits'.format(cal_dir)
 
 ################################################################################
 
-def run_blackbox_slurm (date=None, telescope=None, runtime='4:00:00'):
+def run_blackbox_slurm (date=None, telescope=None, mode='night',
+                        runtime='4:00:00'):
 
     # create general logfile based on date/time
     genlogfile = '{}/BG_{}.log'.format(log_dir,
@@ -100,10 +101,6 @@ def run_blackbox_slurm (date=None, telescope=None, runtime='4:00:00'):
     fileHandler.setLevel('INFO')
     log.addHandler(fileHandler)
     log.info ('general logfile created: {}'.format(genlogfile))
-
-
-    # mode is night by default
-    mode = 'night'
 
 
     # read field ID table including number of expected Gaia sources
@@ -130,11 +127,11 @@ def run_blackbox_slurm (date=None, telescope=None, runtime='4:00:00'):
         # new files or wait for the end of the night once all images
         # have been processed
         if date != date_today:
+            log.info ('input date specified {} is different from today\'s date '
+                      '{}; forcing processing to run in day mode'
+                      .format(date, date_today))
             mode = 'day'
 
-
-    # force day mode
-    #mode = 'day'
 
 
     # create list of all fits files already present in [read_path]
@@ -260,10 +257,20 @@ def run_blackbox_slurm (date=None, telescope=None, runtime='4:00:00'):
 
             log.info ('filename: {}'.format(filename))
 
+            process = False
             if filename:
 
                 # infer telescope from first letters of filename
                 tel = filename.split('/')[-1][0:3]
+
+                # only process if tel in tels_running and it is
+                # consistent with input telescope (which could be
+                # 'BG')
+                if tel in tels_running and telescope in tel:
+                    process = True
+
+
+            if process:
 
                 # Python command to execute
                 python_cmdstr = (
@@ -292,9 +299,9 @@ def run_blackbox_slurm (date=None, telescope=None, runtime='4:00:00'):
                     # different partition
                     try:
                         # extract field ID from header
-                        hdr = read_hdulist(filename, get_data=False,
-                                           get_header=True)
-                        if 'OBJECT' in hdr:
+                        header = read_hdulist(filename, get_data=False,
+                                              get_header=True)
+                        if 'OBJECT' in header:
                             field_id = int(header['OBJECT'])
                             # set partition depending on ngaia
                             ngaia = ngaia_dict[field_id]
@@ -306,10 +313,10 @@ def run_blackbox_slurm (date=None, telescope=None, runtime='4:00:00'):
                                       '{}; using partition {} for {}'
                                       .format(field_id, ngaia, partition,
                                               filename))
-                    except:
+                    except Exception as e:
                         log.warning ('exception occurred when inferring ngaia '
-                                     'for {}; using default partition ({})'
-                                     .format(filename, partition))
+                                     'for {}; using default partition ({}): {}'
+                                     .format(filename, partition, e))
 
 
 
@@ -421,14 +428,9 @@ def run_blackbox_slurm (date=None, telescope=None, runtime='4:00:00'):
 
 
 
-    # create night report and weather screenshot
-    if mode == 'night':
-        screenshot = True
-    else:
-        # in day mode, do not make screenshot, since it's an older
-        # date that is being processed
-        screenshot = False
-
+    # for La Silla, can always make a screenshot of a particular
+    # night (as opposed to Sutherland), so switch it on
+    screenshot = True
 
     for tel in tels_running:
         if telescope in tel:
@@ -1417,14 +1419,18 @@ def main ():
                                      'cluster')
     parser.add_argument('--date', type=str, default=None,
                         help='date to process (yyyymmdd, yyyy-mm-dd, yyyy/mm/dd '
-                        'or yyyy.mm.dd); default=today (date change is at local noon)')
+                        'or yyyy.mm.dd); default=today (date change is at local '
+                        'noon)')
     parser.add_argument('--telescope', type=str, default='BG', help='telescope')
+    parser.add_argument('--mode', choices=['day', 'night'], default='night',
+                        help='processing mode; night mode will also process new '
+                        'incoming images')
     parser.add_argument('--runtime', type=str, default='4:00:00',
                         help='runtime requested per image; default=4:00:00')
     args = parser.parse_args()
 
 
-    run_blackbox_slurm (args.date, args.telescope, runtime=args.runtime)
+    run_blackbox_slurm (args.date, args.telescope, args.mode, args.runtime)
 
 
 ################################################################################
