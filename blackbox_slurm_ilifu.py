@@ -60,7 +60,9 @@ obs_lon = 20.8112
 obs_timezone = 'Africa/Johannesburg'
 
 
-def run_blackbox_slurm (date=None, nthreads=4, runtime='4:00:00'):
+################################################################################
+
+def run_blackbox_slurm (date=None, nthreads=4, mode='night', runtime='4:00:00'):
 
     # create general logfile based on date/time
     genlogfile = '{}/{}_{}.log'.format(genlog_dir, tel,
@@ -70,9 +72,6 @@ def run_blackbox_slurm (date=None, nthreads=4, runtime='4:00:00'):
     fileHandler.setLevel('INFO')
     log.addHandler(fileHandler)
     log.info ('general logfile created: {}'.format(genlogfile))
-
-    # mode is night by default
-    mode = 'night'
 
 
     # read field ID table including number of expected Gaia sources
@@ -99,6 +98,9 @@ def run_blackbox_slurm (date=None, nthreads=4, runtime='4:00:00'):
         # new files or wait for the end of the night once all images
         # have been processed
         if date != date_today:
+            log.info ('input date specified {} is different from today\'s date '
+                      '{}; forcing processing to run in day mode'
+                      .format(date, date_today))
             mode = 'day'
 
 
@@ -192,17 +194,21 @@ def run_blackbox_slurm (date=None, nthreads=4, runtime='4:00:00'):
 
                 # use single thread for calibration files
                 if np.any([s in filename.lower()
-                           for s in ['bias','flat','dark']]):
+                           for s in ['bias', 'flat', 'dark']]):
                     nthreads = 1
 
                 else:
-                    # for object images, if field contains many Gaia
-                    # sources, use more threads
+
+                    # default number of threads for object images
+                    nthreads = 2
+
+                    # if field contains many Gaia sources, use more
+                    # threads
                     try:
                         # extract field ID from header
-                        hdr = read_hdulist(filename, get_data=False,
-                                           get_header=True)
-                        if 'OBJECT' in hdr:
+                        header = read_hdulist(filename, get_data=False,
+                                              get_header=True)
+                        if 'OBJECT' in header:
                             field_id = int(header['OBJECT'])
                             # set nthreads depending on ngaia
                             ngaia = ngaia_dict[field_id]
@@ -215,10 +221,10 @@ def run_blackbox_slurm (date=None, nthreads=4, runtime='4:00:00'):
                                       '{}; using {} threads for {}'
                                       .format(field_id, ngaia, nthreads,
                                               filename))
-                    except:
+                    except Exception as e:
                         log.warning ('exception occurred when inferring ngaia '
-                                     'for {}; using default nthreads ({})'
-                                     .format(filename, nthreads))
+                                     'for {}; using default nthreads ({}): {}'
+                                     .format(filename, nthreads, e))
 
 
                 # process it through a SLURM batch job
@@ -777,14 +783,15 @@ def main ():
                         'or yyyy.mm.dd); default=today (date change is at local noon)')
     parser.add_argument('--nthreads', type=int, default=4,
                         help='number of threads/CPUs to use per image; default=4')
+    parser.add_argument('--mode', choices=['day', 'night'], default='night',
+                        help='processing mode; night mode will also process new '
+                        'incoming images; default=night')
     parser.add_argument('--runtime', type=str, default='4:00:00',
                         help='runtime requested per image; default=4:00:00')
     args = parser.parse_args()
 
 
-    run_blackbox_slurm (args.date,
-                        nthreads=args.nthreads,
-                        runtime=args.runtime)
+    run_blackbox_slurm (args.date, args.nthreads, args.mode, args.runtime)
 
 
 ################################################################################
