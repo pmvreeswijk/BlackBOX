@@ -475,7 +475,7 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
             size_thumbnails = get_par(set_zogy.size_thumbnails,telescope)
 
             result = format_cat(None, cat_dummy, cat_type=cat_type,
-                                header_toadd=header_dummy,
+                                header2add=header_dummy,
                                 apphot_radii=get_par(
                                     set_zogy.apphot_radii,telescope),
                                 dict_thumbnails=dict_thumbnails,
@@ -487,7 +487,7 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
 
         else:
             result = format_cat(None, cat_dummy, cat_type=cat_type,
-                                header_toadd=header_dummy,
+                                header2add=header_dummy,
                                 apphot_radii=get_par(
                                     set_zogy.apphot_radii,telescope),
                                 tel=telescope, set_zogy=set_zogy)
