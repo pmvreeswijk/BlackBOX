@@ -384,6 +384,261 @@ qc_range = {
 
 
     ################################################################################
+    # BG2
+    ################################################################################
+
+    'BG2': {
+
+        # 'raw' image header keywords
+        #'GPS-SHUT': {'default':'None', 'val_type': 'min_max','val_range': [ (0.85,0.89), (0.8,0.94), (-1e3,1e3) ],'key_type': 'full', 'pos': False, 'comment': '[s] Shutter time:(GPSEND-GPSSTART)-EXPTIME'},
+        'GPS-SHUT': {'default':'None', 'val_type': 'skip','val_range': [ (0.85,0.89), (0.8,0.94), (-1e3,1e3) ],'key_type': 'full', 'pos': False, 'comment': '[s] Shutter time:(GPSEND-GPSSTART)-EXPTIME'},
+
+        # Main processing steps
+        'XTALK-P' : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'key_type': 'full', 'pos': False, 'comment': 'corrected for crosstalk?'},
+        'NONLIN-P': {'default': False, 'val_type': 'bool', 'val_range': [ False ],                   'key_type': 'full', 'pos': False, 'comment': 'corrected for non-linearity?'},
+        'GAIN-P'  : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'key_type': 'full', 'pos': False, 'comment': 'corrected for gain?'},
+        'OS-P'    : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'key_type': 'full', 'pos': False, 'comment': 'corrected for overscan?'},
+        'MBIAS-P' : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                   'key_type': 'full', 'pos': False, 'comment': 'corrected for master bias?'},
+        'MBIAS-F' : {'default':'None', 'val_type': 'skip', 'val_range': None,                        'key_type': 'full', 'pos': False, 'comment': 'name of master bias applied'},
+        'MFLAT-P' : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'key_type': 'full', 'pos': False, 'comment': 'corrected for master flat?'},
+        'MFLAT-F' : {'default':'None', 'val_type': 'skip', 'val_range': None,                        'key_type': 'full', 'pos': False, 'comment': 'name of master flat applied'},
+        'MFRING-P': {'default': False, 'val_type': 'bool', 'val_range': {'u': [ False ],
+                                                                         'g': [ False ],
+                                                                         'q': [ False ],
+                                                                         'r': [ False ],
+                                                                         'i': [ False ],
+                                                                         'z': [ True, False ]},      'key_type': 'full', 'pos': False, 'comment': 'corrected for master fringe map?'},
+        'MFRING-F': {'default':'None', 'val_type': 'skip', 'val_range': None,                        'key_type': 'full', 'pos': False, 'comment': 'name of master fringe map applied'},
+        'COSMIC-P': {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'key_type': 'full', 'pos': False, 'comment': 'corrected for cosmics rays?'},
+        'SAT-P'   : {'default': False, 'val_type': 'skip', 'val_range': [ True, False ],             'key_type': 'full', 'pos': False, 'comment': 'processed for satellite trails?'},
+        'S-P'     : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'key_type': 'full', 'pos': False, 'comment': 'successfully processed by SExtractor?'},
+        'A-P'     : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'key_type': 'full', 'pos': False, 'comment': 'successfully processed by Astrometry.net?'},
+        'PSF-P'   : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'key_type': 'full', 'pos': False, 'comment': 'successfully processed by PSFEx?'},
+        'PC-P'    : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'key_type': 'full', 'pos': False, 'comment': 'successfully processed by phot. calibration?'},
+        'SWARP-P' : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'key_type': 'trans', 'pos': False, 'comment': 'reference image successfully SWarped?'},
+        'Z-P'     : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'key_type': 'trans', 'pos': False, 'comment': 'successfully processed by ZOGY?'},
+        'MC-P'    : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'key_type': 'trans', 'pos': False, 'comment': 'successfully processed by MeerCRAB?'},
+
+
+        # Channel bias levels [e-]
+        # mean of BG3 (BG4) flats through the end of May 2023 is around 3150 (3350)
+        'BIASMEAN': {'default':'None', 'val_type': 'skip','val_range': [ (  3200, 100) ],            'key_type': 'full', 'pos': True , 'comment': '[e-] average all channel means vertical overscan'},
+
+        # Channel read noise [e-]
+        # BG3 RDNOISE is fairly well behaved around 10.7 e-, while for BG4 it appears bimodal with a peak around 11.1 and 13.4 e- (from flats through the end of May 2023)
+        'RDNOISE' : {'default':'None', 'val_type': 'min_max','val_range': [ (5,14), (5,17), (5,20) ], 'key_type': 'full', 'pos': True , 'comment': '[e-] average all channel sigmas vertical overscan'},
+
+
+        # master bias (these keywords should not end up in dummy catalogs: keytype should not be equal to 'full' or 'trans')
+        'NBIAS'   : {'default':'None', 'val_type': 'min_max', 'val_range': [ (10,50), (7,9), (5,6) ], 'key_type': 'mbias', 'pos': True , 'comment': 'number of bias frames combined'},
+        'MBMEAN'  : {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 5) ],                'key_type': 'mbias', 'pos': False, 'comment': '[e-] mean master bias'},
+        'MBRDN'   : {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 5) ],                'key_type': 'mbias', 'pos': True , 'comment': '[e-] sigma (STD) master bias'},
+        'MB-NDAYS': {'default':'None', 'val_type': 'min_max', 'val_range': [ (0,3), (3,7), (7,30) ],  'key_type': 'mbias', 'pos': True , 'comment': '[days] time between image and master bias used'},
+
+        # individual flats (these keywords should not end up in dummy catalogs: keytype should not be equal to 'full' or 'trans')
+        # from STA Test Report: FWC in ADU range from 33,500 to 37,700 counts (bias-subtracted); let's take 30k counts as upper limit
+        'MEDSEC'  : {'default':'None', 'val_type': 'min_max', 'val_range': [ (2.35*20e3, 2.35*25e3), (2.35*15e3, 2.35*28e3), (2.35*10e3, 2.35*30e3) ], 'key_type': 'flat', 'pos': True , 'comment': '[e-] median flat over STATSEC (bias-subtracted)'},
+        #'RSTDSEC' : {'default':'None', 'val_type': 'sigma', 'val_range': [ (0, 0.01) ],              'key_type': None, 'pos': True , 'comment': 'relative sigma (STD) flat over STATSEC'},
+        #'FLATRSTD': {'default':'None', 'val_type': 'sigma', 'val_range': [ (0,0.025),(0,0.026),(0,0.027)], 'key_type': None, 'pos': True , 'comment': 'relative sigma (STD) flat'},
+
+        # increased max yellow and orange value of i- and z-band flats with 0.01 and 0.02, respectively, on 2024-01-03 because this value has increased since around 17 November 2023
+        'RDIF-MAX': {'default':'None', 'val_type': 'min_max', 'val_range': {'u': [ (0, 0.030), (0, 0.035), (0, 0.040) ],
+                                                                            'g': [ (0, 0.018), (0, 0.019), (0, 0.020) ],
+                                                                            'q': [ (0, 0.018), (0, 0.020), (0, 0.022) ],
+                                                                            'r': [ (0, 0.017), (0, 0.018), (0, 0.019) ],
+                                                                            'i': [ (0, 0.020), (0, 0.033), (0, 0.046) ],
+                                                                            'z': [ (0, 0.045), (0, 0.060), (0, 0.075) ]}, 'key_type': 'flat', 'pos': True , 'comment': '(max(subs)-min(subs)) / (max(subs)+min(subs))'},
+
+        'RSTD-MAX': {'default':'None', 'val_type': 'min_max', 'val_range': {'u': [ (0, 0.06) ],
+                                                                            'g': [ (0, 0.06) ],
+                                                                            'q': [ (0, 0.06) ],
+                                                                            'r': [ (0, 0.06) ],
+                                                                            'i': [ (0, 0.06) ],
+                                                                            'z': [ (0, 0.06) ]},                'key_type': 'flat', 'pos': True , 'comment': 'max. relative sigma (STD) of subimages'},
+
+        # master flat (these keywords should not end up in dummy catalogs: keytype should not be equal to 'full' or 'trans')
+        'NFLAT'   : {'default':'None', 'val_type': 'min_max', 'val_range': [ (9,50), (7,8), (5,6) ],            'key_type': 'mflat', 'pos': True , 'comment': 'number of flat frames combined'},
+        'MFMEDSEC': {'default':'None', 'val_type': 'sigma',   'val_range': [ (         1,  0.001) ],            'key_type': 'mflat', 'pos': False, 'comment': 'median master flat over STATSEC'},
+        'MFSTDSEC': {'default':'None', 'val_type': 'sigma',   'val_range': [ (         0,   0.01) ],            'key_type': 'mflat', 'pos': True , 'comment': 'sigma (STD) master flat over STATSEC'},
+        'FLATDITH': {'default':'None', 'val_type': 'bool',    'val_range': [ True ],                            'key_type': 'mflat', 'pos': False, 'comment': 'majority of flats were dithered'},
+        'MF-NDAYS': {'default':'None', 'val_type': 'min_max', 'val_range': [ (0,3), (3,7), (7,30) ],            'key_type': 'mflat', 'pos': True , 'comment': '[days] time between image and master flat used'},
+
+        # general
+        'AIRMASS' : {'default':'None', 'val_type': 'min_max', 'val_range': [ (1,2), (2,2.5), (2.5, 2.95) ],     'key_type': 'full', 'pos': True , 'comment': 'Airmass (based on RA, DEC, DATE-OBS)'},
+        'N-INFNAN': {'default':'None', 'val_type': 'min_max', 'val_range': [ (0,0), (1,10), (11,1e6) ],         'key_type': 'full', 'pos': True , 'comment': 'number of pixels with infinite/nan values'},
+
+        # cosmics/satellites
+        'NCOSMICS': {'default':'None', 'val_type': 'min_max', 'val_range': [ (3,50), (2,100), (0,500) ],        'key_type': 'full', 'pos': True , 'comment': '[/s] number of cosmic rays identified'},
+        'NSATS'   : {'default':'None', 'val_type': 'min_max', 'val_range': [ (0,10), (10,20), (20,100) ],       'key_type': 'full', 'pos': True , 'comment': 'number of satellite trails identified'},
+
+        # SExtractor
+        'S-NOBJ'  : {'default':'None', 'val_type': 'skip',    'val_range': [ (4e3,1e7), (3e3,1e7), (1e3,1e7) ], 'key_type': 'full', 'pos': True , 'comment': 'number of objects detected by SExtractor'},
+        'NOBJECTS': {'default':'None', 'val_type': 'min_max', 'val_range': [ (4e3,1e7), (1e3,1e7), (1e2,1e7) ], 'key_type': 'full', 'pos': True , 'comment': 'number of >= [NSIGMA]-sigma objects'},
+        'S-SEEING': {'default':'None', 'val_type': 'min_max', 'val_range': [ (0.5,2), (0.5,4), (0.5,7) ],       'key_type': 'full', 'pos': True , 'comment': '[arcsec] SExtractor seeing estimate'},
+        'S-SEESTD': {'default':'None', 'val_type': 'skip',    'val_range':  {'u': [ (0.1,0.3) ],
+                                                                             'g': [ (0.1,0.1) ],
+                                                                             'q': [ (0.1,0.1) ],
+                                                                             'r': [ (0.1,0.1) ],
+                                                                             'i': [ (0.1,0.1) ],
+                                                                             'z': [ (0.1,0.1) ]},               'key_type': 'full', 'pos': True , 'comment': '[arcsec] sigma (STD) SExtractor seeing'},
+        'S-ELONG' : {'default':'None', 'val_type': 'sigma',   'val_range': [ (1.1,0.2) ],                       'key_type': 'full', 'pos': True , 'comment': 'SExtractor ELONGATION (A/B) estimate'},
+        'S-ELOSTD': {'default':'None', 'val_type': 'skip',    'val_range': [ (0.04,0.04) ],                     'key_type': 'full', 'pos': True , 'comment': 'sigma (STD) SExtractor ELONGATION (A/B)'},
+        'S-BKG'   : {'default':'None', 'val_type': 'min_max', 'val_range': [ (0,5e2), (0,5e3), (0,5e4) ],       'key_type': 'full', 'pos': False, 'comment': '[e-] median background full image'},
+        'S-BKGSTD': {'default':'None', 'val_type': 'skip',    'val_range': [ (15,10) ],                         'key_type': 'full', 'pos': True , 'comment': '[e-] sigma (STD) background full image'},
+
+        # Astrometry.net
+        'A-PSCALE': {'default':'None', 'val_type': 'sigma',   'val_range': [ (0.5644, 0.00015) ],               'key_type': 'full', 'pos': True , 'comment': '[arcsec/pix] pixel scale WCS solution'},
+        'A-ROT'   : {'default':'None', 'val_type': 'min_max', 'val_range': [ (89,91), (87,93), (-180,180) ],    'key_type': 'full', 'pos': False, 'comment': '[deg] rotation WCS solution (E of N for "up")'},
+
+        'A-CAT-F' : {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full', 'pos': False, 'comment': 'astrometric catalog'},
+        'A-NAST'  : {'default':'None', 'val_type': 'min_max', 'val_range': [ (5e2,1e4), (100, 3e4), (20, 1e5) ], 'key_type': 'full', 'pos': True , 'comment': 'number of brightest stars used for WCS'},
+        'A-DRA'   : {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 0.02)],                        'key_type': 'full', 'pos': False, 'comment': '[arcsec] dRA median offset to astrom. catalog'},
+        'A-DDEC'  : {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 0.02)],                        'key_type': 'full', 'pos': False, 'comment': '[arcsec] dDEC median offset to astrom. catalog'},
+        'A-DRASTD': {'default':'None', 'val_type': 'sigma',   'val_range': {'u': [ (0.06, 0.04) ],
+                                                                            'g': [ (0.03, 0.02) ],
+                                                                            'q': [ (0.03, 0.02) ],
+                                                                            'r': [ (0.03, 0.02) ],
+                                                                            'i': [ (0.03, 0.02) ],
+                                                                            'z': [ (0.03, 0.02) ]},             'key_type': 'full', 'pos': True , 'comment': '[arcsec] dRA sigma (STD) offset'},
+
+        'A-DDESTD': {'default':'None', 'val_type': 'sigma',   'val_range': {'u': [ (0.06, 0.04) ],
+                                                                            'g': [ (0.03, 0.02) ],
+                                                                            'q': [ (0.03, 0.02) ],
+                                                                            'r': [ (0.03, 0.02) ],
+                                                                            'i': [ (0.03, 0.02) ],
+                                                                            'z': [ (0.03, 0.02) ]},             'key_type': 'full', 'pos': True , 'comment': '[arcsec] dDEC sigma (STD) offset'},
+
+        # PSFEx
+        'PSF-NOBJ': {'default':'None', 'val_type': 'min_max', 'val_range': [ (500,2e5), (100,2e5), (10,2e5) ],  'key_type': 'full', 'pos': True , 'comment': 'number of accepted PSF stars'},
+        'PSF-CHI2': {'default':'None', 'val_type': 'sigma',   'val_range': [ (1.1, 0.2) ],                      'key_type': 'full', 'pos': True , 'comment': 'final reduced chi-squared PSFEx fit'},
+        'PSF-SEE' : {'default':'None', 'val_type': 'min_max', 'val_range': [ (0.5,2), (0.5,4), (0.5,7) ],       'key_type': 'full', 'pos': True , 'comment': '[arcsec] image seeing inferred by PSFEx'},
+
+        # photometric calibration (PC)
+        'PC-CAT-F': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full', 'pos': False, 'comment': 'photometric catalog'},
+        'PC-NCAL' : {'default':'None', 'val_type': 'min_max', 'val_range': [ (50, 1e5), (20, 1e5), (5,1e5) ],   'key_type': 'full', 'pos': True , 'comment': 'number of brightest photcal stars used'},
+
+        'PC-ZP'   : {'default':'None', 'val_type': 'min_max', 'val_range': {'u': [ (21.5, 22.1), (20.8, 22.8), (0, 30) ],
+                                                                            'g': [ (22.5, 23.1), (21.8, 23.8), (0, 30) ],
+                                                                            'q': [ (23.4, 24.0), (22.7, 24.7), (0, 30) ],
+                                                                            'r': [ (22.5, 23.1), (21.8, 23.8), (0, 30) ],
+                                                                            'i': [ (22.3, 22.9), (21.6, 23.6), (0, 30) ],
+                                                                            'z': [ (21.4, 22.0), (20.7, 22.7), (0, 30) ]}, 'key_type': 'full', 'pos': True , 'comment': '[mag] zeropoint=m_AB+2.5*log10(flux[e-/s])+A*k'},
+        # previously using sigma method
+        #'PC-ZP'   : {'default':'None', 'val_type': 'sigma',   'val_range': {'u': [ (22.4, 0.15) ],
+        #                                                                    'g': [ (23.3, 0.15) ],
+        #                                                                    'q': [ (23.8, 0.15) ],
+        #                                                                    'r': [ (22.9, 0.15) ],
+        #                                                                    'i': [ (22.3, 0.15) ],
+        #                                                                    'z': [ (21.4, 0.15) ]},              'key_type': 'full', 'pos': True , 'comment': '[mag] zeropoint=m_AB+2.5*log10(flux[e-/s])+A*k'},
+
+        'PC-ZPSTD': {'default':'None', 'val_type': 'sigma',   'val_range': {'u': [ (0.07, 0.03) ],
+                                                                            'g': [ (0.03, 0.03) ],
+                                                                            'q': [ (0.02, 0.03) ],
+                                                                            'r': [ (0.02, 0.03) ],
+                                                                            'i': [ (0.02, 0.03) ],
+                                                                            'z': [ (0.03, 0.03) ]},             'key_type': 'full', 'pos': True , 'comment': '[mag] sigma (STD) zeropoint sigma'},
+
+        # updated PC-MZPD values and also ZPSTD above to estimates based on uqi data set from Simon on GW190814; increased because of variation in crowded fields such as SMC (16000)
+        #'PC-MZPD' : {'default':'None', 'val_type': 'sigma',   'val_range': {'u': [ (0.07, 0.05) ],
+        #                                                                    'g': [ (0.03, 0.05) ],
+        #                                                                    'q': [ (0.02, 0.05) ],
+        #                                                                    'r': [ (0.02, 0.05) ],
+        #                                                                    'i': [ (0.02, 0.05) ],
+        #                                                                    'z': [ (0.03, 0.05) ]},             'key_type': 'full', 'pos': True , 'comment': '[mag] maximum zeropoint difference between subimages'},
+
+        # let PC-MZPD scale with PC-ZPSTD ranges as 1st degree polynomial: PC-MZPD = 0.3 + 3.5 * PC-ZPSTD
+        'PC-MZPD' : {'default':'None', 'val_type': 'key',     'val_range': [ (0,'0.3+3.5*header[\'PC-ZPSTD\']') ], 'key_type': 'full', 'pos': True , 'comment': '[mag] maximum zeropoint difference between subimages'},
+
+
+        'PC-MZPS' : {'default':'None', 'val_type': 'skip',    'val_range': {'u': [ (0.01, 0.02) ],
+                                                                            'g': [ (0.01, 0.02) ],
+                                                                            'q': [ (0.01, 0.02) ],
+                                                                            'r': [ (0.01, 0.02) ],
+                                                                            'i': [ (0.01, 0.02) ],
+                                                                            'z': [ (0.01, 0.02) ]},             'key_type': 'full', 'pos': True , 'comment': '[mag] maximum zeropoint sigma (STD) of subimages'},
+
+        # N.B.: these limmags below are assuming 5 sigma, as set by source_nsigma in ZOGY settings file
+        # if that 5 sigma changes, these number need updating with correction: -2.5*log10(nsigma/5)!
+        'LIMMAG'  : {'default':'None', 'val_type': 'min_max', 'val_range': {'u': [ (18.9, 22.2), (18.2, 22.2), (0, 30) ],
+                                                                            'g': [ (20.0, 23.3), (19.3, 23.3), (0, 30) ],
+                                                                            'q': [ (20.5, 23.9), (19.8, 23.9), (0, 30) ],
+                                                                            'r': [ (19.8, 23.1), (19.1, 23.1), (0, 30) ],
+                                                                            'i': [ (19.2, 22.5), (18.5, 22.5), (0, 30) ],
+                                                                            'z': [ (18.0, 21.3), (17.3, 21.3), (0, 30) ]}, 'key_type': 'full', 'pos': True , 'comment': '[mag] full-frame 5-sigma limiting mag'},
+        # previously using sigma method
+        #'LIMMAG'  : {'default':'None', 'val_type': 'sigma',   'val_range': {'u': [ (19.2, 0.15) ],
+        #                                                                    'g': [ (20.3, 0.15) ],
+        #                                                                    'q': [ (20.8, 0.15) ],
+        #                                                                    'r': [ (20.1, 0.15) ],
+        #                                                                    'i': [ (19.5, 0.15) ],
+        #                                                                    'z': [ (18.3, 0.15) ]},              'key_type': 'full', 'pos': True , 'comment': '[mag] full-frame 5-sigma limiting magnitude'},
+
+
+        # check on offset between RA-CNTR, DEC-CNTR and the RA, DEC corresponding to the ML/BG field definition for a particular OBJECT or field ID
+        'RADECOFF': {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 0.15) ],                       'key_type': 'full',   'pos': True , 'comment': '[deg] offset RA,DEC-CNTR wrt ML/BG field grid'},
+
+
+
+        # Transients
+        'Z-DX'    : {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 0.04) ],                       'key_type': 'trans', 'pos': False, 'comment': '[pix] dx median offset full image'},
+        'Z-DY'    : {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 0.04) ],                       'key_type': 'trans', 'pos': False, 'comment': '[pix] dy median offset full image'},
+        'Z-DXSTD' : {'default':'None', 'val_type': 'sigma',   'val_range': [ (0.1, 0.1) ],                      'key_type': 'trans', 'pos': True , 'comment': '[pix] dx sigma (STD) offset full image'},
+        'Z-DYSTD' : {'default':'None', 'val_type': 'sigma',   'val_range': [ (0.1, 0.1) ],                      'key_type': 'trans', 'pos': True , 'comment': '[pix] dy sigma (STD) offset full image'},
+        'Z-FNR'   : {'default':'None', 'val_type': 'min_max', 'val_range': [ (0.7, 1.3), (0.4, 2.5), (0.06, 15) ],'key_type': 'trans', 'pos': True , 'comment': 'median flux ratio (Fnew/Fref) full image'},
+        'Z-FNRSTD': {'default':'None', 'val_type': 'sigma',   'val_range': {'u': [ (0.06, 0.03) ],
+                                                                            'g': [ (0.03, 0.03) ],
+                                                                            'q': [ (0.03, 0.03) ],
+                                                                            'r': [ (0.03, 0.03) ],
+                                                                            'i': [ (0.03, 0.03) ],
+                                                                            'z': [ (0.03, 0.03) ]},             'key_type': 'trans', 'pos': True , 'comment': 'sigma (STD) flux ratio (Fnew/Fref) full image'},
+
+        'Z-SCMED' : {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 0.30) ],                       'key_type': 'trans', 'pos': False, 'comment': 'median Scorr full image'},
+        'Z-SCSTD' : {'default':'None', 'val_type': 'sigma',   'val_range': [ (1, 0.15) ],                       'key_type': 'trans', 'pos': True , 'comment': 'sigma (STD) Scorr full image'},
+        'T-NTRANS': {'default':'None', 'val_type': 'skip',    'val_range': [ (100, 200)],                       'key_type': 'trans', 'pos': True , 'comment': 'number of >= [T-NSIGMA]-sigma transients (pre-vetting)'},
+        'T-FTRANS': {'default':'None', 'val_type': 'sigma',   'val_range': [ (0, 0.03) ],                       'key_type': 'trans', 'pos': True , 'comment': 'transient fraction: T-NTRANS / NOBJECTS'},
+
+        # N.B.: these limmags below are assuming 6 sigma, as set by transient_nsigma in ZOGY settings file
+        # if that 6 sigma changes, these number need updating with correction: -2.5*log10(nsigma/6)!
+        'T-LMAG' :  {'default':'None', 'val_type': 'min_max', 'val_range': {'u': [ (18.7, 22.0), (18.0, 22.0), (0, 30) ],
+                                                                            'g': [ (19.8, 23.1), (19.1, 23.1), (0, 30) ],
+                                                                            'q': [ (20.3, 23.6), (19.6, 23.6), (0, 30) ],
+                                                                            'r': [ (19.6, 22.9), (18.9, 22.9), (0, 30) ],
+                                                                            'i': [ (19.0, 22.3), (18.3, 22.3), (0, 30) ],
+                                                                            'z': [ (17.9, 21.2), (17.2, 21.2), (0, 30) ]}, 'key_type': 'trans', 'pos': True , 'comment': '[mag] full-frame transient [T-NSIGMA]-sigma lim. mag'},
+        # previously using sigma method:
+        #'T-LMAG' :  {'default':'None', 'val_type': 'sigma',   'val_range': {'u': [ (19.0, 0.15) ],
+        #                                                                    'g': [ (20.1, 0.15) ],
+        #                                                                    'q': [ (20.6, 0.15) ],
+        #                                                                    'r': [ (19.9, 0.15) ],
+        #                                                                    'i': [ (19.3, 0.15) ],
+        #                                                                    'z': [ (18.2, 0.15) ]},              'key_type': 'trans', 'pos': True , 'comment': '[mag] full-frame transient [T-NSIGMA]-sigma limiting mag'},
+
+
+        # some additional ones to make sure these are listed in the dummy output catalogs
+        'REDFILE':  {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': False, 'comment': 'BlackBOX reduced image name'},
+        'MASKFILE': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': False, 'comment': 'BlackBOX mask image name'},
+
+        'PSF-SIZE': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': True , 'comment': '[pix] size PSF image for optimal subtraction'},
+        'PSF-CFGS': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': True , 'comment': '[config. pix] size PSF configuration image'},
+        'PC-EXTCO': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': True , 'comment': '[mag] filter extinction coefficient (k) used'},
+        'AIRMASSC': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': True , 'comment': 'Airmass at image center'},
+        'RA-CNTR':  {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': False, 'comment': 'RA (ICRS) at image center (astrometry.net)'},
+        'DEC-CNTR': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': False, 'comment': 'DEC (ICRS) at image center (astrometry.net)'},
+
+        'NSIGMA':   {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': True , 'comment': '[sigma] input source detection threshold'},
+
+        'DUMCAT':   {'default': False, 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': False, 'comment': 'dummy catalog without sources?'},
+        'TDUMCAT':  {'default': False, 'val_type': 'skip',    'val_range': None,                                'key_type': 'trans',  'pos': False, 'comment': 'dummy transient catalog without sources?'},
+        'QC-FLAG':  {'default':'red',  'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': False, 'comment': 'QC flag color (green|yellow|orange|red)'},
+        'TQC-FLAG': {'default':'red',  'val_type': 'skip',    'val_range': None,                                'key_type': 'trans',  'pos': False, 'comment': 'transient QC flag (green|yellow|orange|red)'},
+
+        'T-NSIGMA': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'trans',  'pos': True , 'comment': '[sigma] input transient detection threshold'},
+
+        #
+    },
+
+
+    ################################################################################
     # BG3
     ################################################################################
 
