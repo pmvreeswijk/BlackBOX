@@ -129,7 +129,7 @@ bad_pixel_mask = {'ML1': '{}/ML1_bpm_0p2_20200727.fits.fz'.format(cal_dir),
                   'BG4':  '{}/BG4_bpm_0p2_20230531.fits.fz'.format(cal_dir)}
 
 # name of ML/BG field definition file
-mlbg_fieldIDs = '{}/MLBG_FieldIDs_Feb2022.fits'.format(cal_dir)
+mlbg_fieldIDs = '{}/MLBG_FieldIDs_Feb2022_nGaia.fits'.format(cal_dir)
 
 # name of file with non-linearity correcting spline
 nonlin_corr_file = '{}/nonlin_splines_20200501.pkl'.format(cal_dir)
