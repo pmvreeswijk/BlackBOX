@@ -2165,7 +2165,6 @@ def blackbox_reduce (filename):
                     # update full-source catalog header with latest
                     # qc-flags; transient catalog not needed
                     log.info ('updating new catalog header with QC flags')
-                    log.info ('header_new: {}'.format(header_new))
                     update_imcathead (fits_tmp_cat, header_new,
                                       create_hdrfile=True)
 
