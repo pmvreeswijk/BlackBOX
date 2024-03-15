@@ -437,7 +437,7 @@ qc_range = {
 
         # individual flats (these keywords should not end up in dummy catalogs: keytype should not be equal to 'full' or 'trans')
         # from STA Test Report: FWC in ADU range from 33,500 to 37,700 counts (bias-subtracted); let's take 30k counts as upper limit
-        'MEDSEC'  : {'default':'None', 'val_type': 'min_max', 'val_range': [ (2.35*20e3, 2.35*25e3), (2.35*15e3, 2.35*28e3), (2.35*10e3, 2.35*30e3) ], 'key_type': 'flat', 'pos': True , 'comment': '[e-] median flat over STATSEC (bias-subtracted)'},
+        'MEDSEC'  : {'default':'None', 'val_type': 'min_max', 'val_range': [ (2.69*20e3, 2.69*25e3), (2.69*15e3, 2.69*28e3), (2.69*10e3, 2.69*30e3) ], 'key_type': 'flat', 'pos': True , 'comment': '[e-] median flat over STATSEC (bias-subtracted)'},
         #'RSTDSEC' : {'default':'None', 'val_type': 'sigma', 'val_range': [ (0, 0.01) ],              'key_type': None, 'pos': True , 'comment': 'relative sigma (STD) flat over STATSEC'},
         #'FLATRSTD': {'default':'None', 'val_type': 'sigma', 'val_range': [ (0,0.025),(0,0.026),(0,0.027)], 'key_type': None, 'pos': True , 'comment': 'relative sigma (STD) flat'},
 
@@ -692,7 +692,7 @@ qc_range = {
 
         # individual flats (these keywords should not end up in dummy catalogs: keytype should not be equal to 'full' or 'trans')
         # from STA Test Report: FWC in ADU range from 28.6k to 36k counts (bias-subtracted), so take 25k counts as upper limit
-        'MEDSEC'  : {'default':'None', 'val_type': 'min_max', 'val_range': [ (2.6*17.5e3, 2.6*23e3), (2.6*15e3, 2.6*24e3), (2.6*10e3, 2.6*25e3) ], 'key_type': 'flat', 'pos': True , 'comment': '[e-] median flat over STATSEC (bias-subtracted)'},
+        'MEDSEC'  : {'default':'None', 'val_type': 'min_max', 'val_range': [ (2.64*17.5e3, 2.64*23e3), (2.64*15e3, 2.64*24e3), (2.64*10e3, 2.64*25e3) ], 'key_type': 'flat', 'pos': True , 'comment': '[e-] median flat over STATSEC (bias-subtracted)'},
         #'RSTDSEC' : {'default':'None', 'val_type': 'sigma', 'val_range': [ (0, 0.01) ],              'key_type': None, 'pos': True , 'comment': 'relative sigma (STD) flat over STATSEC'},
         #'FLATRSTD': {'default':'None', 'val_type': 'sigma', 'val_range': [ (0,0.025),(0,0.026),(0,0.027)], 'key_type': None, 'pos': True , 'comment': 'relative sigma (STD) flat'},
 
@@ -946,7 +946,7 @@ qc_range = {
 
         # individual flats (these keywords should not end up in dummy catalogs: keytype should not be equal to 'full' or 'trans')
         # from STA Test Report: FWC in ADU range from 33,500 to 37,700 counts (bias-subtracted); let's take 30k counts as upper limit
-        'MEDSEC'  : {'default':'None', 'val_type': 'min_max', 'val_range': [ (2.35*20e3, 2.35*25e3), (2.35*15e3, 2.35*28e3), (2.35*10e3, 2.35*30e3) ], 'key_type': 'flat', 'pos': True , 'comment': '[e-] median flat over STATSEC (bias-subtracted)'},
+        'MEDSEC'  : {'default':'None', 'val_type': 'min_max', 'val_range': [ (2.37*20e3, 2.37*25e3), (2.37*15e3, 2.37*28e3), (2.37*10e3, 2.37*30e3) ], 'key_type': 'flat', 'pos': True , 'comment': '[e-] median flat over STATSEC (bias-subtracted)'},
         #'RSTDSEC' : {'default':'None', 'val_type': 'sigma', 'val_range': [ (0, 0.01) ],              'key_type': None, 'pos': True , 'comment': 'relative sigma (STD) flat over STATSEC'},
         #'FLATRSTD': {'default':'None', 'val_type': 'sigma', 'val_range': [ (0,0.025),(0,0.026),(0,0.027)], 'key_type': None, 'pos': True , 'comment': 'relative sigma (STD) flat'},
 
