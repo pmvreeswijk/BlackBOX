@@ -125,6 +125,7 @@ crosstalk_file = '{}/crosstalk_20180620.txt'.format(cal_dir)
 # blackbox, e.g. ML1_bpm_r_0p2_20200727.fits.fz, instead of making
 # these dictionaries with the filters as keys.
 bad_pixel_mask = {'ML1': '{}/ML1_bpm_0p2_20200727.fits.fz'.format(cal_dir),
+                  'BG2':  '{}/BG2_bpm_0p2_20240312.fits.fz'.format(cal_dir),
                   'BG3':  '{}/BG3_bpm_0p2_20230531.fits.fz'.format(cal_dir),
                   'BG4':  '{}/BG4_bpm_0p2_20230531.fits.fz'.format(cal_dir)}
 
@@ -175,14 +176,21 @@ gain = {'ML1': [2.112, 2.125, 2.130, 2.137, 2.156, 2.158, 2.163, 2.164,
         #'ML1': [2.1022, 2.1274, 2.1338, 2.1487, 2.1699, 2.1659, 2.1817, 2.1237,
         #        2.0904, 2.1186, 2.1202, 2.1407, 2.1476, 2.1483, 2.1683, 2.1518],
 
+
         # for BGs: starting gain from the STA/Archon test reports (Mode 2, 1MHz),
         #          fine-tuned by gain correction factors from master flats
-        'BG2': [2.6615, 2.6922, 2.6976, 2.6733, 2.6650, 2.6897, 2.7162, 2.6904,
-                2.6018, 2.7345, 2.7181, 2.7034, 2.7185, 2.7063, 2.6797, 2.7589],
+
+        'BG2': [2.694, 2.685, 2.691, 2.661, 2.655, 2.673, 2.695, 2.659,
+                2.654, 2.748, 2.712, 2.717, 2.714, 2.702, 2.673, 2.743],
+        #'BG2': [2.6615, 2.6922, 2.6976, 2.6733, 2.6650, 2.6897, 2.7162, 2.6904,
+        #        2.6018, 2.7345, 2.7181, 2.7034, 2.7185, 2.7063, 2.6797, 2.7589],
+        # fine-tuned using median header GAINCF?? values from q-band
+        # master flats taken from 10-14 March 2024
+        #np.array([1.012, 0.997, 0.996, 0.998, 1.005, 0.994, 0.992, 0.988,
+        #          1.020, 1.005, 0.998, 1.005, 0.998, 0.998, 0.997, 0.984])
 
         'BG3': [2.614, 2.609, 2.634, 2.647, 2.600, 2.616, 2.683, 2.649,
                 2.680, 2.679, 2.644, 2.604, 2.615, 2.633, 2.615, 2.714],
-
         # startin gain
         # np.array([2.6547, 2.6541, 2.6378, 2.6249, 2.6058, 2.6068, 2.6335, 2.6166,
         #           2.7061, 2.6962, 2.6424, 2.6171, 2.6228, 2.6219, 2.6076, 2.6878])
@@ -227,9 +235,14 @@ satlevel = {'ML1': 55e3, 'BG2': 40e3, 'BG3': 35e3, 'BG4': 39e3}
 
 # reduced image data section used for flat normalisation
 flat_norm_sec = {'ML1': tuple([slice(6600,9240), slice(5280,7920)]),
-                 'BG2': tuple([slice(6600,9240), slice(5280,7920)]),
-                 'BG3': tuple([slice(300,1200), slice(5280,10000)]),
+                 'BG2': tuple([slice(500,2000),  slice(1320,6600)]),
+                 'BG3': tuple([slice(300,1200),  slice(5280,10000)]),
                  'BG4': tuple([slice(2640,5280), slice(3960,7920)])}
+
+
+# reject evening flats?
+flat_reject_eve = {'ML': False, 'BG': True}
+
 
 # define number of channels in x and y
 ny, nx = 2, 8
