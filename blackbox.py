@@ -1754,7 +1754,7 @@ def blackbox_reduce (filename):
             # channel section
             sec_chan = data_sec_red[i_chan]
             mask_edge_chan = mask_edge[sec_chan]
-            data[sec_chan][mask_edge_chan] = np.median(data[sec_chan])
+            data[sec_chan][mask_edge_chan] = np.nanmedian(data[sec_chan])
 
 
 
@@ -3385,6 +3385,7 @@ def send_email (recipients, subject, body,
 
 def get_flatstats (data, header, data_mask, tel=None):
 
+
     if get_par(set_zogy.timing,tel):
         t = time.time()
 
@@ -3781,7 +3782,7 @@ def sat_detect (data, header, data_mask, header_mask, tmp_path, nbin=2):
                 break
 
             satellite_fitting = True
-            binned_data[mask_binned == 1] = np.median(binned_data)
+            binned_data[mask_binned == 1] = np.nanmedian(binned_data)
             fits_old_mask = '{}/old_mask.fits'.format(tmp_path)
             if isfile(fits_old_mask):
                 old_mask = read_hdulist(fits_old_mask)
@@ -4220,6 +4221,18 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True,
                     mask_keep[i_file] = False
 
 
+                # BlackGEM evening flats show some sort of reflection,
+                # which is absent in the morning flats, so only use
+                # the latter through the setting parameter
+                # flat_reject_eve
+                flat_reject_eve = get_par(set_bb.flat_reject_eve,tel)
+                if flat_reject_eve and  mjd_obs[i_file] % 1 > 0.5:
+
+                    log.warn ('rejecting evening flat {}'.format(filename))
+                    mask_keep[i_file] = False
+
+
+
             file_list = np.array(file_list)[mask_keep]
             mjd_obs = mjd_obs[mask_keep]
             nfiles = len(file_list)
@@ -4306,8 +4319,9 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True,
             # future nights are included
             all_past = np.all(mjd_obs_delta < 0)
             if np.amin(np.abs(mjd_obs_delta)) > 0.5 and all_past:
-                log.warning ('no past calibration files within 12 hours of '
-                             'midnight of {}; not making master {}'
+                log.warning ('all calibration files are from before midnight '
+                             'of {} and longer than 12 hours ago; no point in '
+                             'making master {}'
                              .format(date_eve, fits_master))
                 return None
 
@@ -4352,13 +4366,17 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True,
                                                                get_header=True)
 
                 if imgtype=='flat':
-                    # divide by median over the region [set_bb.flat_norm_sec]
+
+                    # infer median over normalization section, either
+                    # from header of individual flat, or recalculate
                     if 'MEDSEC' in header_tmp:
                         median = header_tmp['MEDSEC']
                     else:
                         index_flat_norm = get_par(set_bb.flat_norm_sec,tel)
-                        median = np.median(master_cube[i_file][index_flat_norm])
+                        median = np.nanmedian(master_cube[i_file][index_flat_norm])
 
+
+                    # divide by median over the region [set_bb.flat_norm_sec]
                     log.info ('flat name: {}, median: {:.1f} e-'
                               .format(filename, median))
 
@@ -4432,7 +4450,7 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True,
 
 
                 header_master['MFMEDSEC'] = (
-                    np.median(master_median[sec_tmp]),
+                    np.nanmedian(master_median[sec_tmp]),
                     'median master flat over STATSEC')
 
 
@@ -4521,9 +4539,9 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True,
                 for i_chan in range(nchans):
                     data_chan = master_median_corr[data_sec_red[i_chan]]
                     if i_chan < 8:
-                        med_chan_cntr[i_chan] = np.median(data_chan[-nrows:,:])
+                        med_chan_cntr[i_chan] = np.nanmedian(data_chan[-nrows:,:])
                     else:
-                        med_chan_cntr[i_chan] = np.median(data_chan[0:nrows,:])
+                        med_chan_cntr[i_chan] = np.nanmedian(data_chan[0:nrows,:])
 
                     # correct master image channel
                     master_median_corr[data_sec_red[i_chan]] /= med_chan_cntr[i_chan]
@@ -4556,7 +4574,7 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True,
                     # statistics of left side of current channel pair
                     data_stat2 = master_median_corr[y_index-nrows:y_index+nrows,
                                                     x_index:x_index+ncols]
-                    ratio = np.median(data_stat1)/np.median(data_stat2)
+                    ratio = np.nanmedian(data_stat1)/np.nanmedian(data_stat2)
 
                     # correct relevant channels
                     master_median_corr[data_sec_red[i]] *= ratio
@@ -4570,7 +4588,7 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True,
                 if False:
                     # normalize corrected master to [flat_norm_sec] section
                     sec_tmp = get_par(set_bb.flat_norm_sec,tel)
-                    ratio_norm = np.median(master_median_corr[sec_tmp])
+                    ratio_norm = np.nanmedian(master_median_corr[sec_tmp])
                     master_median_corr /= ratio_norm
                     factor_chan /= ratio_norm
 
@@ -5934,7 +5952,8 @@ def os_corr (data, header, imgtype, xbin=1, ybin=1, data_limit=2000, tel=None):
         mean_hos, __, __ = sigma_clipped_stats(data_hos, axis=0,
                                                mask_value=0)
         if dcol > 1:
-            oscan = [np.median(mean_hos[max(k-dcol_half,0):min(k+dcol_half+1,ncols)])
+            oscan = [np.nanmedian(mean_hos[max(k-dcol_half,0):
+                                           min(k+dcol_half+1,ncols)])
                      for k in range(ncols)]
             # do not use the running mean for the first column(s)
             oscan[0:dcol_half] = mean_hos[0:dcol_half]
@@ -5968,9 +5987,10 @@ def os_corr (data, header, imgtype, xbin=1, ybin=1, data_limit=2000, tel=None):
                          'vert. overscan')
 
 
-    # if the image is a flatfield, add some header keywords with
-    # the statistics of [data_out]
-    if imgtype == 'flat':
+    # if the image is a flatfield, add some header keywords with the
+    # statistics of [data_out]; this part has been moved to when
+    # get_flatstats is called for flat
+    if False and imgtype == 'flat':
         sec_temp = get_par(set_bb.flat_norm_sec,tel)
         value_temp = '[{}:{},{}:{}]'.format(
             sec_temp[0].start+1, sec_temp[0].stop+1,
@@ -5979,7 +5999,7 @@ def os_corr (data, header, imgtype, xbin=1, ybin=1, data_limit=2000, tel=None):
             value_temp, 'pre-defined statistics section [y1:y2,x1:x2]')
 
         header['MEDSEC'] = (
-            np.median(data_out[sec_temp]),
+            np.nanmedian(data_out[sec_temp]),
             '[e-] median flat over STATSEC')
 
         header['STDSEC'] = (
