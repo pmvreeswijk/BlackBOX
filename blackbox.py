@@ -5932,10 +5932,24 @@ def os_corr (data, header, imgtype, xbin=1, ybin=1, data_limit=2000, tel=None):
         # values across [dcol] columns, for [ncols] columns
         data_hos = data[os_sec_hori[i_chan]]
 
-
         # replace very high values (due to bright objects on edge of
         # channel) with function [inter_pix] in zogy.py
         mask_hos = (data_hos > data_limit)
+
+        # if it concerns a single column on its own that if covering
+        # at least half the overscan height, unmask that column
+        mask_x = (np.sum(mask_hos, axis=0) > 0.5 * mask_hos.shape[0])
+
+        # opening with [True,True] will remove single True value from
+        # mask_x but will leave multiple adjacent True values be
+        mask_x_open = ndimage.binary_opening(mask_x, structure=np.ones(2))
+
+        # identify any single True values that were removed
+        mask_x_restore = np.logical_xor (mask_x, mask_x_open)
+
+        # reset mask_hos for that/those column(s)
+        mask_hos[:,mask_x_restore] = False
+
         # add couple of pixels connected to this mask
         mask_hos = ndimage.binary_dilation(mask_hos,
                                            structure=np.ones((3,3)).astype('bool'),
