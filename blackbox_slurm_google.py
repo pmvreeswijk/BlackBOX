@@ -55,7 +55,7 @@ red_dir = {}
 tmp_dir = {}
 
 #tels_running = ['BG2', 'BG3', 'BG4']
-tels_running = ['BG4']
+tels_running = ['BG2', 'BG4']
 for tel in tels_running:
     raw_dir[tel] = 'gs://blackgem-raw/{}'.format(tel)
     red_dir[tel] = 'gs://blackgem-red/{}'.format(tel)
