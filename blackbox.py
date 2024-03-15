@@ -1754,7 +1754,7 @@ def blackbox_reduce (filename):
             # channel section
             sec_chan = data_sec_red[i_chan]
             mask_edge_chan = mask_edge[sec_chan]
-            data[sec_chan][mask_edge_chan] = np.nanmedian(data[sec_chan])
+            data[sec_chan][mask_edge_chan] = np.median(data[sec_chan])
 
 
 
@@ -3782,7 +3782,7 @@ def sat_detect (data, header, data_mask, header_mask, tmp_path, nbin=2):
                 break
 
             satellite_fitting = True
-            binned_data[mask_binned == 1] = np.nanmedian(binned_data)
+            binned_data[mask_binned == 1] = np.median(binned_data)
             fits_old_mask = '{}/old_mask.fits'.format(tmp_path)
             if isfile(fits_old_mask):
                 old_mask = read_hdulist(fits_old_mask)
@@ -4373,7 +4373,7 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True,
                         median = header_tmp['MEDSEC']
                     else:
                         index_flat_norm = get_par(set_bb.flat_norm_sec,tel)
-                        median = np.nanmedian(master_cube[i_file][index_flat_norm])
+                        median = np.median(master_cube[i_file][index_flat_norm])
 
 
                     # divide by median over the region [set_bb.flat_norm_sec]
@@ -4450,7 +4450,7 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True,
 
 
                 header_master['MFMEDSEC'] = (
-                    np.nanmedian(master_median[sec_tmp]),
+                    np.median(master_median[sec_tmp]),
                     'median master flat over STATSEC')
 
 
@@ -4539,9 +4539,9 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True,
                 for i_chan in range(nchans):
                     data_chan = master_median_corr[data_sec_red[i_chan]]
                     if i_chan < 8:
-                        med_chan_cntr[i_chan] = np.nanmedian(data_chan[-nrows:,:])
+                        med_chan_cntr[i_chan] = np.median(data_chan[-nrows:,:])
                     else:
-                        med_chan_cntr[i_chan] = np.nanmedian(data_chan[0:nrows,:])
+                        med_chan_cntr[i_chan] = np.median(data_chan[0:nrows,:])
 
                     # correct master image channel
                     master_median_corr[data_sec_red[i_chan]] /= med_chan_cntr[i_chan]
@@ -4574,7 +4574,7 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True,
                     # statistics of left side of current channel pair
                     data_stat2 = master_median_corr[y_index-nrows:y_index+nrows,
                                                     x_index:x_index+ncols]
-                    ratio = np.nanmedian(data_stat1)/np.nanmedian(data_stat2)
+                    ratio = np.median(data_stat1)/np.nanmedian(data_stat2)
 
                     # correct relevant channels
                     master_median_corr[data_sec_red[i]] *= ratio
@@ -4588,7 +4588,7 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True,
                 if False:
                     # normalize corrected master to [flat_norm_sec] section
                     sec_tmp = get_par(set_bb.flat_norm_sec,tel)
-                    ratio_norm = np.nanmedian(master_median_corr[sec_tmp])
+                    ratio_norm = np.median(master_median_corr[sec_tmp])
                     master_median_corr /= ratio_norm
                     factor_chan /= ratio_norm
 
@@ -5999,7 +5999,7 @@ def os_corr (data, header, imgtype, xbin=1, ybin=1, data_limit=2000, tel=None):
             value_temp, 'pre-defined statistics section [y1:y2,x1:x2]')
 
         header['MEDSEC'] = (
-            np.nanmedian(data_out[sec_temp]),
+            np.median(data_out[sec_temp]),
             '[e-] median flat over STATSEC')
 
         header['STDSEC'] = (
