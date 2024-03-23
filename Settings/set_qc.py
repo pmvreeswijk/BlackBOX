@@ -62,6 +62,9 @@ qc_range = {
 
     'ML1': {
 
+        # telescope
+        'ISTRACKI': {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'key_type': 'full', 'pos': False, 'comment': 'Telescope is tracking'},
+
         # 'raw' image header keywords
         'GPS-SHUT': {'default':'None', 'val_type': 'min_max','val_range': [ (0.85,0.89), (0.8,0.94), (-1e3,1e3) ],'key_type': 'full', 'pos': False, 'comment': '[s] Shutter time:(GPSEND-GPSSTART)-EXPTIME'},
 
@@ -389,6 +392,9 @@ qc_range = {
 
     'BG2': {
 
+        # telescope
+        'ISTRACKI': {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'key_type': 'full', 'pos': False, 'comment': 'Telescope is tracking'},
+
         # 'raw' image header keywords
         #'GPS-SHUT': {'default':'None', 'val_type': 'min_max','val_range': [ (0.85,0.89), (0.8,0.94), (-1e3,1e3) ],'key_type': 'full', 'pos': False, 'comment': '[s] Shutter time:(GPSEND-GPSSTART)-EXPTIME'},
         'GPS-SHUT': {'default':'None', 'val_type': 'skip','val_range': [ (0.85,0.89), (0.8,0.94), (-1e3,1e3) ],'key_type': 'full', 'pos': False, 'comment': '[s] Shutter time:(GPSEND-GPSSTART)-EXPTIME'},
@@ -650,6 +656,9 @@ qc_range = {
 
     'BG3': {
 
+        # telescope
+        'ISTRACKI': {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'key_type': 'full', 'pos': False, 'comment': 'Telescope is tracking'},
+
         # 'raw' image header keywords
         #'GPS-SHUT': {'default':'None', 'val_type': 'min_max','val_range': [ (0.85,0.89), (0.8,0.94), (-1e3,1e3) ],'key_type': 'full', 'pos': False, 'comment': '[s] Shutter time:(GPSEND-GPSSTART)-EXPTIME'},
         'GPS-SHUT': {'default':'None', 'val_type': 'skip','val_range': [ (0.85,0.89), (0.8,0.94), (-1e3,1e3) ],'key_type': 'full', 'pos': False, 'comment': '[s] Shutter time:(GPSEND-GPSSTART)-EXPTIME'},
@@ -903,6 +912,9 @@ qc_range = {
     ################################################################################
 
     'BG4': {
+
+        # telescope
+        'ISTRACKI': {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'key_type': 'full', 'pos': False, 'comment': 'Telescope is tracking'},
 
         # 'raw' image header keywords
         #'GPS-SHUT': {'default':'None', 'val_type': 'min_max','val_range': [ (0.85,0.89), (0.8,0.94), (-1e3,1e3) ],'key_type': 'full', 'pos': False, 'comment': '[s] Shutter time:(GPSEND-GPSSTART)-EXPTIME'},
