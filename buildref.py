@@ -354,12 +354,20 @@ def buildref (telescope=None, fits_hdrtable_list=None, date_start=None,
         log.info ('{} files left (QC-FLAG cut)'.format(len(table)))
 
 
+
     # if max_seeing is specified, select only images with the same or
     # better seeing
     if max_seeing is not None:
         mask = (table['PSF-SEE'] <= max_seeing)
         table = table[mask]
         log.info ('{} files left (SEEING cut)'.format(len(table)))
+
+
+
+    # ensure that telescope is tracking
+    mask = (table['ISTRACKI'] == True)
+    table = table[mask]
+    log.info ('{} files left (telescope tracking cut)'.format(len(table)))
 
 
     # if centering is set to 'grid' in buildref settings file, read
@@ -3020,9 +3028,9 @@ if __name__ == "__main__":
 
     parser.add_argument('--mode_ref', type=str2bool, default=False,
                         help='original reference image mode, where results are '
-                        'saved in reference folder defined in settings file; '
-                        'if set to False, [results_dir] is used for the output '
-                        'folder; default=False')
+                        'saved in reference folder defined in BlackBOB settings '
+                        'file; if set to False, [results_dir] is used for the '
+                        'output folder; default=False')
 
     parser.add_argument('--results_dir', type=str, default='.',
                         help='output directory with resulting images, separated '
