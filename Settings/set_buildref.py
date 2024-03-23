@@ -85,9 +85,9 @@ back_type = 'blackbox'
 
 # use absolute target limiting magnitudes suggested by PaulG; see his
 # email from 2021-01-06
-limmag_target = {'u': 21.0, 'g': 22.3, 'q': 22.5, 'r': 22.0, 'i': 21.3, 'z': 20.5}
-# 0.5 mag deeper:
-#limmag_target = {'u': 21.5, 'g': 22.8, 'q': 23.0, 'r': 22.5, 'i': 21.8, 'z': 21.0}
+limmag_target = {'ML1': {'u': 21.0, 'g': 22.3, 'q': 22.5, 'r': 22.0, 'i': 21.3, 'z': 20.5},
+# 1st reference images for Blackgem (March 2024): ~deepest image taken + 1 mag
+                 'BG': {'u': 21.1, 'g': 22.0, 'q': 22.8, 'r': 21.8, 'i': 21.8, 'z': 20.3}}
 # use all images
 #limmag_target = {'u': 30.0, 'g': 30.0, 'q': 30.0, 'r': 30.0, 'i': 30.0, 'z': 30.0}
 # do not use less than [nmin] images if available
