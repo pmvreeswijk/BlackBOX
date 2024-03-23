@@ -54,7 +54,7 @@ import set_blackbox as set_bb
 import qc
 
 
-__version__ = '0.9.1'
+__version__ = '0.9.2'
 
 
 ################################################################################
@@ -171,7 +171,7 @@ def buildref (telescope=None, fits_hdrtable_list=None, date_start=None,
                 if tel in tel_tmp:
                     fits_hdrtable_list.append(
                         'gs://blackgem-hdrtables/{}/{}_headers_cat.fits'
-                        .format(tel_tmp))
+                        .format(tel_tmp, tel_tmp))
 
 
     # read header fits files into table
@@ -787,157 +787,6 @@ def set_date (date, start=True):
 
 ################################################################################
 
-def header2table (filenames):
-
-    use_fitsio = False
-
-    # initialize rows
-    rows = []
-
-    # keywords to add to table
-    keys = ['MJD-OBS', 'OBJECT', 'FILTER', 'QC-FLAG', 'RA-CNTR',
-            'DEC-CNTR', 'PSF-SEE', 'LIMMAG', 'S-BKGSTD', 'ORIGFILE']
-    keys_dtype = [float, 'U5', 'U1', 'U6', float,
-                  float, float, float, float, 'U100']
-
-
-    # loop input list of filenames
-    for filename in filenames:
-
-        # check if filename exists, fpacked or not
-        exists, filename = bb.already_exists (filename, get_filename=True)
-        if exists:
-            try:
-                if use_fitsio:
-                    # read header; use fitsio as it is faster than
-                    # astropy.io.fits when not using solid state disk
-                    with fitsio.FITS(filename) as hdulist:
-                        h = hdulist[-1].read_header()
-                else:
-                    with fits.open(filename) as hdulist:
-                        h = hdulist[-1].header
-            except Exception as e:
-                log.exception ('trouble reading header; skipping image {}'
-                                  .format(filename))
-                continue
-
-        else:
-            log.warning ('file does not exist; skipping image {}'
-                            .format(filename))
-            continue
-
-
-        # check if all keywords present before appending to table
-        mask_key = [key not in h for key in keys]
-        if np.any(mask_key):
-            log.warning ('keyword(s) {} not in header; skipping image {}'
-                            .format(np.array(keys)[mask_key], filename))
-            continue
-
-
-        if False:
-            # up to v0.9.2, it was possible for the reduced image
-            # header not to contain a red flag, while the catalog file
-            # did contain it - this happened when zogy was not
-            # processed properly (e.g. astrometry.net failed), then
-            # dummy catalogs were produced but the reduced image
-            # header was not updated - this bug was fixed in v0.9.2.
-            if '.fz' in filename:
-                catname = filename.replace('.fits.fz', '_cat.fits')
-            else:
-                catname = filename.replace('.fits', '_cat.fits')
-            # if it doesn't exist, continue with the next
-            if not os.path.isfile(catname):
-                log.warning ('catalog file {} does not exist; skipping '
-                                'image {}'.format(catname, filename))
-                continue
-
-            # read header
-            if use_fitsio:
-                with fitsio.FITS(catname) as hdulist:
-                    h_cat = hdulist[-1].read_header()
-            else:
-                with fits.open(catname) as hdulist:
-                    h_cat = hdulist[-1].header
-
-            # if dummycats were created, copy the qc-flag to the
-            # reduced image header
-            if 'DUMMYCAT' in h_cat and h_cat['DUMMYCAT']:
-                key = 'QC-FLAG'
-                if key in h_cat:
-                    h[key] = h_cat[key]
-                    #log.info ('h[{}]: {}, h_cat[{}]: {}'
-                    #             .format(key, h[key], key, h_cat[key]))
-                # need to copy the qc-red??, qc-ora??, qc-yel?? as well
-                qc_col = ['red', 'orange', 'yellow']
-                for col in qc_col:
-                    key_base = 'QC{}'.format(col[:3]).upper()
-                    for i in range(1,100):
-                        key = '{}{}'.format(key_base, i)
-                        if key in h_cat:
-                            h[key] = h_cat[key]
-                            #log.info ('h[{}]: {}, h_cat[{}]: {}'
-                            #             .format(key, h[key], key, h_cat[key]))
-
-
-        # skip for now
-        if False:
-
-            # check if flag of particular colour was set in the
-            # image-subtraction stage; if yes, then promote the flag
-            # colour as that flag is not relevant to the image itself and
-            # the image should be used in building the reference image
-            qc_col = ['red', 'orange', 'yellow', 'green']
-            for col in qc_col:
-                # check if current colour is the same as the QC flag
-                if h['QC-FLAG'] == col and col != 'green':
-                    # loop keywords with this flag; potentially 100
-                    key_base = 'QC{}'.format(col[:3]).upper()
-                    for i in range(1,99):
-                        key_temp = '{}{}'.format(key_base, i)
-                        if key_temp in h:
-                            # if keyword value does not start with 'Z-',
-                            # 'T-' or 'V-', then break; the QC-FLAG will
-                            # not get updated
-                            if not h[key_temp].startswith(('Z-', 'T-', 'V-')):
-                                break
-
-                    else: # associated to the for loop!
-                        # all of the flags' keywords were due to image subtraction
-                        # stage, so promote the QC-FLAG
-                        h['QC-FLAG'] = qc_col[qc_col.index(col)+1]
-                        log.info ('updating QC-FLAG from {} to {} for image {}'
-                                     .format(col, h['QC-FLAG'], filename))
-
-
-
-        # for surviving files, prepare row of filename and header values
-        row = [filename]
-        for key in keys:
-            row.append(h[key])
-        # append to rows
-        rows.append(row)
-
-
-    # create table from rows
-    names = ['FILENAME']
-    dtypes = ['U100']
-    for i_key, key in enumerate(keys):
-        names.append(key)
-        dtypes.append(keys_dtype[i_key])
-
-    if len(rows) == 0:
-        # rows without entries: create empty table
-        table = Table(names=names, dtype=dtypes)
-    else:
-        table = Table(rows=rows, names=names, dtype=dtypes)
-
-
-    return table
-
-
-################################################################################
-
 def prep_colfig (field_ID, filters):
 
     # determine reference directory and file
@@ -1048,7 +897,7 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
 
     # determine and create reference directory
     if ref_mode:
-        # set according to definition in setttings file
+        # set according to definition in blackbox setttings file
         ref_path = '{}/{:0>5}'.format(get_par(set_bb.ref_dir,tel), field_ID)
     else:
         # set to input parameter results_dir = global parameter dir_results
@@ -1059,6 +908,9 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
             ref_path = '{}{}'.format(ref_path, ext)
 
 
+    log.info ('ref_path: {}'.format(ref_path))
+
+
     # create folder
     bb.make_dir (ref_path)
 
@@ -1067,6 +919,8 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
     ref_fits_out = '{}/{}_{:0>5}_{}_red.fits'.format(ref_path, tel,
                                                      field_ID, filt)
 
+
+    log.info ('ref_fits_out: {}'.format(ref_fits_out))
 
     # if reference image already exists, check if images used are the
     # same as the input [imagelist]
@@ -1120,6 +974,9 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
                 .format(get_par(set_bb.tmp_dir,tel), field_ID,
                         ref_fits_out.split('/')[-1].replace('.fits','')))
     bb.make_dir (tmp_path, empty=True)
+
+
+    log.info ('tmp_path: {}'.format(tmp_path))
 
 
     # names of tmp output fits and its mask
@@ -1454,7 +1311,7 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
     # loop input list of images
     for nimage, image in enumerate(imagelist):
 
-        if not os.path.isfile(image):
+        if not zogy.isfile(image):
             raise RuntimeError ('input image {} does not exist'.format(image))
 
         # read input image data and header
@@ -2494,7 +2351,7 @@ def mask_objects (imtable):
 
         # set these pixels to zero in the weights image
         weights_tmp = imagelist_tmp[nimage].replace('.fits','_weights.fits')
-        with fits.open(weights_tmp, 'update') as hdulist:
+        with fits.open(weights_tmp, 'update', memmap=True) as hdulist:
             hdulist[-1].data[mask_obj] = 0
 
 
@@ -2939,7 +2796,7 @@ def clipped2mask (clip_logname, imagelist, nsigma_clip, fits_ref):
         # update corresponding weights image, i.e. set weights value
         # at [mask_im] to zero
         weights_tmp = image.replace('.fits','_weights.fits')
-        with fits.open(weights_tmp, 'update') as hdulist:
+        with fits.open(weights_tmp, 'update', memmap=True) as hdulist:
             hdulist[-1].data[mask_im] = 0
 
 
@@ -3182,7 +3039,11 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # make sure fits_hdrtable_list is a list
-    fits_hdrtable_list = args.fits_hdrtable_list.split(',')
+    if args.fits_hdrtable_list is not None:
+        fits_hdrtable_list = args.fits_hdrtable_list.split(',')
+    else:
+        fits_hdrtable_list = args.fits_hdrtable_list
+
 
     buildref (telescope = args.telescope,
               fits_hdrtable_list = fits_hdrtable_list,
