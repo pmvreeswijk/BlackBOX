@@ -3699,10 +3699,13 @@ def copy_files2keep (src_base, dest_base, ext2keep, move=True, run_fpack=True):
                         # D or Scorr image
                         if ('_red.fits' in src_file or '_D.fits' in src_file or
                             '_Scorr.fits' in src_file):
-                            file_jpg = create_jpg (src_file)
+                            src_file_jpg = create_jpg (src_file)
                             # copy/move it over to the destination folder
-                            dest_folder = os.path.dirname(dest_file)
-                            copy_file (file_jpg, dest_folder+'/', move=move)
+                            #dest_folder = os.path.dirname(dest_file)
+                            #copy_file (src_file_jpg, dest_folder+'/', move=move)
+                            dest_file_jpg = '{}.jpg'.format(
+                                dest_file.split('.fits')[0])
+                            copy_file (src_file_jpg, dest_file_jpg, move=move)
 
 
                     # remove the potentially existing f/unpacked
