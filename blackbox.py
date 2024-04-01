@@ -4223,15 +4223,16 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True,
                     mask_keep[i_file] = False
 
 
-                # BlackGEM evening flats show some sort of reflection,
-                # which is absent in the morning flats, so only use
-                # the latter through the setting parameter
-                # flat_reject_eve
-                flat_reject_eve = get_par(set_bb.flat_reject_eve,tel)
-                if flat_reject_eve and  mjd_obs[i_file] % 1 > 0.5:
+                if imgtype == 'flat':
+                    # BlackGEM evening flats show some sort of reflection,
+                    # which is absent in the morning flats, so only use
+                    # the latter through the setting parameter
+                    # flat_reject_eve
+                    flat_reject_eve = get_par(set_bb.flat_reject_eve,tel)
+                    if flat_reject_eve and  mjd_obs[i_file] % 1 > 0.5:
 
-                    log.warn ('rejecting evening flat {}'.format(filename))
-                    mask_keep[i_file] = False
+                        log.warn ('rejecting evening flat {}'.format(filename))
+                        mask_keep[i_file] = False
 
 
 
@@ -4247,7 +4248,7 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True,
         # [create_master] is switched off
         if nfiles < 5 or not master_ok or not create_master:
 
-            if imgtype=='flat':
+            if imgtype == 'flat':
                 msg = 'flat in filter {}'.format(filt)
             else:
                 msg = imgtype
