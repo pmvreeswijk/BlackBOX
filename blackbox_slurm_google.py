@@ -234,7 +234,7 @@ def run_blackbox_slurm (date=None, telescope=None, mode='night',
     # is not empty yet
     jobnames = []
     #while (ephem.now()-sunrise < 0*ephem.minute or not q.empty() or
-    while (ephem.now()-sunrise < 0 or not q.empty() or
+    while (ephem.now()-sunrise < 15*ephem.minute or not q.empty() or
            # in night mode, also wait until all jobs are finished, to
            # keep the queue open for potential new files; the file
            # transfer into google cloud will be sluggish with 3
