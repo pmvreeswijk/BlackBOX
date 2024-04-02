@@ -194,6 +194,13 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
                 continue
 
 
+        # do not require telescope to be tracking for non-object
+        # images
+        if key=='ISTRACKI' and header['IMAGETYP'].lower() != 'object':
+            continue
+
+
+
         val_range = qc_range[key]['val_range']
 
 
@@ -264,8 +271,11 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
 
         # for fields around the pole, manually increase val_range for
         # astrometric keywords due to unexplained increase in
-        # astrometric scatter
-        if (header['DEC'] <= -87 and
+        # astrometric scatter; this does not seem to affect BlackGEM;
+        # perhaps this also improved for MeerLICHT with the index
+        # files updates during early 2024, but for now too early to
+        # tell
+        if (telescope=='ML1' and header['DEC'] <= -87 and
             key in ['A-DRA', 'A-DRASTD', 'A-DDEC', 'A-DDESTD']):
             val_range = np.array(3*val_range)
 
