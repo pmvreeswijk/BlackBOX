@@ -166,7 +166,7 @@ def run_blackbox_slurm (date=None, nthreads=4, mode='night', runtime='4:00:00'):
     # queue is not empty yet
     jobnames = []
     #while (ephem.now()-sunrise < 10*ephem.minute or not queue.empty() or
-    while (ephem.now()-sunrise < 0 or not queue.empty() or
+    while (ephem.now()-sunrise < 15*ephem.minute or not queue.empty() or
            # in night mode, also wait until all jobs are finished
            (mode=='night' and len(list_active_jobs(jobnames)) > 0)):
 
@@ -212,9 +212,13 @@ def run_blackbox_slurm (date=None, nthreads=4, mode='night', runtime='4:00:00'):
                             field_id = int(header['OBJECT'])
                             # set nthreads depending on ngaia
                             ngaia = ngaia_dict[field_id]
-                            if 5e5 < ngaia <= 1e6:
+                            if ngaia > 2e5:
+                                nthreads = 4
+
+                            if ngaia > 5e5:
                                 nthreads = 6
-                            elif ngaia > 1e6:
+
+                            if ngaia > 1e6:
                                 nthreads = 8
 
                             log.info ('estimated # Gaia sources in field ({}): '
