@@ -124,10 +124,10 @@ crosstalk_file = '{}/crosstalk_20180620.txt'.format(cal_dir)
 # name of initial bad pixel mask; filter dependence is added in
 # blackbox, e.g. ML1_bpm_r_0p2_20200727.fits.fz, instead of making
 # these dictionaries with the filters as keys.
-bad_pixel_mask = {'ML1': '{}/ML1_bpm_0p2_20200727.fits.fz'.format(cal_dir),
-                  'BG2':  '{}/BG2_bpm_0p2_20240312.fits.fz'.format(cal_dir),
-                  'BG3':  '{}/BG3_bpm_0p2_20230531.fits.fz'.format(cal_dir),
-                  'BG4':  '{}/BG4_bpm_0p2_20230531.fits.fz'.format(cal_dir)}
+bad_pixel_mask = {'ML1': '{}/BPM/ML1/ML1_bpm_0p2_20200727.fits.fz'.format(cal_dir),
+                  'BG2': '{}/BPM/BG2/BG2_bpm_0p2_20240312.fits.fz'.format(cal_dir),
+                  'BG3': '{}/BPM/BG3/BG3_bpm_0p2_20230531.fits.fz'.format(cal_dir),
+                  'BG4': '{}/BPM/BG4/BG4_bpm_0p2_20230531.fits.fz'.format(cal_dir)}
 
 # name of ML/BG field definition file
 mlbg_fieldIDs = '{}/MLBG_FieldIDs_Feb2022_nGaia.fits'.format(cal_dir)
@@ -151,7 +151,14 @@ niter = 3
 # bright stars being masked and corrected as if they are cosmics
 sepmed = False
 
-# binning used for satellite trail detection
+# use Fiore's ASTA code to detect satellites; if set to False,
+# acstools will be applied
+use_asta = True
+
+# path to ASTA model file
+asta_model = '/Software/ASTA/model-best.h5'
+
+# binning used for acstools satellite trail detection
 sat_bin = 2
 
 #===============================================================================
