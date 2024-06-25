@@ -84,11 +84,20 @@ back_type = 'blackbox'
 #===============================================================================
 
 # use absolute target limiting magnitudes suggested by PaulG; see his
-# email from 2021-01-06
+# email from 2021-01-06; if input parameter deep is True, this target
+# limmag is not considered
 limmag_target = {'ML1': {'u': 21.0, 'g': 22.3, 'q': 22.5, 'r': 22.0, 'i': 21.3, 'z': 20.5},
 # 1st reference images for Blackgem (March 2024): ~deepest image taken + 1 mag
                  'BG': {'u': 21.1, 'g': 22.0, 'q': 22.8, 'r': 21.8, 'i': 21.8, 'z': 20.3}}
 # use all images
 #limmag_target = {'u': 30.0, 'g': 30.0, 'q': 30.0, 'r': 30.0, 'i': 30.0, 'z': 30.0}
-# do not use less than [nmin] images if available
-nimages_min = 15
+
+
+# require at least this number of images, after the
+# date/qc-flag/seeing cuts, to create a co-added image
+nimages_min = 3
+
+# maximum number of images used, after the date/qc-flag/seeing cuts
+# and sorting the list by LIMMAG; if input parameter deep is True,
+# this maximum is disregarded
+nimages_max = 15
