@@ -3,6 +3,7 @@ import gc
 import pickle
 import copy
 import tempfile
+import sys
 
 
 #import multiprocessing as mp
@@ -24,8 +25,7 @@ log = logging.getLogger()
 import set_zogy
 import set_blackbox as set_bb
 
-import sys
-sys.path.append("/Software/match2SSO")
+#sys.path.append("/Software/match2SSO")
 import set_match2SSO as set_m2sso
 import match2SSO as m2sso
 
@@ -62,6 +62,7 @@ from watchdog.events import FileSystemEventHandler
 from qc import qc_check, run_qc_check
 import platform
 
+from ASTA import ASTA
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -109,7 +110,7 @@ except Exception as e:
                  'blackbox; issue with IERS file?: {}'.format(e))
 
 
-__version__ = '1.3.2'
+__version__ = '1.3.3'
 keywords_version = '1.0.14'
 
 
@@ -857,7 +858,7 @@ def create_jpg (filename, cmap='gray', ext='jpg'):
 
 
             fig = plt.figure(figsize=(8.27,8.27))
-            vmin, vmax = zscale(contrast=0.5).get_limits(data)
+            vmin, vmax = zscale(contrast=0.35).get_limits(data)
             plt.imshow(data, cmap=cmap, vmin=vmin, vmax=vmax, origin='lower')
             plt.colorbar(fraction=0.046, pad=0.04)
             plt.title(title, fontsize=10)
@@ -932,8 +933,8 @@ def try_blackbox_reduce (filename):
 
             # remove tmp folder if not keeping tmp files; not so
             # urgent for MeerLICHT and provides opportunity to inspect
-            # the tmp folder to find out what went wrong exactly if
-            # google_cloud:
+            # the tmp folder to find out what went wrong exactly
+            # if google_cloud:
             clean_tmp (tmp_path, get_par(set_bb.keep_tmp,tel))
 
 
@@ -1207,7 +1208,7 @@ def blackbox_reduce (filename):
         # if running in the google cloud and not keep tmp files, clean up
         # tmp base folder, in case another job - which could be from
         # another telescope - left some files behind
-        if google_cloud and get_par(set_bb.keep_tmp,tel):
+        if google_cloud and not get_par(set_bb.keep_tmp,tel):
             shutil.rmtree(get_par(set_bb.tmp_dir_base,tel))
 
 
@@ -1721,8 +1722,21 @@ def blackbox_reduce (filename):
             sat_processed = False
             if get_par(set_bb.detect_sats,tel):
                 log.info('detecting satellite trails')
-                data_mask = sat_detect(data, header, data_mask, header_mask,
-                                       tmp_path)
+
+                if get_par(set_bb.use_asta,tel):
+
+                    # new method using Fiore's ASTA package
+                    # (https://github.com/FiorenSt/ASTA)
+                    data_mask = run_asta(data, header, data_mask, header_mask,
+                                         tmp_path)
+                else:
+
+                    # old method using acstools
+                    data_mask = sat_detect(data, header, data_mask, header_mask,
+                                           tmp_path)
+
+
+
         except Exception as e:
             header['NSATS'] = ('None', 'number of satellite trails identified')
             #log.exception(traceback.format_exc())
@@ -3730,6 +3744,55 @@ def copy_files2keep (src_base, dest_base, ext2keep, move=True, run_fpack=True):
 
 
     return
+
+
+################################################################################
+
+def run_asta (data, header, data_mask, header_mask, tmp_path):
+
+    if get_par(set_zogy.timing,tel):
+        t = time.time()
+
+
+    #write data to tmp file
+    fits_tmp = ('{}/{}'.format(
+        tmp_path, tmp_path.split('/')[-1].replace('_red', '_red_asta.fits')))
+    fits.writeto(fits_tmp, data, header, overwrite=True)
+
+
+    asta_model = get_par(set_bb.asta_model,tel)
+    processor = ASTA(asta_model)
+    mask_sat, __, __ = processor.process_image(fits_tmp)
+
+
+    # add pixels affected by satellite trails to [data_mask]
+    data_mask[mask_sat==1] += get_par(set_zogy.mask_value['satellite trail'],
+                                      tel)
+
+
+    # determining number of trails; 2 pixels are considered from the
+    # same trail also if they are only connected diagonally
+    struct = np.ones((3,3), dtype=bool)
+    __, nsats = ndimage.label(mask_sat, structure=struct)
+    nsatpixels = np.sum(mask_sat)
+
+
+    header['NSATS'] = (nsats, 'number of satellite trails identified')
+    header_mask['NSATS'] = (nsats, 'number of satellite trails identified')
+
+    log.info('number of satellite trails identified: {}'.format(nsats))
+
+
+    # remove file(s) if not keeping intermediate/temporary files
+    if not get_par(set_bb.keep_tmp,tel):
+        remove_files ([fits_tmp])
+
+
+    if get_par(set_zogy.timing,tel):
+        log_timing_memory (t0=t, label='in run_asta')
+
+
+    return data_mask
 
 
 ################################################################################
