@@ -54,7 +54,7 @@ import set_blackbox as set_bb
 import qc
 
 
-__version__ = '0.9.2'
+__version__ = '0.9.3'
 
 
 ################################################################################
@@ -82,9 +82,9 @@ def buildref (telescope=None, fits_hdrtable_list=None, date_start=None,
       the option of combining images from specific telescope; so add
       boolean input parameter mix_BGs?
 
-    - need to make compatible with google cloud
+    + need to make compatible with google cloud
 
-    - output name is different: [tel]_[field ID]_[filter]_[creation date]_..
+    + output name is different: [tel]_[field ID]_[filter]_[creation date]_..
       for both ML and BG. Since for BG, tel=BG, make tel=ML for ML1?
 
     - for BG: reference images have their separate bucket: gs://blackgem-ref
@@ -358,7 +358,7 @@ def buildref (telescope=None, fits_hdrtable_list=None, date_start=None,
     # if max_seeing is specified, select only images with the same or
     # better seeing
     if max_seeing is not None:
-        mask = (table['PSF-SEE'] <= max_seeing)
+        mask = (table['S-SEEING'] <= max_seeing)
         table = table[mask]
         log.info ('{} files left (SEEING cut)'.format(len(table)))
 
@@ -417,6 +417,13 @@ def buildref (telescope=None, fits_hdrtable_list=None, date_start=None,
     pixscale_out = get_par(set_br.pixscale_out,tel)
     # background box size
     bkg_size = get_par(set_zogy.bkg_boxsize,tel)
+
+
+    # minimum number of images required to produce co-add
+    nmin = get_par(set_br.nimages_min,tel)
+
+    # maximum number of images to be used
+    nmax = get_par(set_br.nimages_max,tel)
 
 
     # loop objects
@@ -504,9 +511,15 @@ def buildref (telescope=None, fits_hdrtable_list=None, date_start=None,
             nfiles = np.sum(mask)
             log.info ('{} files left for {} in filter {}'
                       .format(nfiles, obj, filt))
-            # if no files left, continue
-            if nfiles == 0:
+
+            # if too few files left, continue
+            if nfiles < nmin:
+                log.warning ('fewer images ({}) available than the minimum '
+                             'number required ({}); not creating co-add'
+                             'for {} in filter {}'
+                             .format(nfiles, nmin, obj, filt))
                 continue
+
 
             # default values for A_swarp and nsigma_clip; these are
             # not relevant in case combine_type is not set to clipped,
@@ -519,7 +532,7 @@ def buildref (telescope=None, fits_hdrtable_list=None, date_start=None,
 
                 # pick images based on maximum spread in seeing values
                 max_spread = get_par(set_br.max_spread_seeing,tel)
-                seeing = np.array(table[mask]['PSF-SEE'])
+                seeing = np.array(table[mask]['S-SEEING'])
                 mask_use = pick_images (seeing, max_spread=max_spread)
 
                 # determine A to use to ensure bright stars are not
@@ -552,6 +565,17 @@ def buildref (telescope=None, fits_hdrtable_list=None, date_start=None,
                 # mask_use[mask_use][~mask_imagelist] = False
                 np.place (mask_use, mask_use, mask_imagelist)
 
+
+                # check again if there are still sufficient images
+                # left to combine
+                if np.sum(mask_use) < nmin:
+                    log.warning ('fewer images ({}) available than the minimum '
+                                 'number required ({}); not creating co-add '
+                                 'for {} in filter {}'
+                                 .format(np.sum(mask_use), nmin, obj, filt))
+                    continue
+
+
                 # if sufficient number of images within seeing range,
                 # update [mask]
                 nmin_4clipping = get_par(set_br.nmin_4clipping,tel)
@@ -577,7 +601,7 @@ def buildref (telescope=None, fits_hdrtable_list=None, date_start=None,
             # sort files based on their LIMMAG, highest value first
             indices_sort = np.argsort(table[mask]['LIMMAG'])[::-1]
             limmags_sort = table[mask]['LIMMAG'][indices_sort]
-            seeing_sort = table[mask]['PSF-SEE'][indices_sort]
+            seeing_sort = table[mask]['S-SEEING'][indices_sort]
             bkgstd_sort = table[mask]['S-BKGSTD'][indices_sort]
             files_sort = table[mask]['FILENAME'][indices_sort]
 
@@ -626,15 +650,27 @@ def buildref (telescope=None, fits_hdrtable_list=None, date_start=None,
             else:
                 dmag = 0.2
 
+            # mask of images within approximate target limiting
+            # magnitude (which is 30 if deep is True)
             mask_sort_cum = (limmags_sort_cum <= limmag_target + dmag)
+
             # use a minimum number of files, adding 1 to images
             # selected above
-            nmin = get_par(set_br.nimages_min,tel)
             nuse = max (np.sum(mask_sort_cum)+1, nmin)
+
             # [nuse] should not be larger than number of images available
             nuse = min (nuse, nfiles)
+
+            # if deep is not True, also limit number of images to
+            # nimages_max defined in settings file
+            if not deep and nuse > nmax:
+                log.warning ('limiting number of images to {} defined in '
+                             'set_br.nimages_max'.format(nmax))
+                nuse = min(nuse, nmax)
+
             # update mask
             mask_sort_cum[0:nuse] = True
+            mask_sort_cum[nuse:] = False
 
 
             # files that were excluded
@@ -900,7 +936,7 @@ def ref_already_exists (ref_path, tel, field_ID, filt, get_filename=False):
 ################################################################################
 
 def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
-              combine_type, A_swarp, nsigma_clip, skip_zogy):
+              combine_type, A_swarp, nsigma_clip, skip_zogy, dlimmag_min=0.3):
 
 
     # determine and create reference directory
@@ -932,11 +968,12 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
 
     # if reference image already exists, check if images used are the
     # same as the input [imagelist]
-    exists, ref_fits_tmp = ref_already_exists (ref_path, tel, field_ID, filt,
+    exists, ref_fits_old = ref_already_exists (ref_path, tel, field_ID, filt,
                                                get_filename=True)
+
     if exists:
 
-        if False:
+        if False and ref_mode:
             log.warning ('reference image {} already exists; not remaking it'
                          .format(ref_fits_out))
             return
@@ -946,21 +983,21 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
             # only remake the reference image if new individual files
             # are available
             log.info ('reference image {} already exists; checking if it needs '
-                      'updating'.format(ref_fits_tmp))
+                      'updating'.format(ref_fits_old))
             # read header
-            header_ref = zogy.read_hdulist (ref_fits_tmp, get_data=False,
-                                            get_header=True)
+            header_ref_old = zogy.read_hdulist (ref_fits_old, get_data=False,
+                                                get_header=True)
             # check how many images were used
-            if 'R-NUSED' in header_ref:
-                n_used = header_ref['R-NUSED']
+            if 'R-NUSED' in header_ref_old:
+                n_used = header_ref_old['R-NUSED']
             else:
                 n_used = 1
 
             # gather used images into list
-            if 'R-IM1' in header_ref:
-                imagelist_used = [header_ref['R-IM{}'.format(i+1)]
+            if 'R-IM1' in header_ref_old:
+                imagelist_used = [header_ref_old['R-IM{}'.format(i+1)]
                                   for i in range(n_used)
-                                  if 'R-IM{}'.format(i+1) in header_ref]
+                                  if 'R-IM{}'.format(i+1) in header_ref_old]
 
             # compare input [imagelist] with [imagelist_used]; if they are
             # the same, no need to build this particular reference image
@@ -972,9 +1009,10 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
                 log.info ('imagelist_new: {}'.format(imagelist_new))
                 log.info ('imagelist_used: {}'.format(imagelist_used))
                 log.info ('reference image of {:0>5} in filter {} with same '
-                             'set of images already present; skipping'
-                             .format(field_ID, filt))
+                          'set of images already present; not remaking it'
+                          .format(field_ID, filt))
                 return
+
 
 
     # prepare temporary folder
@@ -982,9 +1020,12 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
                 .format(get_par(set_bb.tmp_dir,tel), field_ID,
                         ref_fits_out.split('/')[-1].replace('.fits','')))
     bb.make_dir (tmp_path, empty=True)
-
-
     log.info ('tmp_path: {}'.format(tmp_path))
+
+
+    # change to tmp folder to be able to track disk usage
+    orig_path = os.getcwd()
+    os.chdir(tmp_path)
 
 
     # names of tmp output fits and its mask
@@ -1086,34 +1127,80 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
 
 
 
-        # copy/move files to the reference folder
-        tmp_base = ref_fits.split('_red.fits')[0]
-        ref_base = ref_fits_out.split('_red.fits')[0]
-        # add date of creation to ref_base
-        date_today = Time.now().isot.split('T')[0].replace('-','')
-        ref_base = '{}_{}'.format(ref_base, date_today)
 
 
-        # first (re)move old reference files
-        oldfiles = bb.list_files (ref_base)
-        if len(oldfiles)!=0:
-            if False:
-                # remove them
-                zogy.remove_files (oldfiles, verbose=True)
-            else:
-                # or move them to the ref-old folder instead
-                old_path = '{}-old/{:0>5}'.format(get_par(set_bb.ref_dir,tel),
-                                                  field_ID)
-                bb.make_dir (old_path)
-                for f in oldfiles:
-                    f_dest = '{}/{}'.format(old_path,f.split('/')[-1])
-                    #shutil.move (f, f_dest)
-                    bb.copy_file (f, f_dest, move=True)
+        # check quality control
+        # ---------------------
+
+        qc_flag = qc.run_qc_check (header_optsub, tel, check_key_type='ref')
+
+        if qc_flag == 'red':
+            log.error ('encountered red flag; not saving reference image {}'
+                       'to reference folder'.format(ref_fits))
+
+        else:
+            # update [ref_fits] header with qc-flags
+            header_ref = zogy.read_hdulist(ref_fits, get_data=False,
+                                           get_header=True)
+            for key in header_optsub:
+                if 'QC' in key or 'DUMCAT' in key:
+                    log.info ('updating header keyword {} with: {} for image {}'
+                              .format(key, header_optsub[key], ref_fits))
+                    header_ref[key] = (header_optsub[key],
+                                       header_optsub.comments[key])
 
 
-        # now move [ref_2keep] to the reference directory
-        result = bb.copy_files2keep(tmp_base, ref_base,
-                                    get_par(set_bb.ref_2keep,tel), move=False)
+            # update fits image and catalog headers and create
+            # separate header files
+            zogy.update_imcathead (ref_fits, header_ref, create_hdrfile=True)
+            ref_fits_cat = '{}.fits'.format(ref_fits.split('.fits')[0])
+            zogy.update_imcathead (ref_fits_cat, header_ref,
+                                   create_hdrfile=True)
+
+
+
+            # before replacing old reference file, first check if
+            # delta LIMMAG is large enough; could already do so at
+            # start of this function [prep_ref] to avoid making the
+            # reference image, however, final LIMMAG is usually but
+            # not always smaller than the projected LIMMAG
+
+            limmag = header_ref['LIMMAG']
+            limmag_old = header_ref_old['LIMMAG']
+
+            if limmag - limmag_old > dlimmag_min:
+
+                # copy/move files to the reference folder
+                tmp_base = ref_fits.split('_red.fits')[0]
+                ref_base = ref_fits_out.split('_red.fits')[0]
+                # add date of creation to ref_base
+                date_today = Time.now().isot.split('T')[0].replace('-','')
+                ref_base = '{}_{}'.format(ref_base, date_today)
+
+
+                # first (re)move old reference files
+                oldfiles = bb.list_files (ref_base)
+                if len(oldfiles)!=0:
+                    if False:
+                        # remove them
+                        zogy.remove_files (oldfiles, verbose=True)
+                    else:
+                        # or move them to the ref-old folder instead
+                        old_path = '{}-old/{:0>5}'.format(
+                            get_par(set_bb.ref_dir,tel), field_ID)
+
+                        bb.make_dir (old_path)
+                        for f in oldfiles:
+                            f_dest = '{}/{}'.format(old_path,f.split('/')[-1])
+                            #shutil.move (f, f_dest)
+                            bb.copy_file (f, f_dest, move=True)
+
+
+                # now move [ref_2keep] to the reference directory
+                result = bb.copy_files2keep(tmp_base, ref_base,
+                                            get_par(set_bb.ref_2keep,tel),
+                                            move=False)
+
 
 
     # also build a couple of alternative reference images for
@@ -1167,24 +1254,9 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
 
     log.info('finished making reference image: {}'.format(ref_fits_out))
 
-    if False:
 
-        # feed [header_optsub] to [run_qc_check] and check for a red flag
-        qc_flag = qc.run_qc_check (header_optsub, tel)
-        qc_flag = 'green'
-
-        if qc_flag != 'red':
-            tmp_base = ref_fits.split('.fits')[0]
-            # now move [ref_2keep] to the reference directory
-            ref_base = ref_fits_out.split('.fits')[0]
-            result = bb.copy_files2keep(tmp_base, ref_base,
-                                        get_par(set_bb.ref_2keep,tel),
-                                        move=False)
-            log.info('finished making reference image: {}'.format(ref_fits_out))
-
-        else:
-            log.info('encountered red flag; not using image: {} as reference'
-                     .format(ref_fits))
+    # changing back to original working dir
+    os.chdir(orig_path)
 
 
     bb.clean_tmp(tmp_path, get_par(set_br.keep_tmp,tel))
@@ -1197,11 +1269,9 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
 def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True,
                masktype_discard=None, tempdir='.temp', ra_center=None,
                dec_center=None, image_size=None, nfiles=0, limmag_proj=None,
-               A_swarp=None, nsigma_clip=None,
-               use_wcs_center=True, back_type='auto', back_default=0,
-               back_size=120, back_filtersize=3, resample_suffix='_resamp.fits',
-               remap_each=False, remap_suffix='_remap.fits', swarp_cfg=None,
-               nthreads=0):
+               A_swarp=None, nsigma_clip=None, use_wcs_center=True,
+               back_type='auto', back_default=0, back_size=120,
+               back_filtersize=3, remap_each=False, swarp_cfg=None, nthreads=0):
 
 
     """Module to combine MeerLICHT/BlackGEM images.  The headers of the
@@ -1241,6 +1311,8 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
 
 
     t0 = time.time()
+    zogy.mem_use ('at start of imcombine')
+
 
     if os.path.isfile(fits_out) and not overwrite:
         raise RuntimeError ('output image {} already exist'
@@ -1303,6 +1375,10 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
                           format(combine_type, combine_type_list))
 
 
+    # keeping temporary files?
+    keep_tmp = get_par(set_br.keep_tmp,tel)
+
+
     # initialize table with image values to keep
     names = ('ra_center', 'dec_center', 'xsize', 'ysize', 'zp', 'airmass', 'gain',
              'rdnoise', 'saturate', 'exptime', 'mjd_obs', 'fscale', 'seeing',
@@ -1313,8 +1389,10 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
     data_tmp = np.zeros((len(imagelist), len(names)))
     imtable = Table(data=data_tmp, names=names, dtype=dtypes)
 
+
     # mask in case particular image is not used in loop below
     mask_keep = np.ones(len(imtable), dtype=bool)
+
 
     # loop input list of images
     for nimage, image in enumerate(imagelist):
@@ -1333,7 +1411,7 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
         # read relevant header keywords
         keywords = ['naxis1', 'naxis2', 'ra', 'dec', 'pc-zp', 'pc-zpstd',
                     'airmass', 'pc-extco', 'gain', 'rdnoise', 'saturate',
-                    'exptime', 'mjd-obs', 'psf-see', 'a-pscale']
+                    'exptime', 'mjd-obs', 's-seeing', 'a-pscale']
         try:
             results = read_header_alt (header, keywords)
             xsize, ysize, ra_temp, dec_temp, zp, zp_std, airmass, extco, gain, \
@@ -1386,12 +1464,13 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
                 bkg_boxsize=bkg_boxsize, interp_Xchan=False, timing=False)
 
 
-            # save as probably used later on
             image_temp = '{}/{}'.format(tempdir, image.split('/')[-1])
             image_temp_bkg_std = image_temp.replace('red.fits',
                                                     'red_bkg_std.fits')
             image_temp_bkg_std = image_temp_bkg_std.replace('.fz','')
-            fits.writeto(image_temp_bkg_std, data_bkg_std, overwrite=True)
+            # save if keeping temporary files
+            if keep_tmp:
+                fits.writeto(image_temp_bkg_std, data_bkg_std, overwrite=True)
 
 
         else:
@@ -1449,6 +1528,11 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
             data_bkg_std = zogy.read_hdulist (image_temp_bkg_std,
                                               dtype='float32')
 
+            if not keep_tmp:
+                files2remove = [image_temp_bkg, image_temp_bkg_std]
+                zogy.remove_files (files2remove, verbose=True)
+
+
 
 
         # determine weights image (1/variance)
@@ -1500,8 +1584,8 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
         if not (masktype_discard & value_sat == value_sat):
             data = zogy.fixpix (data, satlevel=saturate, data_mask=data_mask,
                                 base=base, imtype='new', mask_value=mask_value,
-                                keep_tmp=get_par(set_br.keep_tmp,tel),
-                                along_row=True, interp_func='gauss')
+                                keep_tmp=keep_tmp, along_row=True,
+                                interp_func='gauss')
 
 
         # fill arrays with header info
@@ -1642,14 +1726,26 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
 
 
 
+
+    zogy.mem_use ('in imcombine after looping input images')
+
+
     # clean imtable from images that were not used
     imtable = imtable[mask_keep]
+
+
+    # remove images that are not being used
+    if np.sum(~mask_keep) > 0 and not keep_tmp:
+        list_tmp = list(imtable['image_name_tmp'][~mask_keep])
+        for im in list_tmp:
+            files2remove = image_associates(im)
+            zogy.remove_files (files2remove, verbose=True)
 
 
     # if input [ra_center] or [dec_center] is not defined, use the
     # median RA/DEC of the input images as the center RA/DEC of the
     # output image
-    if ra_center is None or dec_center is None:
+    if ra_center is None or dec_center <is None:
         ra_center = np.median(imtable['ra_center'])
         dec_center = np.median(imtable['dec_center'])
 
@@ -1723,7 +1819,7 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
     cmd_dict['-PIXELSCALE_TYPE'] = pixscale_type
     cmd_dict['-IMAGEOUT_NAME'] = fits_out
     cmd_dict['-RESAMPLE_DIR'] = tempdir
-    cmd_dict['-RESAMPLE_SUFFIX'] = resample_suffix
+    cmd_dict['-RESAMPLE_SUFFIX'] = '_resamp.fits'
     cmd_dict['-RESAMPLING_TYPE'] = 'LANCZOS3'
     # GAIN_KEYWORD cannot be GAIN, as the value of GAIN1 would then be adopted
     cmd_dict['-GAIN_KEYWORD'] = 'anything_but_gain'
@@ -1770,6 +1866,10 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
 
             else:
 
+                log.info ('converting clipped pixels identified in 1st pass '
+                          'of SWarp to masks in the frame of the input images, '
+                          'filter them and add the result to the weights images '
+                          'to be used in the 2nd pass of SWarp')
 
                 imagelist_tmp = list(imtable['image_name_tmp'])
 
@@ -1798,10 +1898,15 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
         result = subprocess.call(cmd)
 
 
+        zogy.mem_use ('after npass={} creation of combined image'.format(npass))
+
+
         # no need to do 2nd pass in case combine_type in 1st pass was
         # not set to 'clipped'
         if cmd_dict['-COMBINE_TYPE'].lower() != 'clipped':
             break
+
+
 
 
 
@@ -1889,6 +1994,7 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
 
     # projected and target limiting magnitudes
     header_out['R-LMPROJ'] = (limmag_proj, '[mag] projected limiting magnitude')
+
     if not deep:
         limmag_target = get_par(set_br.limmag_target,tel)[filt]
     else:
@@ -2053,7 +2159,7 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
             if False:
 
                 t_temp = time.time()
-                image_remap = image.replace('.fits', remap_suffix)
+                image_remap = image.replace('.fits', '_remap.fits')
 
                 log.info ('refimage: {}'.format(refimage))
                 log.info ('image: {}'.format(image))
@@ -2065,7 +2171,7 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
                             refimage, image, image_remap,
                             (image_size,image_size), config=swarp_cfg,
                             resample='N', resample_dir=tempdir,
-                            resample_suffix=resample_suffix, nthreads=nthreads,
+                            resample_suffix='_resamp.fits', nthreads=nthreads,
                             tel=tel, set_zogy=set_zogy)
 
                     except Exception as e:
@@ -2088,7 +2194,7 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
                 image_mask, get_header=True, dtype='uint8')
 
             t_temp = time.time()
-            image_mask_remap = image_mask.replace('.fits', remap_suffix)
+            image_mask_remap = image_mask.replace('.fits', '_remap.fits')
             if not os.path.isfile(image_mask_remap):
 
                 try:
@@ -2096,7 +2202,7 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
                         refimage, image_mask, image_mask_remap,
                         (image_size,image_size), config=swarp_cfg,
                         resampling_type='NEAREST', resample_dir=tempdir,
-                        resample_suffix=resample_suffix,
+                        resample_suffix='_resamp.fits',
                         dtype=data_mask.dtype.name,
                         value_edge=mask_value['edge'], nthreads=nthreads,
                         oversampling=0, tel=tel, set_zogy=set_zogy)
@@ -2130,6 +2236,11 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
             else:
                 data_mask_OR |= data_mask_remap
                 data_sumzeros += (data_mask_remap==0).astype(int)
+
+
+            if not keep_tmp:
+                files2remove = image_associates(image)
+                zogy.remove_files (files2remove, verbose=True)
 
 
 
@@ -2283,9 +2394,40 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
 
 
 
+    if not keep_tmp:
+        list_tmp = list(imtable['image_name_tmp'])
+        for im in list_tmp:
+            files2remove = image_associates(im)
+            zogy.remove_files (files2remove, verbose=True)
+
+        # also remove file with clipped pixels
+        zogy.remove_files([clip_logname], verbose=True)
+
+
+
+    zogy.mem_use ('at end of imcombine')
     log.info ('wall-time spent in imcombine: {}s'.format(time.time()-t0))
 
+
     return
+
+
+################################################################################
+
+def image_associates (image):
+
+    """return list of files associated with input image"""
+
+    base = image.split('_red.fits')[0]
+    image_remap = '{}_red_remap.fits'.format(base)
+    image_resamp = '{}_red_resamp.fits'.format(base)
+    image_resamp_weights = '{}_red_resamp.weight.fits'.format(base)
+    image_weights = '{}_red_weights.fits'.format(base)
+    mask = '{}_mask.fits'.format(base)
+    mask_remap = '{}_mask_remap.fits'.format(base)
+
+    return [image, image_remap, image_resamp, image_resamp_weights,
+            image_weights, mask, mask_remap]
 
 
 ################################################################################
@@ -2376,7 +2518,7 @@ def mask_objects (imtable):
 
 ################################################################################
 
-def pick_images (seeing, max_spread=0.4):
+def pick_images (seeing, max_spread=0.3):
 
     # number of seeing values
     nvalues = len(seeing)
@@ -2387,7 +2529,6 @@ def pick_images (seeing, max_spread=0.4):
     # seeing values sorted
     seeing_sort = np.sort(seeing)
 
-    nmask = 0
     for i, val in enumerate(seeing_sort):
 
         # create mask, starting from the current seeing value,
@@ -2969,7 +3110,7 @@ if __name__ == "__main__":
     parser.add_argument('--fits_hdrtable_list', type=str, default=None,
                         help='list of one or more (comma-separated) binary fits '
                         'tables, containing header keywords MJD-OBS, OBJECT, '
-                        'FILTER, QC-FLAG, RA-CNTR, DEC-CNTR, PSF-SEE, LIMMAG '
+                        'FILTER, QC-FLAG, RA-CNTR, DEC-CNTR, S-SEEING, LIMMAG '
                         'and S-BKGSTD of the possible images to be included; '
                         'if left to default of None, the catalog header tables '
                         'available for ML and BG will be used')
@@ -3028,7 +3169,7 @@ if __name__ == "__main__":
 
     parser.add_argument('--mode_ref', type=str2bool, default=False,
                         help='original reference image mode, where results are '
-                        'saved in reference folder defined in BlackBOB settings '
+                        'saved in reference folder defined in BlackBOX settings '
                         'file; if set to False, [results_dir] is used for the '
                         'output folder; default=False')
 
