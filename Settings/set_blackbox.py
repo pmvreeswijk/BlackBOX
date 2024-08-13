@@ -78,26 +78,65 @@ else:
 # directories, which can be used in [blackbox] to extract the correct
 # path for a given telescope
 run_dir = {}; raw_dir={}; red_dir={}; log_dir={}; ref_dir={}; tmp_dir={}
-master_dir = {}
+master_dir = {}; hdrtables_dir = {}
+
+
+# ML/BG processing environment: 'test', 'staging', 'production'
+proc_env = 'production'
+
 
 # MeerLICHT directory structure
+# -----------------------------
+proc_env_dict = {'test': '/test_paulv',
+                 'staging': '/staging_paulv',
+                 'production': ''}
+proc_env_subdir = proc_env_dict[proc_env]
+
+
 for tel in ['ML1']:
+    # raw folder does not depend on the processing environment
     run_dir[tel] = '{}/{}'.format(run_dir_base[tel], tel)
     raw_dir[tel] = '{}/raw'.format(run_dir[tel])
-    red_dir[tel] = '{}/red'.format(run_dir[tel])
-    log_dir[tel] = '{}/log'.format(run_dir[tel])
-    ref_dir[tel] = '{}/ref'.format(run_dir[tel])
-    tmp_dir[tel] = '{}/{}/tmp'.format(tmp_dir_base[tel], tel)
-    master_dir[tel] = red_dir[tel]
+    # the following folders do depend on processing environment
+    red_dir[tel] = '{}{}/red'.format(run_dir[tel], proc_env_subdir)
+    log_dir[tel] = '{}{}/log'.format(run_dir[tel], proc_env_subdir)
+    ref_dir[tel] = '{}{}/ref'.format(run_dir[tel], proc_env_subdir)
+    tmp_dir[tel] = '{}/{}{}/tmp'.format(tmp_dir_base[tel], tel, proc_env_subdir)
+    hdrtables_dir[tel] = '{}/Headers{}'.format(run_dir_base[tel],
+                                               proc_env_subdir)
+    if proc_env == 'test':
+        # for the test environment, use the existing masters
+        master_dir[tel] = '{}/red'.format(run_dir[tel])
+    else:
+        master_dir[tel] = red_dir[tel]
+
+
+# BlackGEM buckets at Google cloud
+# --------------------------------
+proc_env_dict = {'test': 'gs://blackgem-test-env/',
+                 'staging': 'gs://blackgem-staging-env/',
+                 'production': 'gs://'}
+proc_env_base = proc_env_dict[proc_env]
 
 # BlackGEM directory structure
 for tel in ['BG2', 'BG3', 'BG4', 'BG']:
+    # raw bucket does not depend on the processing environment
     raw_dir[tel] = 'gs://blackgem-raw/{}'.format(tel)
-    red_dir[tel] = 'gs://blackgem-red/{}'.format(tel)
-    #red_dir[tel] = '/home/sa_105685508700717199458/BBtest/{}'.format(tel)
-    ref_dir[tel] = 'gs://blackgem-ref'
+    # neither does the tmp folder
     tmp_dir[tel] = '{}/{}'.format(tmp_dir_base['BG'], tel)
-    master_dir[tel] = 'gs://blackgem-masters/{}'.format(tel)
+
+    # reduced, ref, masters and hdrtables
+    red_dir[tel] = '{}blackgem-red/{}'.format(proc_env_base, tel)
+    #red_dir[tel] = '/home/sa_105685508700717199458/BBtest/{}'.format(tel)
+    ref_dir[tel] = '{}blackgem-ref'.format(proc_env_base)
+    hdrtables_dir[tel] = '{}blackgem-hdrtables/{}'.format(proc_env_base, tel)
+
+    if proc_env == 'test':
+        # for the test environment, use the existing masters
+        master_dir[tel] = 'gs://blackgem-masters/{}'.format(tel)
+    else:
+        master_dir[tel] = '{}blackgem-masters/{}'.format(proc_env_base, tel)
+
 
 
 # name endings of files to keep for the reference and new images
@@ -119,7 +158,12 @@ all_2keep = ref_2keep + trans_extract_exts
 cal_dir = set_zogy.cal_dir
 
 # name of Xtalk file created by Kerry
-crosstalk_file = '{}/crosstalk_20180620.txt'.format(cal_dir)
+#crosstalk_file = {'ML1': '{}/crosstalk_20180620.txt'.format(cal_dir)}
+# new ones created in August 2024
+crosstalk_file = {}
+for tel in ['ML1', 'BG2', 'BG3', 'BG4']:
+    crosstalk_file[tel] = ('{}/{}_crosstalk_20240807.dat'
+                           .format(cal_dir, tel))
 
 # name of initial bad pixel mask; filter dependence is added in
 # blackbox, e.g. ML1_bpm_r_0p2_20200727.fits.fz, instead of making
@@ -158,7 +202,7 @@ use_asta = True
 # path to ASTA model file
 asta_model = '/Software/ASTA/model-best.h5'
 
-# binning used for acstools satellite trail detection
+# binning used for satellite trail detection
 sat_bin = 2
 
 #===============================================================================
@@ -231,13 +275,27 @@ gain = {'ML1': [2.112, 2.125, 2.130, 2.137, 2.156, 2.158, 2.163, 2.164,
 # for BG3 (95ke-) and BG4 (104ke-), so just stick with separate
 # satlevels in ADU
 #
+#satlevel = {'ML1': 55e3, 'BG2': 40e3, 'BG3': 35e3, 'BG4': 39e3}
+# determined from many images using get_satlevel_chans.py
+satlevel = {
+    'ML1': [5.89e4, 5.94e4, 5.82e4, 5.59e4, 5.60e4, 5.63e4, 5.60e4, 5.75e4,
+            5.88e4, 5.81e4, 5.71e4, 5.65e4, 5.59e4, 5.60e4, 5.59e4, 5.65e4],
+    'BG2': [3.84e4, 3.77e4, 3.75e4, 3.79e4, 3.79e4, 3.80e4, 3.75e4, 3.93e4,
+            4.50e4, 4.08e4, 4.08e4, 4.09e4, 4.07e4, 3.95e4, 4.15e4, 4.37e4],
+    'BG3': [3.96e4, 3.83e4, 3.79e4, 3.77e4, 3.81e4, 3.83e4, 3.74e4, 3.94e4,
+            4.00e4, 3.98e4, 4.13e4, 4.29e4, 4.29e4, 4.22e4, 4.13e4, 4.38e4],
+    'BG4': [4.11e4, 4.09e4, 4.16e4, 4.29e4, 4.32e4, 4.29e4, 4.23e4, 4.41e4,
+            4.66e4, 4.60e4, 4.53e4, 4.67e4, 4.66e4, 4.65e4, 4.64e4, 4.66e4]
+    }
+
 # ML1: [63, 62, 61, 59, 58, 58, 59, 60,
 #       62, 60, 59, 58, 57, 58, 58, 58]
+# BG2: [40, 40, 40, 40, 40, 40, 39, 42,
+#       45, 46,
 # BG3: [39, 38, 37, 36, 40, 37, 39, 39,
 #       45, 44, 40, 42, 44, 41, 43, 41]
 # BG4: [41, 40, 40, 41, 42, 42, 42, 42,
 #       46, 45, 44, 44, 45, 44, 44, 44]
-satlevel = {'ML1': 55e3, 'BG2': 40e3, 'BG3': 35e3, 'BG4': 39e3}
 
 
 # reduced image data section used for flat normalisation
