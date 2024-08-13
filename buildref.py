@@ -158,10 +158,14 @@ def buildref (telescope=None, fits_hdrtable_list=None, date_start=None,
     # not needed anymore as header tables are ready to be used
     if fits_hdrtable_list is None:
 
+        # get base folder name of header tables from set_blackbox
+        hdrtables_dir = get_par(set_bb.hdrtables_dir,tel)
+
         # refer to the existing header tables for both ML and BG
         if tel == 'ML1':
 
-            fits_hdrtable_list = ['/idia/projects/meerlicht/Headers/ML1_headers_cat.fits']
+            table_name = '{}/{}_headers_cat.fits'.format(hdrtables_dir, tel)
+            fits_hdrtable_list = [table_name]
 
         else:
 
@@ -169,9 +173,10 @@ def buildref (telescope=None, fits_hdrtable_list=None, date_start=None,
             fits_hdrtable_list = []
             for tel_tmp in ['BG2', 'BG3', 'BG4']:
                 if tel in tel_tmp:
-                    fits_hdrtable_list.append(
-                        'gs://blackgem-hdrtables/{}/{}_headers_cat.fits'
-                        .format(tel_tmp, tel_tmp))
+                    table_name = '{}/{}_headers_cat.fits'.format(hdrtables_dir,
+                                                                 tel_tmp)
+                    fits_hdrtable_list.append(table_name)
+
 
 
     # read header fits files into table

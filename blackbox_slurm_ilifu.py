@@ -21,6 +21,7 @@ import astropy.io.fits as fits
 from astropy.io import ascii
 from astropy.time import Time
 from astropy.table import Table, vstack, unique
+from astropy import units as u
 
 import ephem
 from watchdog.observers.polling import PollingObserver
@@ -57,7 +58,28 @@ mlbg_fieldIDs = '{}/MLBG_FieldIDs_Feb2022_nGaia.fits'.format(cal_dir)
 # MeerLICHT observatory settings
 obs_lat = -32.3799
 obs_lon = 20.8112
+obs_height = 1802
 obs_timezone = 'Africa/Johannesburg'
+
+
+################################################################################
+
+def adjust_horizon (observer, height):
+
+    # 34arcmin due to atmospheric refraction (ephem uses top of Sun by
+    # default, so no need for 16arcmin due to Sun apparent radius)
+    horizon = -34/60
+
+    # Earth's radius in m
+    R = (1*u.earthRad).to(u.m).value
+    horizon -= np.degrees(np.arccos((R/(R+height))))
+
+    # set pressure to zero to discard ephem's internal refraction
+    # calculation
+    observer.pressure = 0
+    observer.horizon = str(horizon)
+
+    return observer
 
 
 ################################################################################
@@ -139,6 +161,10 @@ def run_blackbox_slurm (date=None, nthreads=4, mode='night', runtime='4:00:00'):
     # to run for the MeerLICHT telescope only
     obs.lat = str(obs_lat)
     obs.lon = str(obs_lon)
+    obs.elevation = obs_height
+    # correct apparent horizon for observer elevation, which is
+    # not taken into account in ephem
+    obs = adjust_horizon(obs, obs_height)
     sunrise = obs.next_rising(ephem.Sun())
 
 

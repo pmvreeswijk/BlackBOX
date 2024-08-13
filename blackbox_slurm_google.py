@@ -22,6 +22,7 @@ import astropy.io.fits as fits
 from astropy.io import ascii
 from astropy.time import Time
 from astropy.table import Table, vstack, unique
+import astropy.units as u
 
 import ephem
 
@@ -70,6 +71,7 @@ os.makedirs(job_dir, exist_ok=True)
 # BG observatory and time zone settings
 obs_lat = -29.2575
 obs_lon = -70.7380
+obs_height = 2383
 obs_timezone = 'America/Santiago'
 
 # Email settings
@@ -86,6 +88,26 @@ use_SSL = True
 home_dir = '/home/sa_105685508700717199458'
 cal_dir = os.path.join(home_dir, 'CalFiles')
 mlbg_fieldIDs = '{}/MLBG_FieldIDs_Feb2022_nGaia.fits'.format(cal_dir)
+
+
+################################################################################
+
+def adjust_horizon (observer, height):
+
+    # 34arcmin due to atmospheric refraction (ephem uses top of Sun by
+    # default, so no need for 16arcmin due to Sun apparent radius)
+    horizon = -34/60
+
+    # Earth's radius in m
+    R = (1*u.earthRad).to(u.m).value
+    horizon -= np.degrees(np.arccos((R/(R+height))))
+
+    # set pressure to zero to discard ephem's internal refraction
+    # calculation
+    observer.pressure = 0
+    observer.horizon = str(horizon)
+
+    return observer
 
 
 ################################################################################
@@ -172,6 +194,10 @@ def run_blackbox_slurm (date=None, telescope=None, mode='night',
     # expected to run for the BlackGEM telescopes only
     obs.lat = str(obs_lat)
     obs.lon = str(obs_lon)
+    obs.elevation = obs_height
+    # correct apparent horizon for observer elevation, which is
+    # not taken into account in ephem
+    obs = adjust_horizon(obs, obs_height)
     sunrise = obs.next_rising(ephem.Sun())
 
 
@@ -788,7 +814,10 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
         height = 2150
     else:
         png_tmp = '{}/{}_LaSilla_meteo.png'.format(tmp_path, date_eve)
-        webpage = 'https://www.ls.eso.org/lasilla/dimm/meteomonitor.html'
+        #webpage = 'https://www.ls.eso.org/lasilla/dimm/meteomonitor.html'
+        webpage = 'https://archive.eso.org/asm/ambient-server?site=lasilla'
+        #webpage = ('https://www.eso.org/asm/ui/publicLog?name=LaSilla&startDate='
+        #           '{}'.format(date_eve))
         width = 1500
         height = 1150
 
