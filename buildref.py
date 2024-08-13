@@ -1750,7 +1750,7 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
     # if input [ra_center] or [dec_center] is not defined, use the
     # median RA/DEC of the input images as the center RA/DEC of the
     # output image
-    if ra_center is None or dec_center <is None:
+    if ra_center is None or dec_center is None:
         ra_center = np.median(imtable['ra_center'])
         dec_center = np.median(imtable['dec_center'])
 
