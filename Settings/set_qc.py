@@ -57,6 +57,55 @@
 qc_range = {
 
     ################################################################################
+    # BG reference images
+    ################################################################################
+
+    'BG': {
+
+
+        # SExtractor
+        'S-SEEING': {'default':'None', 'val_type': 'min_max', 'val_range': [ (0.1,2) ],                         'key_type': 'ref', 'pos': True , 'comment': '[arcsec] SExtractor seeing estimate'},
+        'S-ELONG' : {'default':'None', 'val_type': 'min_max', 'val_range': [ (1.0,1.5) ],                       'key_type': 'ref', 'pos': True , 'comment': 'SExtractor ELONGATION (A/B) estimate'},
+        'S-BKG'   : {'default':'None', 'val_type': 'min_max', 'val_range': [ (0,5e2) ],                         'key_type': 'ref', 'pos': False, 'comment': '[e-] median background full image'},
+
+        # PSFEx
+        'PSF-CHI2': {'default':'None', 'val_type': 'min_max', 'val_range': [ (0.5, 1.5) ],                      'key_type': 'ref', 'pos': True , 'comment': 'final reduced chi-squared PSFEx fit'},
+
+        # photometric calibration (PC)
+        'PC-ZP'   : {'default':'None', 'val_type': 'min_max', 'val_range': {'u': [ (22.0, 22.6), (21.3, 23.3), (0, 30) ],
+                                                                            'g': [ (23.0, 23.6), (22.3, 24.3), (0, 30) ],
+                                                                            'q': [ (23.5, 24.1), (22.8, 24.8), (0, 30) ],
+                                                                            'r': [ (22.5, 23.1), (21.8, 23.8), (0, 30) ],
+                                                                            'i': [ (22.0, 22.6), (21.3, 23.3), (0, 30) ],
+                                                                            'z': [ (21.1, 21.7), (20.4, 22.4), (0, 30) ]}, 'key_type': 'full', 'pos': True , 'comment': '[mag] zeropoint=m_AB+2.5*log10(flux[e-/s])+A*k'},
+
+        'PC-ZPSTD': {'default':'None', 'val_type': 'min_max',   'val_range': {'u': [ (0.0, 0.13) ],
+                                                                              'g': [ (0.0, 0.09) ],
+                                                                              'q': [ (0.0, 0.08) ],
+                                                                              'r': [ (0.0, 0.08) ],
+                                                                              'i': [ (0.0, 0.08) ],
+                                                                              'z': [ (0.0, 0.09) ]},            'key_type': 'ref', 'pos': True , 'comment': '[mag] sigma (STD) zeropoint sigma'},
+
+        # let PC-MZPD scale with PC-ZPSTD ranges as 1st degree polynomial: PC-MZPD = 0.3 + 3.5 * PC-ZPSTD
+        'PC-MZPD' : {'default':'None', 'val_type': 'key',     'val_range': [ (0,'0.3+3.5*header[\'PC-ZPSTD\']') ], 'key_type': 'ref', 'pos': True , 'comment': '[mag] maximum zeropoint difference between subimages'},
+
+
+
+        # target LIMMAG (April 2024): 'BG': {'u': 21.1, 'g': 22.0, 'q': 22.8, 'r': 21.8, 'i': 21.8, 'z': 20.3}}
+
+        # N.B.: these limmags below are assuming 5 sigma, as set by source_nsigma in ZOGY settings file
+        # if that 5 sigma changes, these number need updating with correction: -2.5*log10(nsigma/5)!
+        # skipping for now, as e.g. field 12 at higher airmass reaches only q=21.46 due to
+        # images having been taken during full moon
+        'LIMMAG'  : {'default':'None', 'val_type': 'skip', 'val_range': {'u': [ (20.8, 30) ],
+                                                                         'g': [ (21.7, 30) ],
+                                                                         'q': [ (22.5, 30) ],
+                                                                         'r': [ (21.5, 30) ],
+                                                                         'i': [ (21.5, 30) ],
+                                                                         'z': [ (20.0, 30) ]}, 'key_type': 'ref', 'pos': True , 'comment': '[mag] full-frame 5-sigma limiting mag'},
+    },
+
+    ################################################################################
     # ML1
     ################################################################################
 
@@ -256,7 +305,8 @@ qc_range = {
                                                                             'z': [ (0.03, 0.02) ]},             'key_type': 'full', 'pos': True , 'comment': '[arcsec] dDEC sigma (STD) offset'},
 
         # PSFEx
-        'PSF-NOBJ': {'default':'None', 'val_type': 'min_max', 'val_range': [ (500,2e5), (100,2e5), (10,2e5) ],  'key_type': 'full', 'pos': True , 'comment': 'number of accepted PSF stars'},
+        # PSF-NOBJ is limited to set_zogy.psf_stars_nmax, so it does not need to be checked anymore
+        'PSF-NOBJ': {'default':'None', 'val_type': 'skip',    'val_range': [ (500,2e5), (100,2e5), (10,2e5) ],  'key_type': 'full', 'pos': True , 'comment': 'number of accepted PSF stars'},
         'PSF-CHI2': {'default':'None', 'val_type': 'sigma',   'val_range': [ (1.0, 0.1) ],                      'key_type': 'full', 'pos': True , 'comment': 'final reduced chi-squared PSFEx fit'},
         'PSF-SEE' : {'default':'None', 'val_type': 'min_max', 'val_range': [ (1.5,4), (1,5), (0.5,7) ],         'key_type': 'full', 'pos': True , 'comment': '[arcsec] image seeing inferred by PSFEx'},
 
@@ -521,7 +571,8 @@ qc_range = {
                                                                             'z': [ (0.03, 0.02) ]},             'key_type': 'full', 'pos': True , 'comment': '[arcsec] dDEC sigma (STD) offset'},
 
         # PSFEx
-        'PSF-NOBJ': {'default':'None', 'val_type': 'min_max', 'val_range': [ (500,2e5), (100,2e5), (10,2e5) ],  'key_type': 'full', 'pos': True , 'comment': 'number of accepted PSF stars'},
+        # PSF-NOBJ is limited to set_zogy.psf_stars_nmax, so it does not need to be checked anymore
+        'PSF-NOBJ': {'default':'None', 'val_type': 'skip',    'val_range': [ (500,2e5), (100,2e5), (10,2e5) ],  'key_type': 'full', 'pos': True , 'comment': 'number of accepted PSF stars'},
         'PSF-CHI2': {'default':'None', 'val_type': 'sigma',   'val_range': [ (1.1, 0.2) ],                      'key_type': 'full', 'pos': True , 'comment': 'final reduced chi-squared PSFEx fit'},
         'PSF-SEE' : {'default':'None', 'val_type': 'min_max', 'val_range': [ (0.5,2), (0.5,4), (0.5,7) ],       'key_type': 'full', 'pos': True , 'comment': '[arcsec] image seeing inferred by PSFEx'},
 
@@ -778,7 +829,8 @@ qc_range = {
                                                                             'z': [ (0.03, 0.02) ]},             'key_type': 'full', 'pos': True , 'comment': '[arcsec] dDEC sigma (STD) offset'},
 
         # PSFEx
-        'PSF-NOBJ': {'default':'None', 'val_type': 'min_max', 'val_range': [ (500,2e5), (100,2e5), (10,2e5) ],  'key_type': 'full', 'pos': True , 'comment': 'number of accepted PSF stars'},
+        # PSF-NOBJ is limited to set_zogy.psf_stars_nmax, so it does not need to be checked anymore
+        'PSF-NOBJ': {'default':'None', 'val_type': 'skip',    'val_range': [ (500,2e5), (100,2e5), (10,2e5) ],  'key_type': 'full', 'pos': True , 'comment': 'number of accepted PSF stars'},
         'PSF-CHI2': {'default':'None', 'val_type': 'sigma',   'val_range': [ (1.1, 0.2) ],                      'key_type': 'full', 'pos': True , 'comment': 'final reduced chi-squared PSFEx fit'},
         'PSF-SEE' : {'default':'None', 'val_type': 'min_max', 'val_range': [ (0.5,2), (0.5,4), (0.5,7) ],       'key_type': 'full', 'pos': True , 'comment': '[arcsec] image seeing inferred by PSFEx'},
 
@@ -1036,7 +1088,8 @@ qc_range = {
                                                                             'z': [ (0.03, 0.02) ]},             'key_type': 'full', 'pos': True , 'comment': '[arcsec] dDEC sigma (STD) offset'},
 
         # PSFEx
-        'PSF-NOBJ': {'default':'None', 'val_type': 'min_max', 'val_range': [ (500,2e5), (100,2e5), (10,2e5) ],  'key_type': 'full', 'pos': True , 'comment': 'number of accepted PSF stars'},
+        # PSF-NOBJ is limited to set_zogy.psf_stars_nmax, so it does not need to be checked anymore
+        'PSF-NOBJ': {'default':'None', 'val_type': 'skip',    'val_range': [ (500,2e5), (100,2e5), (10,2e5) ],  'key_type': 'full', 'pos': True , 'comment': 'number of accepted PSF stars'},
         'PSF-CHI2': {'default':'None', 'val_type': 'sigma',   'val_range': [ (1.1, 0.2) ],                      'key_type': 'full', 'pos': True , 'comment': 'final reduced chi-squared PSFEx fit'},
         'PSF-SEE' : {'default':'None', 'val_type': 'min_max', 'val_range': [ (0.5,2), (0.5,4), (0.5,7) ],       'key_type': 'full', 'pos': True , 'comment': '[arcsec] image seeing inferred by PSFEx'},
 
