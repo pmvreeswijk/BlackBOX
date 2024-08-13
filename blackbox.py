@@ -234,18 +234,19 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
             fileHandler.setFormatter(logFormatter)
             fileHandler.setLevel('INFO')
             log.addHandler(fileHandler)
-            log.info ('genlogfile created:     {}'.format(genlogfile))
+            log.info ('genlogfile created:      {}'.format(genlogfile))
 
 
 
-    log.info ('processing mode:        {}'.format(mode))
-    log.info ('number of processes:    {}'.format(nproc))
-    log.info ('number of threads:      {}'.format(set_bb.nthreads))
-    log.info ('switch img_reduce:      {}'.format(get_par(set_bb.img_reduce,tel)))
-    log.info ('switch cat_extract:     {}'.format(get_par(set_bb.cat_extract,tel)))
-    log.info ('switch trans_extract:   {}'.format(get_par(set_bb.trans_extract,tel)))
-    log.info ('force reprocessing new: {}'.format(get_par(set_bb.force_reproc_new,tel)))
-    log.info ('keep temporary folders: {}'.format(get_par(set_bb.keep_tmp,tel)))
+    log.info ('processing mode:         {}'.format(mode))
+    log.info ('test/staging/production: {}'.format(get_par(set_bb.proc_env,tel)))
+    log.info ('number of processes:     {}'.format(nproc))
+    log.info ('number of threads:       {}'.format(set_bb.nthreads))
+    log.info ('switch img_reduce:       {}'.format(get_par(set_bb.img_reduce,tel)))
+    log.info ('switch cat_extract:      {}'.format(get_par(set_bb.cat_extract,tel)))
+    log.info ('switch trans_extract:    {}'.format(get_par(set_bb.trans_extract,tel)))
+    log.info ('force reprocessing new:  {}'.format(get_par(set_bb.force_reproc_new,tel)))
+    log.info ('keep temporary folders:  {}'.format(get_par(set_bb.keep_tmp,tel)))
 
 
 
@@ -1809,8 +1810,13 @@ def blackbox_reduce (filename):
         except Exception as e:
             header['NSATS'] = ('None', 'number of satellite trails identified')
             #log.exception(traceback.format_exc())
-            log.exception('exception was raised during [sat_detect] of image {}: '
-                          '{}'.format(filename, e))
+            if get_par(set_bb.use_asta,tel):
+                modname = run_asta
+            else:
+                modname = sat_detect
+
+            log.exception('exception was raised during [{}] of image {}: '
+                          '{}'.format(modname, filename, e))
         else:
             if get_par(set_bb.detect_sats,tel):
                 sat_processed = True
@@ -4185,7 +4191,7 @@ def mask_init (data, header, filt, imgtype):
 
 
         # determine saturated pixels for each channel separately
-        biaslevel_chans = np.array([header['BIASM{}'.format(i_chan)]
+        biaslevel_chans = np.array([header['BIASM{}'.format(i_chan+1)]
                                     for i_chan in range(nchans)])
 
         # array of satlevels in e- for different channels
@@ -4197,10 +4203,10 @@ def mask_init (data, header, filt, imgtype):
         # add mean saturation level to both header and header_mask;
         # keep name SATURATE for the mean saturation level as that is
         # also used in buildref
-        header_mask['SATURATE'] = (np.mean(satlevel_chans), '[e-] mean '
-                                   'saturation threshold')
-        header['SATURATE'] = (np.mean(satlevel_chans), '[e-] mean '
-                              'saturation threshold')
+        satlevel_mean = np.mean(satlevel_chans)
+        header_mask['SATURATE'] = (satlevel_mean, '[e-] mean saturation '
+                                   'threshold')
+        header['SATURATE'] = (satlevel_mean, '[e-] mean saturation threshold')
 
 
         # initialize full-image mask of saturated pixels, needed
@@ -4267,7 +4273,8 @@ def mask_init (data, header, filt, imgtype):
 
 
                     # add crosstalk pixels to the full-image mask
-                    data_mask[chan_sec][mask_use] += mask_value['crosstalk']
+                    data_mask[chan_sec_victim][mask_use] += \
+                        mask_value['crosstalk']
 
 
 
