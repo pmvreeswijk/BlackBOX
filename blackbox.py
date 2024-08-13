@@ -392,7 +392,11 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
         obs = ephem.Observer()
         obs.lat = str(get_par(set_zogy.obs_lat,tel))
         obs.lon = str(get_par(set_zogy.obs_lon,tel))
-        obs.elevation = get_par(set_zogy.obs_height,tel)
+        height = get_par(set_zogy.obs_height,tel)
+        obs.elevation = height
+        # correct apparent horizon for observer elevation, which is
+        # not taken into account in ephem
+        obs = adjust_horizon(obs, height)
         sunrise = obs.next_rising(ephem.Sun())
 
 
@@ -465,6 +469,26 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
 
     logging.shutdown()
     return
+
+
+################################################################################
+
+def adjust_horizon (observer, height):
+
+    # 34arcmin due to atmospheric refraction (ephem uses top of Sun by
+    # default, so no need for 16arcmin due to Sun apparent radius)
+    horizon = -34/60
+
+    # Earth's radius in m
+    R = (1*u.earthRad).to(u.m).value
+    horizon -= np.degrees(np.arccos((R/(R+height))))
+
+    # set pressure to zero to discard ephem's internal refraction
+    # calculation
+    observer.pressure = 0
+    observer.horizon = str(horizon)
+
+    return observer
 
 
 ################################################################################
@@ -921,21 +945,30 @@ def try_blackbox_reduce (filename):
         # the log and remove the tmp folder
         if filename_reduced is None:
 
-            fn_red = get_filename_red (filename)
-            tmp_path = '{}/{}'.format(get_par(set_bb.tmp_dir,tel), fn_red)
+            try:
 
-            # close the log
-            logfile = '{}/{}.log'.format(tmp_path, fn_red)
-            close_log(log, logfile)
+                fn_red = get_filename_red (filename)
+                tmp_path = '{}/{}'.format(get_par(set_bb.tmp_dir,tel), fn_red)
 
-            # running in the google cloud?
-            #google_cloud = (filename[0:5]=='gs://')
+                # close the log
+                logfile = '{}/{}.log'.format(tmp_path, fn_red)
+                close_log(log, logfile)
 
-            # remove tmp folder if not keeping tmp files; not so
-            # urgent for MeerLICHT and provides opportunity to inspect
-            # the tmp folder to find out what went wrong exactly
-            # if google_cloud:
-            clean_tmp (tmp_path, get_par(set_bb.keep_tmp,tel))
+                # running in the google cloud?
+                #google_cloud = (filename[0:5]=='gs://')
+
+                # remove tmp folder if not keeping tmp files; not so
+                # urgent for MeerLICHT and provides opportunity to inspect
+                # the tmp folder to find out what went wrong exactly
+                # if google_cloud:
+                clean_tmp (tmp_path, get_par(set_bb.keep_tmp,tel))
+
+            except Exception as e:
+
+                log.warning ('following exception occurred in '
+                             'blackbox.try_blackbox_reduce when attempting to '
+                             'close the log and remove the tmp folder for {}: {}'
+                             .format(filename, e))
 
 
     return filename_reduced
@@ -1204,12 +1237,26 @@ def blackbox_reduce (filename):
     tmp_path = '{}/{}'.format(get_par(set_bb.tmp_dir,tel),
                               fits_out.split('/')[-1].replace('.fits',''))
 
-    if False:
-        # if running in the google cloud and not keep tmp files, clean up
-        # tmp base folder, in case another job - which could be from
-        # another telescope - left some files behind
-        if google_cloud and not get_par(set_bb.keep_tmp,tel):
-            shutil.rmtree(get_par(set_bb.tmp_dir_base,tel))
+
+    # if running in the google cloud and not keep tmp files, clean up
+    # tmp base folder, in case another job - which could be from
+    # another telescope - left some files behind
+    if google_cloud and not get_par(set_bb.keep_tmp,tel):
+
+        # this is not permitted:
+        #shutil.rmtree(get_par(set_bb.tmp_dir_base,tel))
+
+        # instead, go through separate entries (files or
+        # directories) in that folder and remove them one by one
+        with os.scandir(get_par(set_bb.tmp_dir_base,tel)) as it:
+            for entry in it:
+                # only consider folders that start with 'BG';
+                # otherwise running into trouble trying to
+                # remove 'Constant.pm' or '.XIM-unix'
+                if entry.is_dir() and entry.name.startswith('BG'):
+                    log.info ('removing folder {}'.format(entry.path))
+                    shutil.rmtree(entry.path)
+
 
 
     # make tmp folder
@@ -1391,13 +1438,14 @@ def blackbox_reduce (filename):
 
         # crosstalk correction
         ######################
-        if imgtype == 'object':
+        if False and imgtype == 'object':
             # not needed for biases, darks or flats
             try:
                 log.info('correcting for the crosstalk')
                 xtalk_processed = False
                 crosstalk_file = get_par(set_bb.crosstalk_file,tel)
-                data = xtalk_corr (data, crosstalk_file)
+                # data array is corrected in place
+                xtalk_corr_old (data, crosstalk_file)
             except Exception as e:
                 #log.exception(traceback.format_exc())
                 log.exception('exception was raised during [xtalk_corr] of image '
@@ -1675,6 +1723,27 @@ def blackbox_reduce (filename):
 
 
 
+        # new crosstalk correction
+        ######################
+        try:
+            log.info('correcting for the crosstalk')
+            xtalk_processed = False
+            crosstalk_file = get_par(set_bb.crosstalk_file,tel)
+            # data array is corrected in place; data_mask remains unchanged
+            xtalk_corr (data, crosstalk_file, data_mask)
+        except Exception as e:
+            #log.exception(traceback.format_exc())
+            log.exception('exception was raised during [xtalk_corr] of image '
+                          '{}: {}'.format(filename, e))
+        else:
+            xtalk_processed = True
+        finally:
+            header['XTALK-P'] = (xtalk_processed, 'corrected for crosstalk?')
+            header['XTALK-F'] = (crosstalk_file.split('/')[-1],
+                                 'name crosstalk coefficients file')
+
+
+
         # PMV 2018/12/20: fringe correction is not yet done, but
         # still add these keywords to the header
         header['MFRING-P'] = (False, 'corrected for master fringe map?')
@@ -1892,10 +1961,11 @@ def blackbox_reduce (filename):
         fits_cat = '{}_red_cat.fits'.format(new_base)
         fits_trans = '{}_red_trans.fits'.format(new_base)
 
-        if get_par(set_bb.trans_extract,tel):
-            # if [trans_extract] is set to True, both the cat_extract
-            # and trans_extract products should be present, even when
-            # [cat_extract] is set to False
+        if get_par(set_bb.trans_extract,tel) and ref_present:
+            # if [trans_extract] is set to True and a reference image
+            # is present, both the cat_extract and trans_extract
+            # products should be present, even when [cat_extract] is
+            # set to False
             ext_list += get_par(set_bb.cat_extract_exts,tel)
             ext_list += get_par(set_bb.trans_extract_exts,tel)
             text = 'cat_extract and trans_extract'
@@ -1929,8 +1999,9 @@ def blackbox_reduce (filename):
 
             if not dumcat:
                 log.info ('force_reproc_new is False and all {} data products '
-                          'already present in reduced folder; nothing left to '
-                          'do for {}'.format(text, filename))
+                          'already present in reduced folder (ref image present?'
+                          ': {}); nothing left to do for {}'
+                          .format(text, ref_present, filename))
             else:
                 log.info ('force_reproc_new is False and full-source and/or '
                           'transient catalog is a dummy; nothing left to do for '
@@ -2356,6 +2427,7 @@ def blackbox_reduce (filename):
     # run match2SSO to find known asteroids in the observation
     call_match2SSO(fits_tmp_trans, tel)
 
+
     # list of files to copy/move to reduced folder; need to include
     # the img_reduce products in any case because the header will have
     # been updated with fresh QC flags
@@ -2376,6 +2448,7 @@ def blackbox_reduce (filename):
         list_2keep += ['_trans.fits']
         list_2keep += ['_trans_hdr.fits']
         list_2keep += ['_trans_light.fits']
+
 
     # copy/move files over
     copy_files2keep(tmp_base, new_base, list_2keep,
@@ -3218,7 +3291,10 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
         height = 2150
     else:
         png_tmp = '{}/{}_LaSilla_meteo.png'.format(tmp_path, date_eve)
-        webpage = 'https://www.ls.eso.org/lasilla/dimm/meteomonitor.html'
+        #webpage = 'https://www.ls.eso.org/lasilla/dimm/meteomonitor.html'
+        webpage = 'https://archive.eso.org/asm/ambient-server?site=lasilla'
+        #webpage = ('https://www.eso.org/asm/ui/publicLog?name=LaSilla&startDate='
+        #           '{}'.format(date_eve))
         width = 1500
         height = 1150
 
@@ -3649,6 +3725,9 @@ def copy_files2keep (src_base, dest_base, ext2keep, move=True, run_fpack=True):
                     if (src_file.split('.')[-1] == 'fits'
                         and '_ldac.fits' not in src_file
                         and isfile(dest_file_fz)
+                        # in Google cloud, do not execute the block
+                        # below: not possible to only update the
+                        # header of a file in a bucket
                         and dest_file[0:5] != 'gs://'):
 
 
@@ -3662,8 +3741,13 @@ def copy_files2keep (src_base, dest_base, ext2keep, move=True, run_fpack=True):
                             # read dest_file data
                             data_dest = read_hdulist(dest_file_fz)
 
-                            # compare data arrays
-                            if np.allclose(data_src, data_dest):
+                            # compare data arrays; this comparison is
+                            # done before fpacking src_file, so data
+                            # arrays should be very close if
+                            # destination file was already fully
+                            # reduced; still, allow for absolute
+                            # difference of 1e- between the data sets
+                            if np.allclose(data_src, data_dest, atol=1):
 
                                 # skip copying/moving below
                                 skip = True
@@ -3722,6 +3806,7 @@ def copy_files2keep (src_base, dest_base, ext2keep, move=True, run_fpack=True):
                             copy_file (src_file_jpg, dest_file_jpg, move=move)
 
 
+
                     # remove the potentially existing f/unpacked
                     # counterparts of [dest_file] already present in
                     # the destination folder for some reason, to avoid
@@ -3754,27 +3839,50 @@ def run_asta (data, header, data_mask, header_mask, tmp_path):
         t = time.time()
 
 
-    #write data to tmp file
-    fits_tmp = ('{}/{}'.format(
-        tmp_path, tmp_path.split('/')[-1].replace('_red', '_red_asta.fits')))
-    fits.writeto(fits_tmp, data, header, overwrite=True)
+    # bin input data if nbin > 1
+    nbin = get_par(set_bb.sat_bin,tel)
+    if nbin == 1:
+        data_binned = data
+    else:
+        data_binned = data.reshape(np.shape(data)[0] // nbin, nbin,
+                                   np.shape(data)[1] // nbin, nbin).sum(3).sum(1)
+
+
+    #write data to tmp file; not needed anymore since Fiore changed
+    # input to ASTA function from fits image to array
+    #fits_tmp = ('{}/{}'.format(
+    #    tmp_path, tmp_path.split('/')[-1].replace('_red', '_red_asta.fits')))
+    #fits.writeto(fits_tmp, data, header, overwrite=True)
 
 
     asta_model = get_par(set_bb.asta_model,tel)
     processor = ASTA(asta_model)
-    mask_sat, __, __ = processor.process_image(fits_tmp)
+    #mask_sat, __, __ = processor.process_image(fits_tmp)
+    mask_sat_binned, results_df, __, __ = processor.process_image(data_binned,
+                                                                  header)
+
+    #unbin mask
+    if nbin == 1:
+        mask_sat = mask_sat_binned
+    else:
+        mask_sat = np.kron(
+            mask_sat_binned, np.ones((nbin, nbin))).astype(np.uint8)
 
 
     # add pixels affected by satellite trails to [data_mask]
     data_mask[mask_sat==1] += get_par(set_zogy.mask_value['satellite trail'],
                                       tel)
+    #nsatpixels = np.sum(mask_sat)
 
 
     # determining number of trails; 2 pixels are considered from the
     # same trail also if they are only connected diagonally
-    struct = np.ones((3,3), dtype=bool)
-    __, nsats = ndimage.label(mask_sat, structure=struct)
-    nsatpixels = np.sum(mask_sat)
+    if False:
+        struct = np.ones((3,3), dtype=bool)
+        __, nsats = ndimage.label(mask_sat, structure=struct)
+    else:
+        # alternatively, just count number of rows in results_df
+        nsats = len(results_df)
 
 
     header['NSATS'] = (nsats, 'number of satellite trails identified')
@@ -3784,8 +3892,8 @@ def run_asta (data, header, data_mask, header_mask, tmp_path):
 
 
     # remove file(s) if not keeping intermediate/temporary files
-    if not get_par(set_bb.keep_tmp,tel):
-        remove_files ([fits_tmp])
+    #if not get_par(set_bb.keep_tmp,tel):
+    #    remove_files ([fits_tmp])
 
 
     if get_par(set_zogy.timing,tel):
@@ -4022,10 +4130,11 @@ def mask_init (data, header, filt, imgtype):
     if bpm_present:
         # if it exists, read it
         data_mask = read_hdulist(fits_bpm)
+        log.info ('using bad pixel mask {}'.format(fits_bpm))
     else:
         # if not, create uint8 array of zeros with same shape as
         # [data]
-        log.info('Warning: bad pixel mask {} does not exist'.format(fits_bpm))
+        log.warning ('bad pixel mask {} does not exist'.format(fits_bpm))
         data_mask = np.zeros(np.shape(data), dtype='uint8')
 
 
@@ -4045,13 +4154,125 @@ def mask_init (data, header, filt, imgtype):
         data_mask[(mask_infnan) & (data_mask==0)] += mask_value['bad']
 
 
-        # identify saturated pixels; saturation level (ADU) is taken from
-        # blackbox settings file, which needs to be mulitplied by the gain
-        # and have the mean biaslevel subtracted
-        satlevel_electrons = (get_par(set_bb.satlevel,tel) *
-                              np.mean(get_par(set_bb.gain,tel))
-                              - header['BIASMEAN'])
-        mask_sat = (data >= satlevel_electrons)
+        if False:
+
+            # old block to identify saturated pixels, where
+            # set_bb.satlevel was an image-average number; saturation
+            # level (ADU) is taken from blackbox settings file, which
+            # needs to be multiplied by the gain and have the mean
+            # biaslevel subtracted
+            satlevel_electrons = (get_par(set_bb.satlevel,tel) *
+                                  np.min(get_par(set_bb.gain,tel))
+                                  - header['BIASMEAN'])
+            mask_sat = (data >= satlevel_electrons)
+
+
+            header_mask['SATURATE'] = (satlevel_electrons, '[e-] adopted '
+                                       'saturation threshold')
+            header['SATURATE'] = (satlevel_electrons, '[e-] adopted '
+                                  'saturation threshold')
+
+
+
+        # to use starting from August 2024: channel-specific
+        # saturation levels
+
+        # reduced data channel sections
+        __, __, __, __, data_sec_red = define_sections(np.shape(data),
+                                                       tel=tel)
+        # number of channels
+        nchans = np.shape(data_sec_red)[0]
+
+
+        # determine saturated pixels for each channel separately
+        biaslevel_chans = np.array([header['BIASM{}'.format(i_chan)]
+                                    for i_chan in range(nchans)])
+
+        # array of satlevels in e- for different channels
+        satlevel_chans = (np.array(get_par(set_bb.satlevel,tel)) *
+                          np.array(get_par(set_bb.gain,tel))
+                          - biaslevel_chans)
+
+
+        # add mean saturation level to both header and header_mask;
+        # keep name SATURATE for the mean saturation level as that is
+        # also used in buildref
+        header_mask['SATURATE'] = (np.mean(satlevel_chans), '[e-] mean '
+                                   'saturation threshold')
+        header['SATURATE'] = (np.mean(satlevel_chans), '[e-] mean '
+                              'saturation threshold')
+
+
+        # initialize full-image mask of saturated pixels, needed
+        # also for further down below to identify
+        # saturation-connected pixels
+        mask_sat = np.zeros_like(data, dtype=bool)
+
+
+        # loop channels
+        for i_chan in range(nchans):
+
+            # channel saturation level
+            satlevel_chan = satlevel_chans[i_chan]
+
+
+            # add channel saturation level to both header and
+            # header_mask
+            key = 'SATLEV{}'.format(i_chan+1)
+            descr = '[e-] channel {} saturation threshold'.format(i_chan+1)
+            header[key] = (satlevel_chan, descr)
+            header_mask[key] = (satlevel_chan, descr)
+
+
+            # based on saturated pixels in current channel, define
+            # pixels in other (victim) channels that are most affected
+            # by high pixel values in this (source) channel due to
+            # crosstalk
+
+            # mask of saturated pixels in current channel
+            chan_sec = data_sec_red[i_chan]
+            mask_sat_chan = (data[chan_sec] >= satlevel_chan)
+
+
+            # add to full-image saturation mask
+            mask_sat[chan_sec] = mask_sat_chan
+
+
+            # row of this source channel; if row of source and victim
+            # channel are different, mask_sat_chan needs to be flipped
+            # in y
+            row_source = i_chan // 8
+
+
+            # flipped version of mask_sat_chan to be used in loop below
+            mask_sat_chan_flip = np.flipud(mask_sat_chan)
+
+
+            # loop victim channels
+            for i_victim in range(nchans):
+
+                if i_victim != i_chan:
+
+                    # victim channel image section
+                    chan_sec_victim = data_sec_red[i_victim]
+
+
+                    # row of victim channel
+                    row_victim = i_victim // 8
+
+                    if row_source == row_victim:
+                        mask_use = mask_sat_chan
+                    else:
+                        mask_use = mask_sat_chan_flip
+
+
+                    # add crosstalk pixels to the full-image mask
+                    data_mask[chan_sec][mask_use] += mask_value['crosstalk']
+
+
+
+
+
         # add them to the mask of edge and bad pixels
         data_mask[mask_sat] += mask_value['saturated']
 
@@ -4063,7 +4284,15 @@ def mask_init (data, header, filt, imgtype):
         __, nobj_sat = ndimage.label(mask_sat, structure=struct)
 
 
-        # and pixels connected to saturated pixels
+        # add number of saturated objects to headers
+        header_mask['NOBJ-SAT'] = (nobj_sat, 'number of saturated objects')
+        header['NOBJ-SAT'] = (nobj_sat, 'number of saturated objects')
+        # rest of the mask header entries are added in one go using
+        # function [mask_header] once all the reduction steps have
+        # finished
+
+
+        # identify pixels connected to saturated pixels
         struct = np.ones((3,3), dtype=bool)
         mask_satcon = ndimage.binary_dilation(mask_sat, structure=struct,
                                               iterations=1)
@@ -4076,15 +4305,11 @@ def mask_init (data, header, filt, imgtype):
         fill_sat_holes (data_mask, mask_value)
 
 
-        header_mask['SATURATE'] = (satlevel_electrons, '[e-] adopted saturation '
-                                   'threshold')
-        header['NOBJ-SAT'] = (nobj_sat, 'number of saturated objects')
-        # also add these to the header of image itself
-        header['SATURATE'] = (satlevel_electrons, '[e-] adopted saturation threshold')
-        header['NOBJ-SAT'] = (nobj_sat, 'number of saturated objects')
-        # rest of the mask header entries are added in one go using
-        # function [mask_header] once all the reduction steps have
-        # finished
+
+
+    #fits.writeto ('test_data.fits', data, overwrite=True)
+    #fits.writeto ('test_mask2.fits', data_mask, overwrite=True)
+    #raise SystemExit
 
 
     if get_par(set_zogy.timing,tel):
@@ -6101,7 +6326,7 @@ def os_corr (data, header, imgtype, xbin=1, ybin=1, data_limit=2000, tel=None):
 
 ################################################################################
 
-def xtalk_corr (data, crosstalk_file):
+def xtalk_corr (data, crosstalk_file, data_mask=None):
 
     if get_par(set_zogy.timing,tel):
         t = time.time()
@@ -6111,47 +6336,210 @@ def xtalk_corr (data, crosstalk_file):
         log.info ('crosstalk file: {}'.format(crosstalk_file))
 
 
+    # should data_mask not be provided, create a zero mask
+    if data_mask is None:
+        data_mask = np.zeros(data.shape, dtype=bool)
+
+
     # read file with corrections
-    if False:
-        victim, source, correction = np.loadtxt(crosstalk_file, unpack=True)
-    else:
-        table = Table.read(crosstalk_file, format='ascii',
-                           names=['victim', 'source', 'correction'])
-        victim = np.array(table['victim'])
-        source = np.array(table['source'])
-        correction = np.array(table['correction'])
+    #table = Table.read(crosstalk_file, format='ascii',
+    #                   names=['victim', 'source', 'correction'])
+    # new crosstalk files have columns defined on 1st line
+    table = Table.read(crosstalk_file, format='ascii')
+    # file contains channel numbers; convert to indices
+    victim = table['victim'].value - 1
+    source = table['source'].value - 1
+    correction = table['correction'].value
 
-
-    # convert to indices
-    victim -= 1
-    source -= 1
 
     # channel image sections
     chan_sec, __, __, __, __ = define_sections(np.shape(data), tel=tel)
     # number of channels
     nchans = np.shape(chan_sec)[0]
 
-    # the following 2 lines are to shift the channels to those
-    # corresponding to the new channel definition with layout:
-    #
-    # [ 8, 9, 10, 11, 12, 13, 14, 15]
-    # [ 0, 1,  2,  3,  4,  5,  6,  7]
-    #
-    # this is assuming that the crosstalk corrections were
-    # determined for the following layout
-    #
-    # [ 0, 1,  2,  3,  4,  5,  6,  7]
-    # [ 8, 9, 10, 11, 12, 13, 14, 15]
-    #victim = (victim+nchans/2) % nchans
-    #source = (source+nchans/2) % nchans
-    #
-    # apparently the corrections were determined for the new layout,
-    # so the above swap is not necessary
+
+    # prepare masks for source and victium channels separately
+    mask_value = get_par(set_zogy.mask_value,tel)
+    val_bad = mask_value['bad']
+    val_edge = mask_value['edge']
+
+    # use positive fluxes and pixels not affected by bad pixels in
+    # source channel
+    mask_source = ((data > 0) & (data_mask & val_bad != val_bad))
+
+    # avoid pixels that land in edge region in victim channel
+    mask_victim = ((data_mask & val_edge != val_edge))
+
+
+    # use matrix multiplication with np.matmul; it is much faster
+    # (~3s) than looping through the input file and correcting for
+    # each source-victim combination separately (~25s) as done before
+
+
+    # create 16x16 matrix with correction coefficients, with source
+    # indices along axis=0 and victim indices along axis=1; could have
+    # saved the coefficients as an array in a numpy file, but this
+    # conversion is very quick and the ASCII file can be easily viewed
+    coeffs = np.zeros((nchans,nchans))
+    for k in range(len(table)):
+        coeffs[source[k], victim[k]] = correction[k]
+
+
+
+    # data_stack with shape (5280,1320,16) so it can be use in
+    # np.matmul, taking into account mask_source
+    data_stack = np.stack([data[chan_sec[i]] * mask_source[chan_sec[i]]
+                           for i in range(nchans)], axis=2)
+    # same but with channels flipped in y
+    data_stack_flip = np.stack([np.flipud(data[chan_sec[i]] *
+                                          mask_source[chan_sec[i]])
+                                for i in range(nchans)], axis=2)
+
+
+    # initialize data_corr_chans with shape (16,5280,1320), which will
+    # contain the corrections to be subtracted from the input data
+    ysize_chan = get_par(set_bb.ysize_chan,tel)
+    xsize_chan = get_par(set_bb.xsize_chan,tel)
+    data_corr_chans = np.zeros((nchans, ysize_chan, xsize_chan))
+
+
+    # calculate matmul for the 4 quadrants of the 16x16 matrix
+    # separately, because of flipping of data in the non-diagonal
+    # quadrants
+    s1 = slice(0,8)
+    s2 = slice(8,16)
+
+    # source and victim slices corresponding to quandrants
+    # [q=0 q=2]
+    # [q=1 q=3]
+    sls = [s1, s2, s1, s2]
+    slv = [s1, s1, s2, s2]
+
+    # loop quandrants
+    for q in range(4):
+
+        # use (flipped) data stack for (non-) diagonal quandrants
+        if q in [0,3]:
+            data_use = data_stack
+        else:
+            data_use = data_stack_flip
+
+        # apply matmul; the swapaxes commands are to arrange the axes
+        # and shape from the output of np.matmul to the expected ones
+        data_corr_chans[slv[q]] += (np.matmul(data_use[:,:,sls[q]],
+                                              coeffs[sls[q],slv[q]])
+                                    .swapaxes(0,2).swapaxes(1,2))
+
+
+    # use data_corr_chans to correct original data, taking care of
+    # mask_victim
+    for i in range(nchans):
+        data[chan_sec[i]] -= data_corr_chans[i] * mask_victim[chan_sec[i]]
+
+
+
+    if get_par(set_zogy.timing,tel):
+        log_timing_memory (t0=t, label='in xtalk_corr')
+
+    return data
+
+
+################################################################################
+
+def xtalk_corr_old (data, crosstalk_file, data_mask=None):
+
+    if get_par(set_zogy.timing,tel):
+        t = time.time()
+
+
+    if isfile(crosstalk_file):
+        log.info ('crosstalk file: {}'.format(crosstalk_file))
+
+
+    # should data_mask not be provided, create a zero mask
+    if data_mask is None:
+        data_mask = np.zeros(data.shape, dtype=bool)
+
+
+    # read file with corrections
+    #table = Table.read(crosstalk_file, format='ascii',
+    #                   names=['victim', 'source', 'correction'])
+    # new crosstalk files have columns defined on 1st line
+    table = Table.read(crosstalk_file, format='ascii')
+    victim = table['victim'].value
+    source = table['source'].value
+    corr = table['correction'].value
+
+
+    # convert to indices
+    victim -= 1
+    source -= 1
+
+
+    # channel image sections
+    chan_sec, __, __, __, __ = define_sections(np.shape(data), tel=tel)
+    # number of channels
+    nchans = np.shape(chan_sec)[0]
+
+
+    # prepare data with channels flipped in y, to be used inside loop
+    # below in case source and victim channels are in different rows
+    data_flip = np.copy(data)
+    for i in range(nchans):
+        data_flip[chan_sec[i]] = np.flipud(data[chan_sec[i]])
+
+
+    # prepare masks for source and victium channels separately, to be
+    # used inside loop below
+    mask_value = get_par(set_zogy.mask_value,tel)
+    val_bad = mask_value['bad']
+    val_edge = mask_value['edge']
+
+    # avoid pixels that land in edge region in victim channel
+    mask_victim = ((data_mask & val_edge != val_edge))
+
+    # use positive fluxes and pixels not affected by bad pixels in
+    # source channel
+    mask_source = ((data > 0) & (data_mask & val_bad != val_bad))
+
+    # also prepare flipped mask_source
+    mask_source_flip = np.copy(mask_source)
+    for i in range(nchans):
+        mask_source_flip[chan_sec[i]] = np.flipud(mask_source[chan_sec[i]])
+
 
     # loop arrays in file and correct the channels accordingly
     for k in range(len(victim)):
-        data[chan_sec[int(victim[k])]] -= (
-            data[chan_sec[int(source[k])]]*correction[k])
+
+        # abbreviate source and victim channel sections
+        css = chan_sec[source[k]]
+        csv = chan_sec[victim[k]]
+
+
+        # define source channel data; if source and victim channels
+        # are not in the same row, use data where the channels are
+        # flipped
+        row_source = source[k] // 8
+        row_victim = victim[k] // 8
+        if row_source != row_victim:
+            data_source_chan = data_flip[css]
+            mask_source_chan = mask_source_flip[css]
+        else:
+            data_source_chan = data[css]
+            mask_source_chan = mask_source[css]
+
+
+        # mask to use is combination of source and victim masks
+        mask_use = mask_source_chan & mask_victim[csv]
+
+
+        # correct the victim channel; would be better to first
+        # determine the delta correction instead of applying it
+        # directly to the data, as the corrected data will be used in
+        # the correction of other channels, but that effect is of the
+        # order of (10^-4)**2, so insignificant
+        data[csv][mask_use] -= data_source_chan[mask_use] * corr[k]
+
 
 
     # keep this info for the moment:
@@ -6179,47 +6567,12 @@ def xtalk_corr (data, crosstalk_file):
     #data_chan_row = np.zeros(shape_temp)
     #data[chan_sec] -= np.matmul(data[chan_sec], corr_matrix)
 
-    # N.B.: note that the channel numbering here:
-    #
-    # [ 0, 1,  2,  3,  4,  5,  6,  7]
-    # [ 8, 9, 10, 11, 12, 13, 14, 15]
-    #
-    # is not the same as that assumed with the gain.
-    #
-    # height,width = 5300, 1500 # = ccd_sec()
-    # for victim in range(1,17):
-    #     if victim < 9:
-    #         j, i = 1, 0
-    #     else:
-    #         j, i = 0, 8
-    #     print (victim, height*j, height*(j+1), width*(int(victim)-1-i),
-    #            width*(int(victim)-i))
-    #
-    # victim is not the channel index, but number
-    #
-    # [vpn224246:~] pmv% python test_xtalk.py
-    # 1 5300 10600 0 1500
-    # 2 5300 10600 1500 3000
-    # 3 5300 10600 3000 4500
-    # 4 5300 10600 4500 6000
-    # 5 5300 10600 6000 7500
-    # 6 5300 10600 7500 9000
-    # 7 5300 10600 9000 10500
-    # 8 5300 10600 10500 12000
-    # 9 0 5300 0 1500
-    # 10 0 5300 1500 3000
-    # 11 0 5300 3000 4500
-    # 12 0 5300 4500 6000
-    # 13 0 5300 6000 7500
-    # 14 0 5300 7500 9000
-    # 15 0 5300 9000 10500
-    # 16 0 5300 10500 12000
-
 
     if get_par(set_zogy.timing,tel):
         log_timing_memory (t0=t, label='in xtalk_corr')
 
     return data
+
 
 
 ################################################################################
