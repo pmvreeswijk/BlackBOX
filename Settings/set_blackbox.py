@@ -203,7 +203,7 @@ use_asta = True
 asta_model = '/Software/ASTA/model-best.h5'
 
 # binning used for satellite trail detection
-sat_bin = 2
+sat_bin = 1
 
 #===============================================================================
 # CCD settings and definition of channel/data/overscan/normalisation sections
