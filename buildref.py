@@ -520,7 +520,7 @@ def buildref (telescope=None, fits_hdrtable_list=None, date_start=None,
             # if too few files left, continue
             if nfiles < nmin:
                 log.warning ('fewer images ({}) available than the minimum '
-                             'number required ({}); not creating co-add'
+                             'number required ({}); not creating co-add '
                              'for {} in filter {}'
                              .format(nfiles, nmin, obj, filt))
                 continue
@@ -1028,10 +1028,6 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
     log.info ('tmp_path: {}'.format(tmp_path))
 
 
-    # change to tmp folder to be able to track disk usage
-    orig_path = os.getcwd()
-    os.chdir(tmp_path)
-
 
     # names of tmp output fits and its mask
     ref_fits = '{}/{}'.format(tmp_path, ref_fits_out.split('/')[-1])
@@ -1062,6 +1058,11 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
         return
 
     else:
+
+        # change to tmp folder to be able to track disk usage
+        # in imcombine
+        orig_path = os.getcwd()
+        os.chdir(tmp_path)
 
 
         if len(imagelist) == 1:
@@ -1099,6 +1100,11 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
             bb.close_log(log, logfile)
             raise RuntimeError
 
+        finally:
+            # changing back to original working dir
+            os.chdir(orig_path)
+
+
 
         if not skip_zogy:
 
@@ -1128,8 +1134,8 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
                     bb.close_log(log, logfile)
                     return
 
-            log.info('zogy_processed: {}'.format(zogy_processed))
 
+            log.info('zogy_processed: {}'.format(zogy_processed))
 
 
 
@@ -1164,44 +1170,53 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
 
 
 
-            # before replacing old reference file, first check if
-            # delta LIMMAG is large enough; could already do so at
-            # start of this function [prep_ref] to avoid making the
-            # reference image, however, final LIMMAG is usually but
-            # not always smaller than the projected LIMMAG
-
-            limmag = header_ref['LIMMAG']
-            limmag_old = header_ref_old['LIMMAG']
-
-            if limmag - limmag_old > dlimmag_min:
-
-                # copy/move files to the reference folder
-                tmp_base = ref_fits.split('_red.fits')[0]
-                ref_base = ref_fits_out.split('_red.fits')[0]
-                # add date of creation to ref_base
-                date_today = Time.now().isot.split('T')[0].replace('-','')
-                ref_base = '{}_{}'.format(ref_base, date_today)
+            # copy/move files to the reference folder
+            tmp_base = ref_fits.split('_red.fits')[0]
+            ref_base = ref_fits_out.split('_red.fits')[0]
+            # add date of creation to ref_base
+            date_today = Time.now().isot.split('T')[0].replace('-','')
+            ref_base = '{}_{}'.format(ref_base, date_today)
 
 
-                # first (re)move old reference files
-                oldfiles = bb.list_files (ref_base)
-                if len(oldfiles)!=0:
-                    if False:
-                        # remove them
-                        zogy.remove_files (oldfiles, verbose=True)
-                    else:
-                        # or move them to the ref-old folder instead
-                        old_path = '{}-old/{:0>5}'.format(
-                            get_par(set_bb.ref_dir,tel), field_ID)
+            if exists:
 
-                        bb.make_dir (old_path)
-                        for f in oldfiles:
-                            f_dest = '{}/{}'.format(old_path,f.split('/')[-1])
-                            #shutil.move (f, f_dest)
-                            bb.copy_file (f, f_dest, move=True)
+                # before replacing old reference file, first check if
+                # delta LIMMAG is large enough; could already do so at
+                # start of this function [prep_ref] to avoid making the
+                # reference image, however, final LIMMAG is usually but
+                # not always smaller than the projected LIMMAG
+
+                limmag = header_ref['LIMMAG']
+                limmag_old = header_ref_old['LIMMAG']
+
+                if limmag - limmag_old > dlimmag_min:
+
+                    # first (re)move old reference files
+                    oldfiles = bb.list_files (ref_base)
+                    if len(oldfiles)!=0:
+                        if False:
+                            # remove them
+                            zogy.remove_files (oldfiles, verbose=True)
+                        else:
+                            # or move them to the ref-old folder instead
+                            old_path = '{}-old/{:0>5}'.format(
+                                get_par(set_bb.ref_dir,tel), field_ID)
+
+                            bb.make_dir (old_path)
+                            for f in oldfiles:
+                                f_dest = '{}/{}'.format(old_path,f.split('/')[-1])
+                                #shutil.move (f, f_dest)
+                                bb.copy_file (f, f_dest, move=True)
 
 
-                # now move [ref_2keep] to the reference directory
+                    # now move [ref_2keep] to the reference directory
+                    result = bb.copy_files2keep(tmp_base, ref_base,
+                                                get_par(set_bb.ref_2keep,tel),
+                                                move=False)
+
+            else:
+
+                # move [ref_2keep] to the reference directory
                 result = bb.copy_files2keep(tmp_base, ref_base,
                                             get_par(set_bb.ref_2keep,tel),
                                             move=False)
@@ -1258,10 +1273,6 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
 
 
     log.info('finished making reference image: {}'.format(ref_fits_out))
-
-
-    # changing back to original working dir
-    os.chdir(orig_path)
 
 
     bb.clean_tmp(tmp_path, get_par(set_br.keep_tmp,tel))
@@ -2406,7 +2417,8 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
             zogy.remove_files (files2remove, verbose=True)
 
         # also remove file with clipped pixels
-        zogy.remove_files([clip_logname], verbose=True)
+        if 'clip_logname' in locals():
+            zogy.remove_files([clip_logname], verbose=True)
 
 
 
