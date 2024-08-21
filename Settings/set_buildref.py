@@ -79,6 +79,10 @@ pixscale_out = 0.5642
 back_type = 'blackbox'
 
 
+# scale channel zeropoints to full-image zeropoint
+scale_chan_zps = True
+
+
 #===============================================================================
 # Select subset to combine in case of many images of the same field/filter
 #===============================================================================

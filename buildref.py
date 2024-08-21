@@ -1416,8 +1416,10 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
         if not zogy.isfile(image):
             raise RuntimeError ('input image {} does not exist'.format(image))
 
+
         # read input image data and header
         data, header = zogy.read_hdulist(image, get_header=True, dtype='float32')
+
 
         # read corresponding mask image
         image_mask = image.replace('red.fits', 'mask.fits')
@@ -1439,6 +1441,14 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
             # do not use this row
             mask_keep[nimage] = False
             continue
+
+
+        # scale the different channels of the input image according to
+        # the difference between the channel zeropoints and that of
+        # the full image
+        if get_par(set_br.scale_chan_zps,tel):
+            tel_tmp = image.split('/')[-1][0:3]
+            scale_chan_zps (data, header, tel_tmp)
 
 
         if 'BKG-SUB' in header and header['BKG-SUB']:
@@ -2424,6 +2434,57 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
 
     zogy.mem_use ('at end of imcombine')
     log.info ('wall-time spent in imcombine: {}s'.format(time.time()-t0))
+
+
+    return
+
+
+################################################################################
+
+def scale_chan_zps (data, header, tel):
+
+    """function to scale the image channels according to the channel
+    zeropoints with respect to the full-image zeropoint
+    """
+
+    # infer channel section in reduced image
+    __, __, __, __, data_sec_red = bb.define_sections(np.shape(data), tel=tel)
+
+    # number of channels
+    nchans = np.shape(data_sec_red)[0]
+
+
+    # image ZP
+    zp = header['PC-ZP']
+
+
+    # loop channels
+    for i_chan in range(nchans):
+
+        # channel section
+        sec_chan = data_sec_red[i_chan]
+
+
+        # check if channel zeropoint is available in header
+        key = 'PC-ZP{}'.format(i_chan+1)
+        if key in header:
+
+            # channel ZP
+            zp_chan = header[key]
+
+
+            # factor with which to boost current channel to match the
+            # image zeropoint
+            factor_zp = 10**(0.4*(zp - zp_chan))
+
+
+            # apply factor
+            data[sec_chan] *= factor_zp
+
+
+            # update channel zp in header
+            header[key] = zp
+
 
 
     return
