@@ -978,7 +978,7 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
 
     if exists:
 
-        if False and ref_mode:
+        if not ref_mode:
             log.warning ('reference image {} already exists; not remaking it'
                          .format(ref_fits_out))
             return
@@ -1178,7 +1178,7 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
             ref_base = '{}_{}'.format(ref_base, date_today)
 
 
-            if exists:
+            if exists and ref_mode:
 
                 # before replacing old reference file, first check if
                 # delta LIMMAG is large enough; could already do so at
@@ -1447,8 +1447,11 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
         # the difference between the channel zeropoints and that of
         # the full image
         if get_par(set_br.scale_chan_zps,tel):
+            log.info ('scaling image channels according to channel zeropoints '
+                      'for {}'.format(image))
             tel_tmp = image.split('/')[-1][0:3]
             scale_chan_zps (data, header, tel_tmp)
+
 
 
         if 'BKG-SUB' in header and header['BKG-SUB']:
@@ -2446,6 +2449,7 @@ def scale_chan_zps (data, header, tel):
     """function to scale the image channels according to the channel
     zeropoints with respect to the full-image zeropoint
     """
+
 
     # infer channel section in reduced image
     __, __, __, __, data_sec_red = bb.define_sections(np.shape(data), tel=tel)
