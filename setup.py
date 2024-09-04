@@ -15,5 +15,5 @@ setup(
         # dependencies above: zogy
         # dependencies below: blackbox
         'watchdog', 'astroscrappy', 'acstools', 'ephem', 'memory-profiler',
-        'astroplan', 'google-cloud-storage', 'google-cloud-pubsub', 'PIL']
+        'astroplan', 'google-cloud-storage', 'google-cloud-pubsub', 'Pillow']
 )
