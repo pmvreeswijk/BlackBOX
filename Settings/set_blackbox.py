@@ -58,6 +58,10 @@ voscan_poldeg = 3
 # switch to keep tmp directories (True) or not (False)
 keep_tmp = False
 
+# switch to save thumbnails as separate pngs in designated folder/bucket
+save_thumbnails = {'ML1': False, 'BG': True}
+
+
 # name of telescope data base directory with the different
 # subdirectories defined further below
 run_dir_base = {'ML1': '/idia/projects/meerlicht', 'BG': os.environ['HOME']}
@@ -78,7 +82,7 @@ else:
 # directories, which can be used in [blackbox] to extract the correct
 # path for a given telescope
 run_dir = {}; raw_dir={}; red_dir={}; log_dir={}; ref_dir={}; tmp_dir={}
-master_dir = {}; hdrtables_dir = {}
+master_dir = {}; hdrtables_dir = {}; thumbnails_dir={}
 
 
 # ML/BG processing environment: 'test', 'staging', 'production'
@@ -94,9 +98,11 @@ proc_env_subdir = proc_env_dict[proc_env]
 
 
 for tel in ['ML1']:
+
     # raw folder does not depend on the processing environment
     run_dir[tel] = '{}/{}'.format(run_dir_base[tel], tel)
     raw_dir[tel] = '{}/raw'.format(run_dir[tel])
+
     # the following folders do depend on processing environment
     red_dir[tel] = '{}{}/red'.format(run_dir[tel], proc_env_subdir)
     log_dir[tel] = '{}{}/log'.format(run_dir[tel], proc_env_subdir)
@@ -104,11 +110,15 @@ for tel in ['ML1']:
     tmp_dir[tel] = '{}/{}{}/tmp'.format(tmp_dir_base[tel], tel, proc_env_subdir)
     hdrtables_dir[tel] = '{}/Headers{}'.format(run_dir_base[tel],
                                                proc_env_subdir)
+    thumbnails_dir[tel] = '{}{}/thumbnails'.format(run_dir[tel], proc_env_subdir)
+
+
     if proc_env == 'test':
         # for the test environment, use the existing masters
         master_dir[tel] = '{}/red'.format(run_dir[tel])
     else:
         master_dir[tel] = red_dir[tel]
+
 
 
 # BlackGEM buckets at Google cloud
@@ -120,16 +130,19 @@ proc_env_base = proc_env_dict[proc_env]
 
 # BlackGEM directory structure
 for tel in ['BG2', 'BG3', 'BG4', 'BG']:
+
     # raw bucket does not depend on the processing environment
     raw_dir[tel] = 'gs://blackgem-raw/{}'.format(tel)
     # neither does the tmp folder
     tmp_dir[tel] = '{}/{}'.format(tmp_dir_base['BG'], tel)
 
-    # reduced, ref, masters and hdrtables
+    # reduced, ref, masters, hdrtables and thumbnails
     red_dir[tel] = '{}blackgem-red/{}'.format(proc_env_base, tel)
     #red_dir[tel] = '/home/sa_105685508700717199458/BBtest/{}'.format(tel)
     ref_dir[tel] = '{}blackgem-ref'.format(proc_env_base)
     hdrtables_dir[tel] = '{}blackgem-hdrtables/{}'.format(proc_env_base, tel)
+    thumbnails_dir[tel] = '{}blackgem-thumbnails/{}'.format(proc_env_base, tel)
+
 
     if proc_env == 'test':
         # for the test environment, use the existing masters
@@ -142,6 +155,7 @@ for tel in ['BG2', 'BG3', 'BG4', 'BG']:
 # name endings of files to keep for the reference and new images
 img_reduce_exts = ['_red.fits', '_mask.fits', '_red_hdr.fits', '_mini.fits',
                    '_red_limmag.fits', '_red.log', '_red_objmask.fits']
+                   # '_red_objmask_gaia.fits']
 cat_extract_exts = ['_red_cat.fits', '_psf.fits', '_psfex.cat', '_cat_hdr.fits']
 trans_extract_exts = ['_D.fits', '_Scorr.fits', '_trans_limmag.fits',
                       '_trans.fits', '_trans_hdr.fits', '_trans_light.fits',

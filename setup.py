@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 setup(
     name='blackbox',
-    version='1.3.0',
+    version='1.3.4',
     description='image processing sofware specifically written for the reduction of BlackGEM and MeerLICHT images',
     url='https://github.com/pmvreeswijk/BlackBOX',
     author='Paul Vreeswijk, Kerry Paterson, Danielle Pieterse',
@@ -15,5 +15,5 @@ setup(
         # dependencies above: zogy
         # dependencies below: blackbox
         'watchdog', 'astroscrappy', 'acstools', 'ephem', 'memory-profiler',
-        'astroplan', 'google-cloud-storage', 'google-cloud-pubsub']
+        'astroplan', 'google-cloud-storage', 'google-cloud-pubsub', 'PIL']
 )

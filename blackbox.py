@@ -70,6 +70,10 @@ plt.style.use(astropy_mpl_style)
 matplotlib.rcParams.update({'font.size': 10})
 
 
+import fitsio
+from PIL import Image
+
+
 # due to regular problems with downloading default IERS file (needed
 # to compute UTC-UT1 corrections for e.g. sidereal time computation),
 # Steven created a mirror of this file in a google storage bucket
@@ -110,7 +114,7 @@ except Exception as e:
                  'blackbox; issue with IERS file?: {}'.format(e))
 
 
-__version__ = '1.3.3'
+__version__ = '1.3.4'
 keywords_version = '1.0.14'
 
 
@@ -2434,6 +2438,13 @@ def blackbox_reduce (filename):
     call_match2SSO(fits_tmp_trans, tel)
 
 
+    # if transient catalog exists, create png thumbnails that database
+    # can use
+    if (get_par(set_bb.save_thumbnails,tel) and isfile(fits_tmp_trans)
+        and not qc_flag and not tqc_flag):
+        save_png_thumbnails (fits_tmp_trans, nthreads=set_bb.nthreads)
+
+
     # list of files to copy/move to reduced folder; need to include
     # the img_reduce products in any case because the header will have
     # been updated with fresh QC flags
@@ -2504,6 +2515,96 @@ def blackbox_reduce (filename):
     clean_tmp(tmp_path, get_par(set_bb.keep_tmp,tel))
 
     return fits_out
+
+
+################################################################################
+
+def save_png_thumbnails (fits_trans, nthreads=1):
+
+    """function to convert thumbnails in transient catalog
+    [fits_trans] to separate png files (to be used by the Database)
+    with names [number]_RED.png, [number]_REF.png, [number]_D.png,
+    [number]_SCORR.png, where number is the row number - also
+    indicated by the NUMBER column - in [fits_trans]. The pngs are
+    copied/moved to [dest_folder].
+
+    """
+
+    # to avoid reading potentially very large transient fits table in
+    # one go, use fitsio to first read all rows but only for a
+    # specific column; output data is a numpy recarray, which is
+    # easily converted to an astropy table
+    table = Table(fitsio.read(fits_trans, ext=-1, columns=['NUMBER']))
+    nrows = len(table)
+
+
+    if nrows > 0:
+
+        # define thumbnail columns to save
+        cols2save = ['RED', 'REF', 'D', 'SCORR']
+        cols2save = ['THUMBNAIL_{}'.format(c) for c in cols2save]
+
+
+        # define tmp and destination folders
+        base_tmp = os.path.dirname(fits_trans)
+        base_dest = get_par(set_bb.thumbnails_dir,tel)
+        move = (not get_par(set_bb.keep_tmp,tel))
+
+
+        # use multiprocessing to process rows in fits_trans
+        pool_func (save_thumbs_row, list(range(nrows)), fits_trans, cols2save,
+                   base_tmp, base_dest, move, nproc=nthreads)
+
+
+
+################################################################################
+
+def save_thumbs_row (idx_row, fits_trans, cols2save, base_tmp, base_dest,
+                     move=False):
+
+    # read all columns of fits_trans row with index idx_row
+    table_row = Table(fitsio.read(fits_trans, ext=-1, rows=idx_row))
+
+
+    # transient number in catalog
+    number = idx_row+1
+
+
+    # loop thumbnails
+    for col in cols2save:
+
+        # fetch data array from table column and flip/scale it
+        data = np.flipud(table_row[col])
+        vmin, vmax = zscale().get_limits(data)
+        data = scale_data(data, vmin, vmax)
+
+        # save to file in tmp folder
+        fn = '{}_{}.png'.format(number, col.split('_')[-1])
+        png_tmp = '{}/{}'.format(base_tmp, fn)
+        image = Image.fromarray(data)
+        image.save(png_tmp)
+
+        # copy to destination folder
+        png_dest = '{}/{}'.format(base_dest, fn)
+        copy_file (png_tmp, png_dest, move=move, verbose=False)
+
+
+
+################################################################################
+
+def scale_data (data, vmin, vmax):
+
+    """scale input (float) data array between the values vmin and vmax
+    to an integer (uint8) range from 0 to 255"""
+
+    # scale data
+    data -= vmin
+    data /= (vmax-vmin)
+    data *= 255
+    data[data<0] = 0
+    data[data>255] = 255
+
+    return data.astype('uint8')
 
 
 ################################################################################
@@ -3864,8 +3965,9 @@ def run_asta (data, header, data_mask, header_mask, tmp_path):
     asta_model = get_par(set_bb.asta_model,tel)
     processor = ASTA(asta_model)
     #mask_sat, __, __ = processor.process_image(fits_tmp)
-    mask_sat_binned, results_df, __, __ = processor.process_image(data_binned,
-                                                                  header)
+    mask_sat_binned, results_df, __, __ = processor.process_image(
+        data_binned, header, area_threshold=int(3000/nbin**2),
+        min_size=int(500/nbin**2))
 
     #unbin mask
     if nbin == 1:
