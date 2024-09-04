@@ -113,7 +113,7 @@ def adjust_horizon (observer, height):
 ################################################################################
 
 def run_blackbox_slurm (date=None, telescope=None, mode='night',
-                        runtime='4:00:00'):
+                        runtime='6:00:00'):
 
     # create general logfile based on date/time
     genlogfile = '{}/BG_{}.log'.format(log_dir,
@@ -302,7 +302,7 @@ def run_blackbox_slurm (date=None, telescope=None, mode='night',
                 python_cmdstr = (
                     'python /Software/BlackBOX/blackbox.py --telescope {} '
                     '--img_reduce True --cat_extract True --trans_extract True '
-                    '--force_reproc_new False --image {}'
+                    '--force_reproc_new True --image {}'
                     .format(tel, filename))
 
                 log.info ('python command string to execute: {}'
@@ -1454,8 +1454,8 @@ def main ():
     parser.add_argument('--mode', choices=['day', 'night'], default='night',
                         help='processing mode; night mode will also process new '
                         'incoming images')
-    parser.add_argument('--runtime', type=str, default='4:00:00',
-                        help='runtime requested per image; default=4:00:00')
+    parser.add_argument('--runtime', type=str, default='6:00:00',
+                        help='runtime requested per image; default=6:00:00')
     args = parser.parse_args()
 
 
