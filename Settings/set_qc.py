@@ -234,7 +234,7 @@ qc_range = {
 
         # individual flats (these keywords should not end up in dummy catalogs: keytype should not be equal to 'full' or 'trans')
         # from STA Test Report: FWC in ADU range from 34 to 52k counts (bias-subtracted), so take 30k counts as upper limit
-        'MEDSEC'  : {'default':'None', 'val_type': 'min_max', 'val_range': [ (2.15*20e3, 2.15*25e3), (2.15*15e3, 2.15*28e3), (2.15*10e3, 2.15*30e3) ], 'key_type': 'flat', 'pos': True , 'comment': '[e-] median flat over STATSEC (bias-subtracted)'},
+        'MEDSEC'  : {'default':'None', 'val_type': 'min_max', 'val_range': [ (2.15*15e3, 2.15*30e3), (2.15*10e3, 2.15*30e3), (2.15*5e3, 2.15*30e3) ], 'key_type': 'flat', 'pos': True , 'comment': '[e-] median flat over STATSEC (bias-subtracted)'},
         #'RSTDSEC' : {'default':'None', 'val_type': 'sigma', 'val_range': [ (0, 0.01) ],              'key_type': None, 'pos': True , 'comment': 'relative sigma (STD) flat over STATSEC'},
         #'FLATRSTD': {'default':'None', 'val_type': 'sigma', 'val_range': [ (0,0.025),(0,0.026),(0,0.027)], 'key_type': None, 'pos': True , 'comment': 'relative sigma (STD) flat'},
 
@@ -493,7 +493,7 @@ qc_range = {
 
         # individual flats (these keywords should not end up in dummy catalogs: keytype should not be equal to 'full' or 'trans')
         # from STA Test Report: FWC in ADU range from 33,500 to 37,700 counts (bias-subtracted); let's take 30k counts as upper limit
-        'MEDSEC'  : {'default':'None', 'val_type': 'min_max', 'val_range': [ (2.69*20e3, 2.69*25e3), (2.69*15e3, 2.69*28e3), (2.69*10e3, 2.69*30e3) ], 'key_type': 'flat', 'pos': True , 'comment': '[e-] median flat over STATSEC (bias-subtracted)'},
+        'MEDSEC'  : {'default':'None', 'val_type': 'min_max', 'val_range': [ (2.69*15e3, 2.69*30e3), (2.69*10e3, 2.69*30e3), (2.69*5e3, 2.69*30e3) ], 'key_type': 'flat', 'pos': True , 'comment': '[e-] median flat over STATSEC (bias-subtracted)'},
         #'RSTDSEC' : {'default':'None', 'val_type': 'sigma', 'val_range': [ (0, 0.01) ],              'key_type': None, 'pos': True , 'comment': 'relative sigma (STD) flat over STATSEC'},
         #'FLATRSTD': {'default':'None', 'val_type': 'sigma', 'val_range': [ (0,0.025),(0,0.026),(0,0.027)], 'key_type': None, 'pos': True , 'comment': 'relative sigma (STD) flat'},
 
@@ -758,7 +758,7 @@ qc_range = {
 
         # individual flats (these keywords should not end up in dummy catalogs: keytype should not be equal to 'full' or 'trans')
         # from STA Test Report: FWC in ADU range from 28.6k to 36k counts (bias-subtracted), so take 25k counts as upper limit
-        'MEDSEC'  : {'default':'None', 'val_type': 'min_max', 'val_range': [ (2.64*17.5e3, 2.64*23e3), (2.64*15e3, 2.64*24e3), (2.64*10e3, 2.64*25e3) ], 'key_type': 'flat', 'pos': True , 'comment': '[e-] median flat over STATSEC (bias-subtracted)'},
+        'MEDSEC'  : {'default':'None', 'val_type': 'min_max', 'val_range': [ (2.64*15e3, 2.64*25e3), (2.64*10e3, 2.64*25e3), (2.64*5e3, 2.64*25e3) ], 'key_type': 'flat', 'pos': True , 'comment': '[e-] median flat over STATSEC (bias-subtracted)'},
         #'RSTDSEC' : {'default':'None', 'val_type': 'sigma', 'val_range': [ (0, 0.01) ],              'key_type': None, 'pos': True , 'comment': 'relative sigma (STD) flat over STATSEC'},
         #'FLATRSTD': {'default':'None', 'val_type': 'sigma', 'val_range': [ (0,0.025),(0,0.026),(0,0.027)], 'key_type': None, 'pos': True , 'comment': 'relative sigma (STD) flat'},
 
@@ -1016,24 +1016,24 @@ qc_range = {
 
         # individual flats (these keywords should not end up in dummy catalogs: keytype should not be equal to 'full' or 'trans')
         # from STA Test Report: FWC in ADU range from 33,500 to 37,700 counts (bias-subtracted); let's take 30k counts as upper limit
-        'MEDSEC'  : {'default':'None', 'val_type': 'min_max', 'val_range': [ (2.37*20e3, 2.37*25e3), (2.37*15e3, 2.37*28e3), (2.37*10e3, 2.37*30e3) ], 'key_type': 'flat', 'pos': True , 'comment': '[e-] median flat over STATSEC (bias-subtracted)'},
+        'MEDSEC'  : {'default':'None', 'val_type': 'min_max', 'val_range': [ (2.37*15e3, 2.37*30e3), (2.37*10e3, 2.37*30e3), (2.37*5e3, 2.37*30e3) ], 'key_type': 'flat', 'pos': True , 'comment': '[e-] median flat over STATSEC (bias-subtracted)'},
         #'RSTDSEC' : {'default':'None', 'val_type': 'sigma', 'val_range': [ (0, 0.01) ],              'key_type': None, 'pos': True , 'comment': 'relative sigma (STD) flat over STATSEC'},
         #'FLATRSTD': {'default':'None', 'val_type': 'sigma', 'val_range': [ (0,0.025),(0,0.026),(0,0.027)], 'key_type': None, 'pos': True , 'comment': 'relative sigma (STD) flat'},
 
         # increased max yellow and orange value of i- and z-band flats with 0.01 and 0.02, respectively, on 2024-01-03 because this value has increased since around 17 November 2023
-        'RDIF-MAX': {'default':'None', 'val_type': 'min_max', 'val_range': {'u': [ (0, 0.030), (0, 0.035), (0, 0.040) ],
-                                                                            'g': [ (0, 0.018), (0, 0.019), (0, 0.020) ],
-                                                                            'q': [ (0, 0.018), (0, 0.020), (0, 0.022) ],
-                                                                            'r': [ (0, 0.017), (0, 0.018), (0, 0.019) ],
-                                                                            'i': [ (0, 0.020), (0, 0.033), (0, 0.046) ],
-                                                                            'z': [ (0, 0.045), (0, 0.060), (0, 0.075) ]}, 'key_type': 'flat', 'pos': True , 'comment': '(max(subs)-min(subs)) / (max(subs)+min(subs))'},
+        'RDIF-MAX': {'default':'None', 'val_type': 'min_max', 'val_range': {'u': [ (0, 0.035) ],
+                                                                            'g': [ (0, 0.025) ],
+                                                                            'q': [ (0, 0.030) ],
+                                                                            'r': [ (0, 0.025) ],
+                                                                            'i': [ (0, 0.030) ],
+                                                                            'z': [ (0, 0.070) ]},     'key_type': 'flat', 'pos': True , 'comment': '(max(subs)-min(subs)) / (max(subs)+min(subs))'},
 
-        'RSTD-MAX': {'default':'None', 'val_type': 'min_max', 'val_range': {'u': [ (0, 0.06) ],
-                                                                            'g': [ (0, 0.06) ],
-                                                                            'q': [ (0, 0.06) ],
-                                                                            'r': [ (0, 0.06) ],
-                                                                            'i': [ (0, 0.06) ],
-                                                                            'z': [ (0, 0.06) ]},                'key_type': 'flat', 'pos': True , 'comment': 'max. relative sigma (STD) of subimages'},
+        'RSTD-MAX': {'default':'None', 'val_type': 'min_max', 'val_range': {'u': [ (0, 0.065) ],
+                                                                            'g': [ (0, 0.065) ],
+                                                                            'q': [ (0, 0.065) ],
+                                                                            'r': [ (0, 0.065) ],
+                                                                            'i': [ (0, 0.065) ],
+                                                                            'z': [ (0, 0.065) ]},      'key_type': 'flat', 'pos': True , 'comment': 'max. relative sigma (STD) of subimages'},
 
         # master flat (these keywords should not end up in dummy catalogs: keytype should not be equal to 'full' or 'trans')
         'NFLAT'   : {'default':'None', 'val_type': 'min_max', 'val_range': [ (9,50), (7,8), (5,6) ],            'key_type': 'mflat', 'pos': True , 'comment': 'number of flat frames combined'},
