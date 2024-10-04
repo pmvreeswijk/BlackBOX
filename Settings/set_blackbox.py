@@ -59,7 +59,7 @@ voscan_poldeg = 3
 keep_tmp = False
 
 # switch to save thumbnails as separate pngs in designated folder/bucket
-save_thumbnails = {'ML1': False, 'BG': True}
+save_thumbnails = {'ML1': False, 'BG': False}
 
 
 # name of telescope data base directory with the different
