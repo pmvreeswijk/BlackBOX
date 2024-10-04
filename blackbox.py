@@ -1103,7 +1103,11 @@ def blackbox_reduce (filename):
     master_dir = get_par(set_bb.master_dir,tel)
     master_path = write_path.replace(red_dir, master_dir)
 
-    # UT date (yyyymmdd) and time (hhmmss)
+    # similar for the thumbnails
+    thumbnails_dir = get_par(set_bb.thumbnails_dir,tel)
+    thumbnails_path = write_path.replace(red_dir, thumbnails_dir)
+
+   # UT date (yyyymmdd) and time (hhmmss)
     utdate, uttime = get_date_time(header)
 
     # define paths of different image types
@@ -1370,20 +1374,22 @@ def blackbox_reduce (filename):
         else:
             log.info('processing {}'.format(filename))
 
-        log.info ('output file: {}'.format(fits_out))
-        log.info ('image type:  {}, filter: {}, exptime: {:.1f}s'
-                  .format(imgtype, filt, exptime))
+        log.info ('output file:       {}'.format(fits_out))
+        log.info ('image type:        {}'.format(imgtype))
+        log.info ('filter:            {}'.format(filt))
+        log.info ('exptime:           {:.1f}s'.format(exptime))
         if imgtype == 'object':
             log.info ('OBJECT (field ID): {}'.format(obj))
 
-        log.info ('write_path:  {}'.format(write_path))
-        log.info ('bias_path:   {}'.format(bias_path))
-        log.info ('dark_path:   {}'.format(dark_path))
-        log.info ('flat_path:   {}'.format(flat_path))
-        log.info ('master_path: {}'.format(master_path))
+        log.info ('write_path:        {}'.format(write_path))
+        log.info ('bias_path:         {}'.format(bias_path))
+        log.info ('dark_path:         {}'.format(dark_path))
+        log.info ('flat_path:         {}'.format(flat_path))
+        log.info ('master_path:       {}'.format(master_path))
         if imgtype == 'object':
-            log.info ('tmp_path:    {}'.format(tmp_path))
-            log.info ('ref_path:    {}'.format(ref_path))
+            log.info ('tmp_path:          {}'.format(tmp_path))
+            log.info ('ref_path:          {}'.format(ref_path))
+            log.info ('thumbnails_path:   {}'.format(thumbnails_path))
 
 
         # image log file
@@ -2288,12 +2294,6 @@ def blackbox_reduce (filename):
 
             tmp_file = '{}/{}'.format(tmp_path, ref_file.split('/')[-1])
 
-            # do not bother with copying the reference limiting
-            # magnitude image
-            if '_red_limmag' in tmp_file:
-                continue
-
-
             if make_symlink:
                 # and funpack/unzip if necessary (before symbolic link
                 # to avoid unpacking multiple times during the same night)
@@ -2438,11 +2438,11 @@ def blackbox_reduce (filename):
     call_match2SSO(fits_tmp_trans, tel)
 
 
-    # if transient catalog exists, create png thumbnails that database
-    # can use
-    if (get_par(set_bb.save_thumbnails,tel) and isfile(fits_tmp_trans)
-        and not qc_flag and not tqc_flag):
-        save_png_thumbnails (fits_tmp_trans, nthreads=set_bb.nthreads)
+    # if transient catalog exists, create png thumbnails for database
+    if get_par(set_bb.save_thumbnails,tel) and isfile(fits_tmp_trans):
+        #and qc_flag != 'red' and tqc_flag != 'red':
+        dir_dest = '{}/{}'.format(thumbnails_path, tmp_base.split('/')[-1])
+        save_png_thumbnails (fits_tmp_trans, dir_dest, nthreads=set_bb.nthreads)
 
 
     # list of files to copy/move to reduced folder; need to include
@@ -2519,7 +2519,7 @@ def blackbox_reduce (filename):
 
 ################################################################################
 
-def save_png_thumbnails (fits_trans, nthreads=1):
+def save_png_thumbnails (fits_trans, dir_dest, nthreads=1):
 
     """function to convert thumbnails in transient catalog
     [fits_trans] to separate png files (to be used by the Database)
@@ -2529,6 +2529,11 @@ def save_png_thumbnails (fits_trans, nthreads=1):
     copied/moved to [dest_folder].
 
     """
+
+    log.info ('running save_png_thumbnails')
+
+    if get_par(set_zogy.timing,tel):
+        t = time.time()
 
     # to avoid reading potentially very large transient fits table in
     # one go, use fitsio to first read all rows but only for a
@@ -2546,29 +2551,82 @@ def save_png_thumbnails (fits_trans, nthreads=1):
 
 
         # define tmp and destination folders
-        base_tmp = os.path.dirname(fits_trans)
-        base_dest = get_par(set_bb.thumbnails_dir,tel)
+        dir_tmp = os.path.dirname(fits_trans)
+
+
+        # use multiprocessing to process rows in fits_trans, creating
+        # pngs in tmp folder
+        pool_func (save_thumbs_row, range(nrows), fits_trans,
+                   cols2save, dir_tmp, nproc=nthreads)
+
+
+        # search string to identify the pngs created (to distinguish
+        # them from other png files in tmp folder)
+        search_str = '{}/[0-9]*_[DRS]*.png'.format(dir_tmp)
+
+
+        # make sure destination folder is empty, otherwise different
+        # reductions of the same image might lead to a mix of pngs
+        if isdir(dir_dest):
+            log.warning ('removing all existing files in {}'.format(dir_dest))
+            if dir_dest[0:5] == 'gs://':
+                cmd = ['gcloud', 'storage', 'rm', '{}/*'.format(dir_dest)]
+                result = subprocess.run(cmd)
+            else:
+                make_dir (dir_dest, empty=True)
+
+
+        # copy or move to destination folder; if the destination is a
+        # Google Cloud bucket, then copying one by one just after
+        # creation in function save_thumbs_row() is very slow (about
+        # 1min for 100 files), so best to copy/move them with single
+        # command
         move = (not get_par(set_bb.keep_tmp,tel))
+        if dir_dest[0:5] == 'gs://':
+
+            if move:
+                cp_cmd = 'mv'
+            else:
+                cp_cmd = 'cp'
 
 
-        # use multiprocessing to process rows in fits_trans
-        pool_func (save_thumbs_row, list(range(nrows)), fits_trans, cols2save,
-                   base_tmp, base_dest, move, nproc=nthreads)
+            # gsutil command (not actively supported anymore)
+            cmd = ['gsutil', '-m', '-q', cp_cmd, search_str, dir_dest]
+            # gcloud storage alternative
+            #cmd = ['gcloud', 'storage', cp_cmd, search_str, dir_dest]
 
+            result = subprocess.run(cmd)
+
+        else:
+
+            # if not in Google cloud, copy files one by one
+            filenames_png = glob.glob(search_str)
+
+            for png_tmp in filenames_png:
+                png_dest = '{}/{}'.format(dir_dest, png_tmp.split('/')[-1])
+                copy_file (png_tmp, png_dest, move=move, verbose=False)
+
+
+    else:
+        log.warning ('zero rows in {}; no thumbnails to save'
+                     .format(fits_trans))
+
+
+    if get_par(set_zogy.timing,tel):
+        log_timing_memory (t0=t, label='in save_png_thumbnails')
 
 
 ################################################################################
 
-def save_thumbs_row (idx_row, fits_trans, cols2save, base_tmp, base_dest,
-                     move=False):
+def save_thumbs_row (i_row, fits_trans, cols2save, dir_tmp, move=False):
 
-    # read all columns of fits_trans row with index idx_row
-    table_row = Table(fitsio.read(fits_trans, ext=-1, rows=idx_row))
+    # read all columns of fits_trans row with index i_row
+    table_row = Table(fitsio.read(fits_trans, ext=-1, rows=i_row))[0]
 
 
     # transient number in catalog
-    number = idx_row+1
-
+    #number = i_row+1
+    number = table_row['NUMBER']
 
     # loop thumbnails
     for col in cols2save:
@@ -2580,13 +2638,9 @@ def save_thumbs_row (idx_row, fits_trans, cols2save, base_tmp, base_dest,
 
         # save to file in tmp folder
         fn = '{}_{}.png'.format(number, col.split('_')[-1])
-        png_tmp = '{}/{}'.format(base_tmp, fn)
+        png_tmp = '{}/{}'.format(dir_tmp, fn)
         image = Image.fromarray(data)
         image.save(png_tmp)
-
-        # copy to destination folder
-        png_dest = '{}/{}'.format(base_dest, fn)
-        copy_file (png_tmp, png_dest, move=move, verbose=False)
 
 
 
@@ -6495,7 +6549,7 @@ def xtalk_corr (data, crosstalk_file, data_mask=None):
 
 
 
-    # data_stack with shape (5280,1320,16) so it can be use in
+    # data_stack with shape (5280,1320,16) so it can be used in
     # np.matmul, taking into account mask_source
     data_stack = np.stack([data[chan_sec[i]] * mask_source[chan_sec[i]]
                            for i in range(nchans)], axis=2)
@@ -7126,7 +7180,12 @@ def copy_file (src_file, dest, move=False, verbose=True):
             cp_cmd = 'cp'
 
 
+        # gsutil command (not actively supported anymore)
         cmd = ['gsutil', '-q', cp_cmd, src_file, dest]
+        # gcloud storage alternative
+        #cmd = ['gcloud', 'storage', cp_cmd, src_file, dest]
+
+
         result = subprocess.run(cmd)
         #result = subprocess.run(cmd, capture_output=True)
         #log.info(result.stdout.decode('UTF-8'))
