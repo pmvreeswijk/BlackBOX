@@ -4,6 +4,7 @@ import glob
 import argparse
 import queue
 import itertools
+import calendar
 
 # set up log
 import logging
@@ -41,7 +42,7 @@ project_id = 'blackgem'
 subscription_id = 'monitor-blackgem-raw-sub'
 
 
-__version__ = '0.6'
+__version__ = '0.6.1'
 
 
 ################################################################################
@@ -56,7 +57,7 @@ red_dir = {}
 tmp_dir = {}
 
 #tels_running = ['BG2', 'BG3', 'BG4']
-tels_running = ['BG2', 'BG4']
+tels_running = ['BG3', 'BG4']
 for tel in tels_running:
     raw_dir[tel] = 'gs://blackgem-raw/{}'.format(tel)
     red_dir[tel] = 'gs://blackgem-red/{}'.format(tel)
@@ -312,13 +313,13 @@ def run_blackbox_slurm (date=None, telescope=None, mode='night',
                 # use different partitions for bias/flats images
                 if np.any([s in filename.lower()
                            for s in ['bias','flat','dark']]):
-                    partition = 'pc1gb8'
+                    partition = 'p1gb8'
 
                 else:
                     # for object images, use different partitions for
                     # fields with low and high number of expected gaia
                     # sources; default partition:
-                    partition = 'pc2gb16'
+                    partition = 'p2gb16'
 
 
                     # if field contains many Gaia sources, use
@@ -333,7 +334,7 @@ def run_blackbox_slurm (date=None, telescope=None, mode='night',
                             ngaia = ngaia_dict[field_id]
                             if ngaia > 2e5:
                                 # use different partition
-                                partition = 'pc4gb32'
+                                partition = 'p4gb32'
 
                             log.info ('estimated # Gaia sources in field ({}): '
                                       '{}; using partition {} for {}'
@@ -395,7 +396,7 @@ def run_blackbox_slurm (date=None, telescope=None, mode='night',
             # minutes
             jobname_masters[tel] = '{}_masters_{}'.format(tel, date_eve)
 
-            partition = 'pc2gb32'
+            partition = 'p2gb32'
             slurm_process (python_cmdstr_master, partition, runtime='1:00:00',
                            jobname=jobname_masters[tel], jobnight=jobnight[tel])
             jobnames.append(jobname_masters[tel])
@@ -441,7 +442,7 @@ def run_blackbox_slurm (date=None, telescope=None, mode='night',
 
                     jobname = '{}_add_headkeys_{}_{}'.format(tel, cat_type,
                                                              date_eve)
-                    partition = 'pc1gb8'
+                    partition = 'p1gb8'
                     slurm_process (python_cmdstr, partition, runtime='0:30:00',
                                    jobname=jobname, jobnight=jobnight[tel])
                     jobnames.append(jobname)
@@ -473,7 +474,7 @@ def run_blackbox_slurm (date=None, telescope=None, mode='night',
                                      .format(date, tel, screenshot))
 
                     jobname = '{}_obslog_{}'.format(tel, date_eve)
-                    partition = 'pc1gb8'
+                    partition = 'p1gb8'
                     slurm_process (python_cmdstr, partition, runtime='0:10:00',
                                    jobname=jobname, jobnight=jobnight[tel])
                     jobnames.append(jobname)
@@ -581,16 +582,17 @@ def slurm_process (python_cmdstr, partition, runtime, jobname, jobnight):
     try:
 
         # number of CPUs and RAM memory associated to different partitions
-        ncpu_ram = {'c1gb8':  [1, '7500MB'],
-                    'c2gb16': [2, '15500MB'],
-                    'c2gb32': [2, '31400MB'],
-                    'c4gb32': [4, '31400MB'],
-                    'pc1gb8':  [1, '7500MB'],
-                    'pc2gb16': [2, '15500MB'],
-                    'pc2gb32': [2, '31400MB'],
-                    'pc4gb32': [4, '31400MB']}
+        #ncpu_ram = {'p1gb8':  [1, '7500MB'],
+        #            'p2gb16': [2, '15500MB'],
+        #            'p2gb32': [2, '31400MB'],
+        #            'p4gb32': [4, '31400MB']}
+        #
+        #ncpu, ram = ncpu_ram[partition]
 
-        ncpu, ram = ncpu_ram[partition]
+        # assume npcu is in partition name, between 'p' and 'gb'
+        ncpu = partition.split('gb')[0].split('p')[1]
+        ram = 0
+
 
         # create SLURM batch job in date_eve subfolder of nightjobs
         # folder with name based on input jobname
@@ -688,19 +690,21 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
     log.info ('full_path: {}'.format(full_path))
 
 
-    # collect biases, darks, flats and science frames in different lists
-    #bias_list = glob.glob('{}/bias/{}*.fits*'.format(full_path, tel))
-    bias_list = list_files('{}/bias/{}'.format(full_path,tel),search_str='.fits')
-    #dark_list = glob.glob('{}/dark/{}*.fits*'.format(full_path, tel))
-    dark_list = list_files('{}/dark/{}'.format(full_path,tel),search_str='.fits')
-    #flat_list = glob.glob('{}/flat/{}*.fits*'.format(full_path, tel))
-    flat_list = list_files('{}/flat/{}'.format(full_path,tel),search_str='.fits')
-    #object_list = glob.glob('{}/{}*_red.fits*'.format(full_path, tel))
-    object_list = list_files('{}/{}'.format(full_path,tel),search_str='_red.fits')
+    # collect biases, darks, flats and science frames in different
+    # lists, using [list_files] as little as possible
+    log.info ('collecting lists of reduced bias, dark, flat and science frames')
+    all_files_list = list_files('{}'.format(full_path), search_str='.fits',
+                                recursive=True)
+    bias_list = [fn for fn in all_files_list if '/bias/' in fn]
+    dark_list = [fn for fn in all_files_list if '/dark/' in fn]
+    flat_list = [fn for fn in all_files_list if '/flat/' in fn]
+    object_list = [fn for fn in all_files_list if '_red.fits' in fn]
+
 
     filenames = [bias_list, dark_list, flat_list, object_list]
     # clean up [filenames]
     filenames = [f for sublist in filenames for f in sublist]
+
 
     # number of different reduced files
     nred = len(filenames)
@@ -709,9 +713,11 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
     nflat_red = len(flat_list)
     nobject_red = len(object_list)
 
+
     # collect raw image list
     raw_path = raw_dir[tel]
     #raw_list = glob.glob('{}/{}/*.fits*'.format(raw_path, date_dir))
+    log.info ('collecting list of raw frames')
     raw_list = list_files('{}/{}'.format(raw_path, date_dir), search_str='.fits')
 
     # number of different raw files
@@ -753,12 +759,21 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
         'LIMMAG': '{:.5}'
     }
 
+
     # loop input list of filenames
+    log.info ('reading headers of reduced frames')
     rows = []
     for filename in filenames:
 
+        fn_hdr = filename.replace('.fits.fz', '_hdr.fits')
+        if isfile (fn_hdr):
+            file2read = fn_hdr
+        else:
+            file2read = filename
+
+
         # read file header
-        header = read_hdulist (filename, get_data=False, get_header=True)
+        header = read_hdulist (file2read, get_data=False, get_header=True)
 
         # prepare row of filename and header values
         row = []
@@ -794,6 +809,7 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
     # just in case it does not exist yet, create it
     make_dir (tmp_path)
     obslog_tmp = '{}/{}_{}_obslog.txt'.format(tmp_path, tel, date_eve)
+    log.info ('saving header info to {}'.format(obslog_tmp))
 
     if len(rows)==0:
         ascii.write (table, obslog_tmp, overwrite=True)
@@ -815,7 +831,15 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
     else:
         png_tmp = '{}/{}_LaSilla_meteo.png'.format(tmp_path, date_eve)
         #webpage = 'https://www.ls.eso.org/lasilla/dimm/meteomonitor.html'
-        webpage = 'https://archive.eso.org/asm/ambient-server?site=lasilla'
+        #webpage = 'https://archive.eso.org/asm/ambient-server?site=lasilla'
+        # date in format e.g. 28+Oct+2024
+        date_tmp = '{}+{}+{}'.format(date_eve[6:8],
+                                     calendar.month_abbr[int(date[4:6])],
+                                     date[0:4])
+        webpage = ('https://archive.eso.org/asm/ambient-server?'
+                   'night={}&site=lasilla'.format(date_tmp))
+        # the following line is only returning a white stripe, perhaps
+        # only the very top of the webpage?
         #webpage = ('https://www.eso.org/asm/ui/publicLog?name=LaSilla&startDate='
         #           '{}'.format(date_eve))
         width = 1500
@@ -826,10 +850,12 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
     png_dest = '{}/{}/{}'.format(red_path, date_dir, png_tmp.split('/')[-1])
 
 
+    png_present = False
     if weather_screenshot:
         try:
 
-            cmd = ['/usr/local/bin/wkhtmltoimage', '--quiet', '--quality', '80',
+            log.info ('saving screenshot of {} to {}'.format(webpage, png_tmp))
+            cmd = ['wkhtmltoimage', '--quiet', '--quality', '80',
                    '--crop-w', str(width), '--crop-h', str(height),
                    webpage, png_tmp]
             result = subprocess.run(cmd, capture_output=True, timeout=180)
@@ -844,6 +870,7 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
         # check if screenshot already exists
         if isfile(png_dest):
             copy_file (png_dest, png_tmp, move=False)
+            png_present = True
         else:
             # do not include screenshot in email
             png_tmp = None
@@ -864,21 +891,22 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
     body += ('# reduced images:   {} ({} biases, {} darks, {} flats, {} objects)'
              '\n'.format(nred, nbias_red, ndark_red, nflat_red, nobject_red))
 
-    #cat_list = glob.glob('{}/{}*_red_cat.fits'.format(full_path, tel))
-    cat_list = list_files('{}/{}'.format(full_path, tel),
-                          end_str='_red_cat_hdr.fits')
+
+    # collect full-source, transient and sso catalog lists, using
+    # [list_files] as little as possible
+    all_cats_list = list_files('{}/{}'.format(full_path, tel), end_str='.fits')
+
+    log.info ('collecting lists of full-source, transient and sso catalogs, and '
+              'counting how many of them are flagged red')
+    cat_list = [c for c in all_cats_list if c.endswith('_red_cat.fits')]
     body += ('# full-source cats: {} ({} red-flagged)\n'.format(
         len(cat_list), count_redflags(cat_list)))
 
-    #trans_list = glob.glob('{}/{}*_red_trans.fits'.format(full_path, tel))
-    trans_list = list_files('{}/{}'.format(full_path, tel),
-                            end_str='_red_trans_hdr.fits')
+    trans_list = [c for c in all_cats_list if c.endswith('_red_trans.fits')]
     body += ('# transient cats:   {} ({} red-flagged)\n'.format(
         len(trans_list), count_redflags(trans_list, key='TQC-FLAG')))
 
-    #sso_list = glob.glob('{}/{}*_red_trans_sso.fits'.format(full_path, tel))
-    sso_list = list_files('{}/{}'.format(full_path, tel),
-                          end_str='_red_trans_sso.fits')
+    sso_list = [c for c in all_cats_list if c.endswith('_red_trans_sso.fits')]
     body += ('# SSO cats:         {} ({} empty)\n'.format(
         len(sso_list), count_redflags(sso_list, key='SDUMCAT')))
     body += '\n'
@@ -910,7 +938,7 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
     copy_file (obslog_tmp, obslog_dest, move=True)
 
 
-    if png_tmp:
+    if png_tmp and not png_present:
         copy_file (png_tmp, png_dest, move=True)
 
 
@@ -926,8 +954,15 @@ def count_redflags(catlist, key='QC-FLAG'):
 
     for catname in catlist:
 
+        fn_hdr = catname.replace('.fits', '_hdr.fits')
+        if isfile (fn_hdr):
+            file2read = fn_hdr
+        else:
+            file2read = catname
+
+
         # read file header
-        header = read_hdulist (catname, get_data=False, get_header=True)
+        header = read_hdulist (file2read, get_data=False, get_header=True)
 
         # in case of full-source or transient catalog, 'red' should be
         # in the QC-FLAG keyword, but for SSO cat, SDUMCAT being True
