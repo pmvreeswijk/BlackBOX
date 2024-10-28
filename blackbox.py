@@ -115,8 +115,8 @@ except Exception as e:
                  'blackbox; issue with IERS file?: {}'.format(e))
 
 
-__version__ = '1.3.4'
-keywords_version = '1.0.14'
+__version__ = '2.0.0'
+keywords_version = '2.0.0'
 
 
 ################################################################################
