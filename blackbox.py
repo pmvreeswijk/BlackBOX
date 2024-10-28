@@ -4,6 +4,7 @@ import pickle
 import copy
 import tempfile
 import sys
+import calendar
 
 
 #import multiprocessing as mp
@@ -3322,19 +3323,24 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
     red_path = get_par(set_bb.red_dir,tel)
     full_path = '{}/{}'.format(red_path, date_dir)
 
-    # collect biases, darks, flats and science frames in different lists
-    bias_list = list_files('{}/bias/{}_20'.format(full_path,tel),
-                           search_str='.fits')
-    dark_list = list_files('{}/dark/{}_20'.format(full_path,tel),
-                           search_str='.fits')
-    flat_list = list_files('{}/flat/{}_20'.format(full_path,tel),
-                           search_str='.fits')
-    object_list = list_files('{}/{}'.format(full_path,tel),
-                             search_str='_red.fits')
+    log.info ('full_path: {}'.format(full_path))
+
+
+    # collect biases, darks, flats and science frames in different
+    # lists, using [list_files] as little as possible
+    log.info ('collecting lists of reduced bias, dark, flat and science frames')
+    all_files_list = list_files('{}'.format(full_path), search_str='.fits',
+                                recursive=True)
+    bias_list = [fn for fn in all_files_list if '/bias/' in fn]
+    dark_list = [fn for fn in all_files_list if '/dark/' in fn]
+    flat_list = [fn for fn in all_files_list if '/flat/' in fn]
+    object_list = [fn for fn in all_files_list if '_red.fits' in fn]
+
 
     filenames = [bias_list, dark_list, flat_list, object_list]
     # clean up [filenames]
     filenames = [f for sublist in filenames for f in sublist]
+
 
     # number of different reduced files
     nred = len(filenames)
@@ -3343,9 +3349,11 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
     nflat_red = len(flat_list)
     nobject_red = len(object_list)
 
+
     # collect raw image list
     raw_path = get_par(set_bb.raw_dir,tel)
     #raw_list = glob.glob('{}/{}/*.fits*'.format(raw_path, date_dir))
+    log.info ('collecting list of raw frames')
     raw_list = list_files('{}/{}'.format(raw_path, date_dir), search_str='.fits')
 
     # number of different raw files
@@ -3387,12 +3395,21 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
         'LIMMAG': '{:.5}'
     }
 
+
     # loop input list of filenames
+    log.info ('reading headers of reduced frames')
     rows = []
     for filename in filenames:
 
+        fn_hdr = filename.replace('.fits.fz', '_hdr.fits')
+        if isfile (fn_hdr):
+            file2read = fn_hdr
+        else:
+            file2read = filename
+
+
         # read file header
-        header = read_hdulist (filename, get_data=False, get_header=True)
+        header = read_hdulist (file2read, get_data=False, get_header=True)
 
         # prepare row of filename and header values
         row = []
@@ -3428,9 +3445,11 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
     # just in case it does not exist yet, create it
     make_dir (tmp_path)
     obslog_tmp = '{}/{}_{}_obslog.txt'.format(tmp_path, tel, date_eve)
+    log.info ('saving header info to {}'.format(obslog_tmp))
 
-    # if table is empty, no files were processed and reduced
-    # folder needs to be created before writing the empty table
+
+    # if table is empty, no files were processed and reduced folder
+    # needs to be created before writing the empty table
     if len(rows)==0:
         red_dir = '{}/{}'.format(red_path, date_dir)
         make_dir (red_dir)
@@ -3453,7 +3472,15 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
     else:
         png_tmp = '{}/{}_LaSilla_meteo.png'.format(tmp_path, date_eve)
         #webpage = 'https://www.ls.eso.org/lasilla/dimm/meteomonitor.html'
-        webpage = 'https://archive.eso.org/asm/ambient-server?site=lasilla'
+        #webpage = 'https://archive.eso.org/asm/ambient-server?site=lasilla'
+        # date in format e.g. 28+Oct+2024
+        date_tmp = '{}+{}+{}'.format(date_eve[6:8],
+                                     calendar.month_abbr[int(date[4:6])],
+                                     date[0:4])
+        webpage = ('https://archive.eso.org/asm/ambient-server?'
+                   'night={}&site=lasilla'.format(date_tmp))
+        # the following line is only returning a white stripe, perhaps
+        # only the very top of the webpage?
         #webpage = ('https://www.eso.org/asm/ui/publicLog?name=LaSilla&startDate='
         #           '{}'.format(date_eve))
         width = 1500
@@ -3464,9 +3491,11 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
     png_dest = '{}/{}/{}'.format(red_path, date_dir, png_tmp.split('/')[-1])
 
 
+    png_present = False
     if weather_screenshot:
         try:
 
+            log.info ('saving screenshot of {} to {}'.format(webpage, png_tmp))
             cmd = ['wkhtmltoimage', '--quiet', '--quality', '80',
                    '--crop-w', str(width), '--crop-h', str(height),
                    webpage, png_tmp]
@@ -3482,6 +3511,7 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
         # check if screenshot already exists
         if isfile(png_dest):
             copy_file (png_dest, png_tmp, move=False)
+            png_present = True
         else:
             # do not include screenshot in email
             png_tmp = None
@@ -3493,29 +3523,31 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
     # - using above gaps, list fraction of night that telescope was observing
     # - list average exposure overhead in seconds
 
-    body  = 'Summary of {} observations:\n'.format(date_dir.replace('/','-'))
-    body += '-----------------------------------\n'
+    body  = '{}: summary of {} observations:\n'.format(tel,
+                                                       date_dir.replace('/','-'))
+    body += '----------------------------------------\n'
 
     body += ('# raw images:       {} ({} biases, {} darks, {} flats, {} objects)'
              '\n'.format(nraw, nbias_raw, ndark_raw, nflat_raw, nobject_raw))
     body += ('# reduced images:   {} ({} biases, {} darks, {} flats, {} objects)'
              '\n'.format(nred, nbias_red, ndark_red, nflat_red, nobject_red))
 
-    #cat_list = glob.glob('{}/{}*_red_cat.fits'.format(full_path, tel))
-    cat_list = list_files('{}/{}'.format(full_path, tel),
-                          end_str='_red_cat_hdr.fits')
+
+    # collect full-source, transient and sso catalog lists, using
+    # [list_files] as little as possible
+    all_cats_list = list_files('{}/{}'.format(full_path, tel), end_str='.fits')
+
+    log.info ('collecting lists of full-source, transient and sso catalogs, and '
+              'counting how many of them are flagged red')
+    cat_list = [c for c in all_cats_list if c.endswith('_red_cat.fits')]
     body += ('# full-source cats: {} ({} red-flagged)\n'.format(
         len(cat_list), count_redflags(cat_list)))
 
-    #trans_list = glob.glob('{}/{}*_red_trans.fits'.format(full_path, tel))
-    trans_list = list_files('{}/{}'.format(full_path, tel),
-                            end_str='_red_trans_hdr.fits')
+    trans_list = [c for c in all_cats_list if c.endswith('_red_trans.fits')]
     body += ('# transient cats:   {} ({} red-flagged)\n'.format(
         len(trans_list), count_redflags(trans_list, key='TQC-FLAG')))
 
-    #sso_list = glob.glob('{}/{}*_red_trans_sso.fits'.format(full_path, tel))
-    sso_list = list_files('{}/{}'.format(full_path, tel),
-                          end_str='_red_trans_sso.fits')
+    sso_list = [c for c in all_cats_list if c.endswith('_red_trans_sso.fits')]
     body += ('# SSO cats:         {} ({} empty)\n'.format(
         len(sso_list), count_redflags(sso_list, key='SDUMCAT')))
     body += '\n'
@@ -3528,18 +3560,20 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
             # subject
             recipients = get_par(set_bb.recipients,tel)
             subject = '{} night report {}'.format(tel, date_dir.replace('/','-'))
+            sender = get_par(set_bb.sender,tel)
+            reply_to = get_par(set_bb.reply_to,tel)
             smtp_server = get_par(set_bb.smtp_server,tel)
             port = get_par(set_bb.port,tel)
+            use_SSL = get_par(set_bb.use_SSL,tel)
 
             log.info ('sending email with subject {} to {} using smtp server {} '
                       'on port {}'
                       .format(subject, recipients, smtp_server, port))
+
             send_email (recipients, subject, body,
                         attachments='{},{}'.format(obslog_tmp, png_tmp),
-                        sender=get_par(set_bb.sender,tel),
-                        reply_to=get_par(set_bb.reply_to,tel),
-                        smtp_server=smtp_server, port=port,
-                        use_SSL=get_par(set_bb.use_SSL,tel))
+                        sender=sender, reply_to=reply_to,
+                        smtp_server=smtp_server, port=port, use_SSL=use_SSL)
 
         except Exception as e:
             log.exception('exception occurred during sending of email: {}'
@@ -3552,7 +3586,7 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
     copy_file (obslog_tmp, obslog_dest, move=True)
 
 
-    if png_tmp:
+    if png_tmp and not png_present:
         copy_file (png_tmp, png_dest, move=True)
 
 
@@ -3568,8 +3602,15 @@ def count_redflags(catlist, key='QC-FLAG'):
 
     for catname in catlist:
 
+        fn_hdr = catname.replace('.fits', '_hdr.fits')
+        if isfile (fn_hdr):
+            file2read = fn_hdr
+        else:
+            file2read = catname
+
+
         # read file header
-        header = read_hdulist (catname, get_data=False, get_header=True)
+        header = read_hdulist (file2read, get_data=False, get_header=True)
 
         # in case of full-source or transient catalog, 'red' should be
         # in the QC-FLAG keyword, but for SSO cat, SDUMCAT being True
@@ -5623,8 +5664,10 @@ def set_header(header, filename):
     edit_head(header, 'EPOCH', value=get_par(set_zogy.cal_epoch,tel),
               comments='Coordinate reference epoch')
 
-    edit_head(header, 'DOMEAZ', value='None', dtype=float,
-              comments='[deg] Dome azimuth (N=0;E=90)')
+
+    if 'BG' in tel:
+        edit_head(header, 'DOMEAZ', value='None', dtype=float,
+                  comments='[deg] Dome azimuth (N=0;E=90)')
 
 
     edit_head(header, 'FLIPSTAT', value='None',
@@ -5714,7 +5757,7 @@ def set_header(header, filename):
                   comments='[s] Shutter time:(GPSEND-GPSSTART)-EXPTIME')
 
     edit_head(header, 'MJD-OBS', value=mjd_obs,
-              comments='[d] MJD (based on DATE-OBS)')
+              comments='[d] MJD (using DATE-OBS)')
 
     # in degrees:
     lon_temp = get_par(set_zogy.obs_lon,tel)
@@ -5723,10 +5766,10 @@ def set_header(header, filename):
     # in hh:mm:ss.sss
     lst_str = lst.to_string(sep=':', precision=3)
     edit_head(header, 'LST', value=lst_str,
-              comments='apparent LST (based on DATE-OBS)')
+              comments='apparent LST (using DATE-OBS)')
 
     utc = (mjd_obs-np.floor(mjd_obs)) * 3600. * 24
-    edit_head(header, 'UTC', value=utc, comments='[s] UTC (based on DATE-OBS)')
+    edit_head(header, 'UTC', value=utc, comments='[s] UTC (using DATE-OBS)')
     edit_head(header, 'TIMESYS', value='UTC', comments='Time system used')
 
 
@@ -5799,7 +5842,7 @@ def set_header(header, filename):
         airmass, alt, az = get_airmass(ra_icrs, dec_icrs, date_obs_str, lat, lon,
                                        height, get_altaz=True)
         edit_head(header, 'AIRMASS', value=float(airmass),
-                  comments='Airmass (based on RA, DEC, DATE-OBS)')
+                  comments='Airmass (using RA, DEC, DATE-OBS)')
 
         # ALTITUDE and AZIMUTH not always present in raw header, so
         # add the values calculated using [get_airmass] above
@@ -5809,7 +5852,7 @@ def set_header(header, filename):
                       .format(header['ALTITUDE'], alt))
 
         edit_head(header, 'ALTITUDE', value=float(alt),
-                  comments='[deg] Telescope altitude (based on RA/DEC)')
+                  comments='[deg] Telescope altitude (using RA/DEC)')
 
         if 'AZIMUTH' in header:
             log.info ('AZIMUTH in raw header: {:.2f}, value calculated using '
@@ -5817,7 +5860,7 @@ def set_header(header, filename):
                       .format(header['AZIMUTH'], az))
 
         edit_head(header, 'AZIMUTH', value=float(az),
-                  comments='[deg] Telescope azimuth (N=0;E=90, based on RA/DEC)')
+                  comments='[deg] Telescope azimuth (N=0;E=90, using RA/DEC)')
 
 
 
@@ -5941,8 +5984,11 @@ def set_header(header, filename):
         elif lha_deg >= 180:
             lha_deg -= 360
 
-        edit_head(header, 'HA', value=lha_deg,
-                  comments='[deg] Local hour angle (=LST-RA_Jnow)')
+        #edit_head(header, 'HA', value=lha_deg,
+        #          comments='[deg] Local hour angle (=LST-RA_Jnow)')
+        lha_hr = lha_deg / 15
+        edit_head(header, 'HA', value=lha_hr,
+                  comments='[hr] Local hour angle (=LST-RA_Jnow)')
 
 
     # Weather headers required for Database
