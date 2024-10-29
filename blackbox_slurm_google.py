@@ -42,7 +42,7 @@ project_id = 'blackgem'
 subscription_id = 'monitor-blackgem-raw-sub'
 
 
-__version__ = '0.6.1'
+__version__ = '0.6.2'
 
 
 ################################################################################
@@ -310,16 +310,18 @@ def run_blackbox_slurm (date=None, telescope=None, mode='night',
                           .format(python_cmdstr))
 
 
-                # use different partitions for bias/flats images
-                if np.any([s in filename.lower()
-                           for s in ['bias','flat','dark']]):
-                    partition = 'p1gb8'
+                # use different partitions for bias, flats and object images
+                if 'bias' in filename.lower() or 'dark' in filename.lower():
+                    partition = 'p1gb4t'
+
+                elif 'flat' in filename.lower():
+                    partition = 'p2gb8t'
 
                 else:
                     # for object images, use different partitions for
                     # fields with low and high number of expected gaia
                     # sources; default partition:
-                    partition = 'p2gb16'
+                    partition = 'p4gb16t'
 
 
                     # if field contains many Gaia sources, use
@@ -328,18 +330,23 @@ def run_blackbox_slurm (date=None, telescope=None, mode='night',
                         # extract field ID from header
                         header = read_hdulist(filename, get_data=False,
                                               get_header=True)
+
                         if 'OBJECT' in header:
                             field_id = int(header['OBJECT'])
-                            # set partition depending on ngaia
                             ngaia = ngaia_dict[field_id]
+
+                            # set partition depending on ngaia
                             if ngaia > 2e5:
-                                # use different partition
-                                partition = 'p4gb32'
+                                partition = 'p8gb32t'
+
+                            #if ngaia > 1e6:
+                            #    partition = 'p16gb64t'
 
                             log.info ('estimated # Gaia sources in field ({}): '
                                       '{}; using partition {} for {}'
                                       .format(field_id, ngaia, partition,
                                               filename))
+
                     except Exception as e:
                         log.warning ('exception occurred when inferring ngaia '
                                      'for {}; using default partition ({}): {}'
@@ -855,7 +862,7 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
         try:
 
             log.info ('saving screenshot of {} to {}'.format(webpage, png_tmp))
-            cmd = ['wkhtmltoimage', '--quiet', '--quality', '80',
+            cmd = ['/usr/local/bin/wkhtmltoimage', '--quiet', '--quality', '80',
                    '--crop-w', str(width), '--crop-h', str(height),
                    webpage, png_tmp]
             result = subprocess.run(cmd, capture_output=True, timeout=180)
