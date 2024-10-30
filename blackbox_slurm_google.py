@@ -312,16 +312,19 @@ def run_blackbox_slurm (date=None, telescope=None, mode='night',
 
                 # use different partitions for bias, flats and object images
                 if 'bias' in filename.lower() or 'dark' in filename.lower():
-                    partition = 'p1gb4t'
+                    #partition = 'p1gb4t'
+                    partition = 'p1gb8'
 
                 elif 'flat' in filename.lower():
-                    partition = 'p2gb8t'
+                    #partition = 'p2gb8t'
+                    partition = 'p1gb8'
 
                 else:
                     # for object images, use different partitions for
                     # fields with low and high number of expected gaia
                     # sources; default partition:
-                    partition = 'p4gb16t'
+                    #partition = 'p4gb16t'
+                    partition = 'p2gb16'
 
 
                     # if field contains many Gaia sources, use
@@ -337,7 +340,8 @@ def run_blackbox_slurm (date=None, telescope=None, mode='night',
 
                             # set partition depending on ngaia
                             if ngaia > 2e5:
-                                partition = 'p8gb32t'
+                                #partition = 'p8gb32t'
+                                partition = 'p4gb32'
 
                             #if ngaia > 1e6:
                             #    partition = 'p16gb64t'
