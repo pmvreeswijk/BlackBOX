@@ -1663,6 +1663,7 @@ def blackbox_reduce (filename):
 
             # first add some image statistics to header
             if os_processed:
+                log.info ('data.dtype: {}'.format(data.dtype))
                 get_flatstats (data, header, data_mask, tel=tel)
 
             # call [run_qc_check] to update header with any QC flags
@@ -1760,6 +1761,7 @@ def blackbox_reduce (filename):
         # still add these keywords to the header
         header['MFRING-P'] = (False, 'corrected for master fringe map?')
         header['MFRING-F'] = ('None', 'name of master fringe map applied')
+        header['FRRATIO'] = ('None', 'fringe ratio (science/fringe map) applied')
 
 
         if get_par(set_zogy.display,tel):
@@ -2841,7 +2843,7 @@ def verify_header (filename, htypes=None):
         'BB-V':     {'htype':'full', 'dtype':str,   'DB':True,  'None_OK':False},
         'BB-START': {'htype':'full', 'dtype':str,   'DB':True,  'None_OK':False},
         'KW-V':     {'htype':'full', 'dtype':str,   'DB':True,  'None_OK':False},
-        'LOG':      {'htype':'full', 'dtype':str,   'DB':False, 'None_OK':True},
+        #'LOG':      {'htype':'full', 'dtype':str,   'DB':False, 'None_OK':True},
         'LOG-IMA':  {'htype':'full', 'dtype':str,   'DB':False, 'None_OK':True},
         'N-INFNAN': {'htype':'full', 'dtype':int,   'DB':True,  'None_OK':True},
         'XTALK-P':  {'htype':'full', 'dtype':bool,  'DB':True,  'None_OK':False},
@@ -2917,6 +2919,7 @@ def verify_header (filename, htypes=None):
         'A-DRASTD': {'htype':'full', 'dtype':float, 'DB':True,  'None_OK':True},
         'A-DDEC':   {'htype':'full', 'dtype':float, 'DB':True,  'None_OK':True},
         'A-DDESTD': {'htype':'full', 'dtype':float, 'DB':True,  'None_OK':True},
+        'A-NA-OFF': {'htype':'full', 'dtype':int,   'DB':False, 'None_OK':True},
         'PSF-P':    {'htype':'full', 'dtype':bool,  'DB':True,  'None_OK':False},
         'PSF-V':    {'htype':'full', 'dtype':str,   'DB':False, 'None_OK':True},
         'PSF-RAD':  {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
@@ -2959,25 +2962,32 @@ def verify_header (filename, htypes=None):
         'PC-CAT-F': {'htype':'full', 'dtype':str,   'DB':True,  'None_OK':True},
         'PC-NCAL':  {'htype':'full', 'dtype':int,   'DB':True,  'None_OK':True},
         'PC-TNCAL': {'htype':'full', 'dtype':int,   'DB':False, 'None_OK':True},
-        'PC-FNCAL': {'htype':'full', 'dtype':int,   'DB':False, 'None_OK':True},
-        'PC-NCMAX': {'htype':'full', 'dtype':int,   'DB':False, 'None_OK':True},
+        #'PC-FNCAL': {'htype':'full', 'dtype':int,   'DB':False, 'None_OK':True},
+        #'PC-NCMAX': {'htype':'full', 'dtype':int,   'DB':False, 'None_OK':True},
         'PC-NCMIN': {'htype':'full', 'dtype':int,   'DB':False, 'None_OK':True},
+        'PC-ZPCHN': {'htype':'full', 'dtype':bool,  'DB':False, 'None_OK':True},
         'PC-ZPFDG': {'htype':'full', 'dtype':int,   'DB':False, 'None_OK':True},
         'PC-ZPF0':  {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
         'PC-TNSUB': {'htype':'full', 'dtype':int,   'DB':False, 'None_OK':True},
         'PC-NSUB':  {'htype':'full', 'dtype':int,   'DB':False, 'None_OK':True},
         'PC-MZPD':  {'htype':'full', 'dtype':float, 'DB':True,  'None_OK':True},
         'PC-MZPS':  {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'PC-MZPE':  {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
         'PC-ZPDEF': {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
         'PC-ZP':    {'htype':'full', 'dtype':float, 'DB':True,  'None_OK':True},
         'PC-ZPSTD': {'htype':'full', 'dtype':float, 'DB':True,  'None_OK':True},
+        'PC-ZPERR': {'htype':'full', 'dtype':float, 'DB':True,  'None_OK':True},
         'PC-EXTCO': {'htype':'full', 'dtype':float, 'DB':True,  'None_OK':True},
         'AIRMASSC': {'htype':'full', 'dtype':float, 'DB':True,  'None_OK':True},
         'RA-CNTR':  {'htype':'full', 'dtype':float, 'DB':True,  'None_OK':True},
         'DEC-CNTR': {'htype':'full', 'dtype':float, 'DB':True,  'None_OK':True},
+        'AZ-CNTR':  {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'ALT-CNTR': {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'BJD-OBS':  {'htype':'full', 'dtype':float, 'DB':True,  'None_OK':True},
         'PC-AIRM':  {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
         'NSIGMA':   {'htype':'full', 'dtype':int,   'DB':True,  'None_OK':True},
         'LIMEFLUX': {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
+        'LIMFNU':   {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
         'LIMMAG':   {'htype':'full', 'dtype':float, 'DB':True,  'None_OK':True},
         'NOBJECTS': {'htype':'full', 'dtype':int,   'DB':True,  'None_OK':True},
         'NGAIA':    {'htype':'full', 'dtype':int,   'DB':False, 'None_OK':True},
@@ -3002,6 +3012,7 @@ def verify_header (filename, htypes=None):
         'Z-FNRLOC': {'htype':'trans', 'dtype':bool,  'DB':False, 'None_OK':True},
         'Z-FNR':    {'htype':'trans', 'dtype':float, 'DB':True,  'None_OK':True},
         'Z-FNRSTD': {'htype':'trans', 'dtype':float, 'DB':True,  'None_OK':True},
+        'Z-FNRERR': {'htype':'trans', 'dtype':float, 'DB':True,  'None_OK':True},
         'Z-P':      {'htype':'trans', 'dtype':bool,  'DB':True,  'None_OK':False},
         'Z-V':      {'htype':'trans', 'dtype':str,   'DB':False, 'None_OK':True},
         'Z-SIZE':   {'htype':'trans', 'dtype':int,   'DB':False, 'None_OK':True},
@@ -3014,6 +3025,7 @@ def verify_header (filename, htypes=None):
         'T-LFLUX':  {'htype':'trans', 'dtype':float, 'DB':False, 'None_OK':True},
         'T-NTRANS': {'htype':'trans', 'dtype':int,   'DB':True,  'None_OK':True},
         'T-FTRANS': {'htype':'trans', 'dtype':float, 'DB':True,  'None_OK':True},
+        'T-LFNU':   {'htype':'trans', 'dtype':float, 'DB':True,  'None_OK':True},
         'T-LMAG':   {'htype':'trans', 'dtype':float, 'DB':True,  'None_OK':True},
         'T-NFAKE':  {'htype':'trans', 'dtype':int,   'DB':False, 'None_OK':True},
         'T-FAKESN': {'htype':'trans', 'dtype':float, 'DB':False, 'None_OK':True},
@@ -3064,7 +3076,6 @@ def verify_header (filename, htypes=None):
                        'None value in header of {}'.format(key, filename))
                 log.error (msg)
                 raise ValueError (msg)
-
 
         else:
             msg = 'keyword {} not present in header of {}'.format(key, filename)
@@ -5597,16 +5608,18 @@ def check_header2 (header, filename):
 
 ################################################################################
 
-def set_header(header, filename):
+def set_header(header, filename, silent=False):
 
-    def edit_head (header, key, value=None, comments=None, dtype=None):
+    def edit_head (header, key, value=None, comments=None, dtype=None,
+                   silent=silent):
         # update value
         if value is not None:
             if key in header:
                 if header[key] != value and value != 'None':
-                    log.warning ('value of existing keyword {} updated from '
-                                 '{} to {}'.format(key, header[key], value))
                     header[key] = value
+                    if not silent:
+                        log.warning ('value of existing keyword {} updated from '
+                                     '{} to {}'.format(key, header[key], value))
             else:
                 header[key] = value
         # update comments
@@ -5614,14 +5627,18 @@ def set_header(header, filename):
             if key in header:
                 header.comments[key] = comments
             else:
-                log.warning ('keyword {} does not exist: comment is not '
-                             'updated'.format(key))
+                if not silent:
+                    log.warning ('keyword {} does not exist: comment is not '
+                                 'updated'.format(key))
         # update dtype
         if dtype is not None:
             if key in header and header[key] != 'None':
                 header[key] = dtype(header[key])
             else:
-                log.warning ('dtype of keyword {} is not updated'.format(key))
+                if not silent:
+                    log.warning ('dtype of keyword {} is not updated'
+                                 .format(key))
+
 
 
     edit_head(header, 'NAXIS', comments='number of array dimensions')
@@ -5665,9 +5682,8 @@ def set_header(header, filename):
               comments='Coordinate reference epoch')
 
 
-    if 'BG' in tel:
-        edit_head(header, 'DOMEAZ', value='None', dtype=float,
-                  comments='[deg] Dome azimuth (N=0;E=90)')
+    edit_head(header, 'DOMEAZ', value='None', dtype=float,
+              comments='[deg] Dome azimuth (N=0;E=90)')
 
 
     edit_head(header, 'FLIPSTAT', value='None',
@@ -5847,17 +5863,19 @@ def set_header(header, filename):
         # ALTITUDE and AZIMUTH not always present in raw header, so
         # add the values calculated using [get_airmass] above
         if 'ALTITUDE' in header:
-            log.info ('ALTITUDE in raw header: {:.2f}, value calculated using '
-                      '[get_airmass]: {:.2f}; adopting the latter'
-                      .format(header['ALTITUDE'], alt))
+            if not silent:
+                log.info ('ALTITUDE in raw header: {:.2f}, value calculated '
+                          'using [get_airmass]: {:.2f}; adopting the latter'
+                          .format(header['ALTITUDE'], alt))
 
         edit_head(header, 'ALTITUDE', value=float(alt),
                   comments='[deg] Telescope altitude (using RA/DEC)')
 
         if 'AZIMUTH' in header:
-            log.info ('AZIMUTH in raw header: {:.2f}, value calculated using '
-                      '[get_airmass]: {:.2f}; adopting the latter'
-                      .format(header['AZIMUTH'], az))
+            if not silent:
+                log.info ('AZIMUTH in raw header: {:.2f}, value calculated '
+                          'using [get_airmass]: {:.2f}; adopting the latter'
+                          .format(header['AZIMUTH'], az))
 
         edit_head(header, 'AZIMUTH', value=float(az),
                   comments='[deg] Telescope azimuth (N=0;E=90, using RA/DEC)')
@@ -5878,9 +5896,17 @@ def set_header(header, filename):
     if 'RA' in header and 'DEC' in header:
         coords = SkyCoord (ra_icrs, dec_icrs, unit='deg', frame='icrs')
         # separation between image RA/DEC and moon
-        moon_sep = coords_moon.separation(coords).deg
+        moon_sep = coords_moon.separation(coords, origin_mismatch='ignore').deg
         # position angle of the moon with respect to the image
-        moon_pa = coords.position_angle(coords_moon).deg
+        moon_pa = coords_moon.position_angle(coords,origin_mismatch='ignore').deg
+        # above actually provides the position angle of image wrt the moon,
+        # so switch it around
+        moon_pa = (moon_pa - 180) % 360
+        # N.B.: both separation and position_angle method are not
+        # symmetric if coords_moon and coords are switched around,
+        # because the moon is in the Geocentric frame, while coords
+        # are in the ICRS frame (see
+        # https://docs.astropy.org/en/latest/coordinates/common_errors.html)
     else:
         moon_sep = 'None'
         moon_pa = 'None'
@@ -6135,9 +6161,12 @@ def set_header(header, filename):
 
     edit_head(header, 'OBSERVER', value='None', dtype=str,
               comments='Robotic observations software and PC ID')
-    edit_head(header, 'ABOTVER',  value='None', dtype=str, comments='ABOT version')
-    edit_head(header, 'PROGNAME', value='None', dtype=str, comments='Program name')
-    edit_head(header, 'PROGID',   value='None', dtype=str, comments='Program ID')
+    edit_head(header, 'ABOTVER',  value='None', dtype=str,
+              comments='ABOT version')
+    edit_head(header, 'PROGNAME', value='None', dtype=str,
+              comments='Program name')
+    edit_head(header, 'PROGID',   value='None', dtype=str,
+              comments='Program ID')
     edit_head(header, 'GUIDERST', value='None', dtype=str,
               comments='Guider status')
     edit_head(header, 'GUIDERFQ', value='None', dtype=float,
@@ -6155,15 +6184,19 @@ def set_header(header, filename):
                     'FOCUSAMT', 'OWNERGNM', 'OWNERGID', 'OWNERID',
                     'AZ-REF', 'ALT-REF', 'CCDFULLH', 'CCDFULLW', 'RADECSYS',
                     'RA-TEL', 'DEC-TEL']
+
     if 'BG' in tel:
-        # no dome orientation for BlackGEM
-        keys_2remove.append('DOMEAZ')
+        # no dome orientation for BlackGEM, but just keep it with
+        # value 'None'
+        #keys_2remove.append('DOMEAZ')
+        pass
 
 
     for key in keys_2remove:
         if key in header:
-            log.info ('removing keyword {}'.format(key))
             header.remove(key, remove_all=True)
+            if not silent:
+                log.info ('removing keyword {}'.format(key))
 
 
     # put some order in the header
@@ -6191,6 +6224,7 @@ def set_header(header, filename):
                  'T-GUICAM', 'T-M1', 'T-CRYWIN', 'T-CRYGET', 'T-CRYCP',
                  'PRES-CRY', 'WINDAVE', 'WINDGUST', 'WINDDIR']
 
+
     # create empty header
     header_sort = fits.Header()
     for nkey, key in enumerate(keys_sort):
@@ -6198,7 +6232,9 @@ def set_header(header, filename):
             # append key, value and comments to new header
             header_sort.append((key, header[key], header.comments[key]))
         else:
-            log.warning ('keyword {} not in header'.format(key))
+            if not silent:
+                log.warning ('keyword {} not in header'.format(key))
+
 
     return header_sort
 
