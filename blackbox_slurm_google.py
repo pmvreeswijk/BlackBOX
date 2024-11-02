@@ -343,8 +343,10 @@ def run_blackbox_slurm (date=None, telescope=None, mode='night',
                                 #partition = 'p8gb32t'
                                 partition = 'p4gb32'
 
-                            #if ngaia > 1e6:
-                            #    partition = 'p16gb64t'
+                            if ngaia > 1e6:
+                                #partition = 'p16gb64t'
+                                partition = 'p8gb64'
+
 
                             log.info ('estimated # Gaia sources in field ({}): '
                                       '{}; using partition {} for {}'
@@ -866,12 +868,14 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
         try:
 
             log.info ('saving screenshot of {} to {}'.format(webpage, png_tmp))
-            cmd = ['/usr/local/bin/wkhtmltoimage', '--quiet', '--quality', '80',
-                   '--crop-w', str(width), '--crop-h', str(height),
-                   webpage, png_tmp]
+            #cmd = ['/usr/local/bin/wkhtmltoimage', '--quiet', '--quality', '80',
+            #       '--crop-w', str(width), '--crop-h', str(height),
+            #       webpage, png_tmp]
+            cmd = ['/usr/local/bin/wkhtmltoimage', '--quality', '80', '--crop-w',
+                   str(width), '--crop-h', str(height), webpage, png_tmp]
             result = subprocess.run(cmd, capture_output=True, timeout=180)
-            #log.info('stdout: {}'.format(result.stdout.decode('UTF-8')))
-            #log.info('stderr: {}'.format(result.stderr.decode('UTF-8')))
+            log.info('stdout: {}'.format(result.stdout.decode('UTF-8')))
+            log.info('stderr: {}'.format(result.stderr.decode('UTF-8')))
 
         except Exception as e:
             log.exception ('exception occurred while making screenshot of '
@@ -903,6 +907,7 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
              '\n'.format(nred, nbias_red, ndark_red, nflat_red, nobject_red))
 
 
+
     # collect full-source, transient and sso catalog lists, using
     # [list_files] as little as possible
     all_cats_list = list_files('{}/{}'.format(full_path, tel), end_str='.fits')
@@ -921,6 +926,11 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
     body += ('# SSO cats:         {} ({} empty)\n'.format(
         len(sso_list), count_redflags(sso_list, key='SDUMCAT')))
     body += '\n'
+
+
+    # link to weather page
+    body += 'Observing conditions: {}\n'.format(webpage)
+
 
 
     if email:
