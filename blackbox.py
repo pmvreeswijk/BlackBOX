@@ -991,7 +991,7 @@ def get_filename_red (fits_raw):
 
     # use [set_header] to update raw header so that also DATE-OBS
     # is updated to be mid-exposure time
-    header = set_header(header, fits_raw)
+    header = set_header(header, fits_raw, silent=True)
 
     # UT date (yyyymmdd) and time (hhmmss)
     utdate, uttime = get_date_time(header)
@@ -1932,6 +1932,12 @@ def blackbox_reduce (filename):
 
 
     # end of if block with reduction steps
+
+    if False:
+        t_gc = time.time()
+        ncollected = gc.collect()
+        log.info ('garbage collector: collected {} objects in {:.2f}s'
+                  .format(ncollected, time.time()-t_gc))
 
 
     # block dealing with main processing switches
@@ -3562,6 +3568,10 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
     body += ('# SSO cats:         {} ({} empty)\n'.format(
         len(sso_list), count_redflags(sso_list, key='SDUMCAT')))
     body += '\n'
+
+
+    # link to weather page
+    body += 'Observing conditions: {}\n'.format(webpage)
 
 
     if email:
@@ -5898,7 +5908,7 @@ def set_header(header, filename, silent=False):
         # separation between image RA/DEC and moon
         moon_sep = coords_moon.separation(coords, origin_mismatch='ignore').deg
         # position angle of the moon with respect to the image
-        moon_pa = coords_moon.position_angle(coords,origin_mismatch='ignore').deg
+        moon_pa = coords_moon.position_angle(coords).deg
         # above actually provides the position angle of image wrt the moon,
         # so switch it around
         moon_pa = (moon_pa - 180) % 360
@@ -6901,31 +6911,6 @@ def gain_corr(data, header, tel=None):
     #
     # [ 8, 9, 10, 11, 12, 13, 14, 15]
     # [ 0, 1,  2,  3,  4,  5,  6,  7]
-
-    # g = gain()
-    # height,width = 5300, 1500
-    # for (j,i) in [(j,i) for j in range(2) for i in range(8)]:
-    #     data[height*j:height*(j+1),width*i:width*(i+1)]*=g[i+(j*8)]
-    #
-    # height, width = 5300, 1500
-    # for (j,i) in [(j,i) for j in range(2) for i in range(8)]:
-    # print (height*j, height*(j+1),width*i, width*(i+1), i+(j*8))
-    # 0 5300 0 1500 0
-    # 0 5300 1500 3000 1
-    # 0 5300 3000 4500 2
-    # 0 5300 4500 6000 3
-    # 0 5300 6000 7500 4
-    # 0 5300 7500 9000 5
-    # 0 5300 9000 10500 6
-    # 0 5300 10500 12000 7
-    # 5300 10600 0 1500 8
-    # 5300 10600 1500 3000 9
-    # 5300 10600 3000 4500 10
-    # 5300 10600 4500 6000 11
-    # 5300 10600 6000 7500 12
-    # 5300 10600 7500 9000 13
-    # 5300 10600 9000 10500 14
-    # 5300 10600 10500 12000 15
 
 
 ################################################################################
