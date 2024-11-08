@@ -362,7 +362,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
             # [set_zogy.display] is set to True; something that is not
             # allowed (at least not on a macbook) when
             # multiprocessing.
-            log.warning ('running with single processor')
+            log.warning ('running single process')
             filenames_reduced = []
             for filename in filenames:
                 filenames_reduced.append(try_blackbox_reduce(filename))
@@ -1426,7 +1426,7 @@ def blackbox_reduce (filename):
         try:
             log.info('correcting for the gain')
             gain_processed = False
-            data = gain_corr(data, header, tel=tel)
+            gain_corr(data, header, tel=tel)
         except Exception as e:
             #log.exception(traceback.format_exc())
             log.exception('exception was raised during [gain_corr] of image {}: '
@@ -1571,6 +1571,7 @@ def blackbox_reduce (filename):
                 data_mbias, header_mbias = read_hdulist(fits_mbias,
                                                         get_header=True)
                 data -= data_mbias
+                del data_mbias
                 header['MBIAS-F'] = fits_mbias.split('/')[-1].split('.fits')[0]
 
                 # for object image, add number of days separating
@@ -1714,8 +1715,10 @@ def blackbox_reduce (filename):
                 data_mflat, header_mflat = read_hdulist(fits_mflat,
                                                         get_header=True)
                 data /= data_mflat
+                del data_mflat
                 header['MFLAT-F'] = (fits_mflat.split('/')[-1].split('.fits')[0],
                                      'name of master flat applied')
+
                 # for object image, add number of days separating
                 # image and master bias
                 if imgtype == 'object':
@@ -1873,6 +1876,8 @@ def blackbox_reduce (filename):
         header_mask['DATEFILE'] = (Time.now().isot, 'UTC date of writing file')
         fits.writeto(new_fits_mask, data_mask.astype('uint8'), header_mask,
                      overwrite=True)
+        del data, data_mask
+
 
         # also write separate header fits file - done just below the QC check
         #hdulist = fits.HDUList(fits.PrimaryHDU(header=header))
@@ -4241,9 +4246,6 @@ def cosmics_corr (data, header, data_mask, header_mask):
     satlevel_electrons = np.inf
 
 
-    # create readnoise image to use
-    data_rdnoise2 = np.zeros_like (data)
-
     # determine reduced data sections
     __, __, __, __, data_sec_red = define_sections(np.shape(data), tel=tel)
 
@@ -4251,6 +4253,10 @@ def cosmics_corr (data, header, data_mask, header_mask):
     if False:
 
         # when using 1.0.9+ version of astroscrappy:
+
+        # create readnoise image to use
+        data_rdnoise2 = np.zeros_like (data)
+
 
         # loop channels
         nchans = np.shape(data_sec_red)[0]
@@ -4316,6 +4322,7 @@ def cosmics_corr (data, header, data_mask, header_mask):
     # add pixels affected by cosmic rays to [data_mask]
     data_mask[mask_cr==1] += get_par(set_zogy.mask_value['cosmic ray'],tel)
 
+
     # determining number of cosmics; 2 pixels are considered from the
     # same cosmic also if they are only connected diagonally
     struct = np.ones((3,3), dtype=bool)
@@ -4330,6 +4337,7 @@ def cosmics_corr (data, header, data_mask, header_mask):
 
     if get_par(set_zogy.timing,tel):
         log_timing_memory (t0=t, label='in cosmics_corr')
+
 
     return data, data_mask
 
@@ -4353,7 +4361,7 @@ def mask_init (data, header, filt, imgtype):
     bpm_present, fits_bpm = already_exists (fits_bpm, get_filename=True)
     if bpm_present:
         # if it exists, read it
-        data_mask = read_hdulist(fits_bpm)
+        data_mask = read_hdulist(fits_bpm, dtype='uint8')
         log.info ('using bad pixel mask {}'.format(fits_bpm))
     else:
         # if not, create uint8 array of zeros with same shape as
@@ -6696,7 +6704,8 @@ def xtalk_corr (data, crosstalk_file, data_mask=None):
     if get_par(set_zogy.timing,tel):
         log_timing_memory (t0=t, label='in xtalk_corr')
 
-    return data
+
+    return
 
 
 ################################################################################
@@ -6890,11 +6899,13 @@ def gain_corr(data, header, tel=None):
     if get_par(set_zogy.timing,tel):
         t = time.time()
 
+    # gain values
     gain = get_par(set_bb.gain,tel)
+
     # channel image sections
     chan_sec, __, __, __, __ = define_sections(np.shape(data), tel=tel)
-
     nchans = np.shape(chan_sec)[0]
+
     for i_chan in range(nchans):
         data[chan_sec[i_chan]] *= gain[i_chan]
         header['GAIN{}'.format(i_chan+1)] = (gain[i_chan], '[e-/ADU] gain applied to '
@@ -6903,7 +6914,6 @@ def gain_corr(data, header, tel=None):
     if get_par(set_zogy.timing,tel):
         log_timing_memory (t0=t, label='in gain_corr')
 
-    return data
 
     # check if different channels in [set_bb.gain] correspond to the
     # correct channels; currently indices of gain correspond to the
