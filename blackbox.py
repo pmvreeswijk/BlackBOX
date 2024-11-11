@@ -4099,7 +4099,7 @@ def run_asta (data, header, data_mask, header_mask, tmp_path):
 
 
     # add pixels affected by satellite trails to [data_mask]
-    data_mask[mask_sat==1] += get_par(set_zogy.mask_value['satellite trail'],
+    data_mask[mask_sat==1] |= get_par(set_zogy.mask_value['satellite trail'],
                                       tel)
     #nsatpixels = np.sum(mask_sat)
 
@@ -4198,7 +4198,7 @@ def sat_detect (data, header, data_mask, header_mask, tmp_path, nbin=2):
         mask_sat = np.kron(
             mask_binned, np.ones((nbin, nbin))).astype(np.uint8)
         # add pixels affected by satellite trails to [data_mask]
-        data_mask[mask_sat==1] += get_par(set_zogy.mask_value['satellite trail'],
+        data_mask[mask_sat==1] |= get_par(set_zogy.mask_value['satellite trail'],
                                           tel)
         # determining number of trails; 2 pixels are considered from the
         # same trail also if they are only connected diagonally
@@ -4320,7 +4320,7 @@ def cosmics_corr (data, header, data_mask, header_mask):
     #    readnoise=header['RDNOISE'], satlevel=np.inf)
 
     # add pixels affected by cosmic rays to [data_mask]
-    data_mask[mask_cr==1] += get_par(set_zogy.mask_value['cosmic ray'],tel)
+    data_mask[mask_cr==1] |= get_par(set_zogy.mask_value['cosmic ray'],tel)
 
 
     # determining number of cosmics; 2 pixels are considered from the
@@ -4383,7 +4383,7 @@ def mask_init (data, header, filt, imgtype):
         # and add them to [data_mask] with same value defined for 'bad' pixels
         # unless that pixel was already masked
         mask_value = get_par(set_zogy.mask_value,tel)
-        data_mask[(mask_infnan) & (data_mask==0)] += mask_value['bad']
+        data_mask[(mask_infnan) & (data_mask==0)] |= mask_value['bad']
 
 
         if False:
@@ -4499,7 +4499,7 @@ def mask_init (data, header, filt, imgtype):
 
 
                     # add crosstalk pixels to the full-image mask
-                    data_mask[chan_sec_victim][mask_use] += \
+                    data_mask[chan_sec_victim][mask_use] |= \
                         mask_value['crosstalk']
 
 
@@ -4507,7 +4507,7 @@ def mask_init (data, header, filt, imgtype):
 
 
         # add them to the mask of edge and bad pixels
-        data_mask[mask_sat] += mask_value['saturated']
+        data_mask[mask_sat] |= mask_value['saturated']
 
 
         # determining number of saturated objects; 2 saturated pixels are
@@ -4531,7 +4531,7 @@ def mask_init (data, header, filt, imgtype):
                                               iterations=1)
         # add them to the mask
         mask_satcon2add = (mask_satcon & ~mask_sat)
-        data_mask[mask_satcon2add] += mask_value['saturated-connected']
+        data_mask[mask_satcon2add] |= mask_value['saturated-connected']
 
 
         # fill potential holes using function [fill_sat_holes]
