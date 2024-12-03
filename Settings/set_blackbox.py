@@ -154,8 +154,9 @@ for tel in ['BG2', 'BG3', 'BG4', 'BG']:
 
 # name endings of files to keep for the reference and new images
 img_reduce_exts = ['_red.fits', '_mask.fits', '_red_hdr.fits', '_mini.fits',
-                   '_red_limmag.fits', '_red.log', '_red_objmask.fits']
+                   '_red_limmag.fits', '_red.log', '_red_objmask.fits',
                    # '_red_objmask_gaia.fits']
+                   '_red_zps.npy']
 cat_extract_exts = ['_red_cat.fits', '_psf.fits', '_psfex.cat', '_cat_hdr.fits']
 trans_extract_exts = ['_D.fits', '_Scorr.fits', '_trans_limmag.fits',
                       '_trans.fits', '_trans_hdr.fits', '_trans_light.fits',
