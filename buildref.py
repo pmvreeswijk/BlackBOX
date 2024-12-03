@@ -2055,6 +2055,11 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
     header_out['R-SIZE-M'] = (get_par(set_br.imagesize_type,tel),
                               'reference image size method')
 
+
+    header_out['R-IMAGEW'] = (image_size, '[pix] reference image width')
+    header_out['R-IMAGEH'] = (image_size, '[pix] reference image height')
+
+
     # discarded mask values
     header_out['R-MSKREJ'] = (masktype_discard,
                               'reject pixels with mask values part of this sum')
@@ -2363,7 +2368,7 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
     # image as bad pixels, only if not already masked
     value_bad = mask_value['bad']
     mask_bad2add = (mask_zero_cw & (data_mask_out==0))
-    data_mask_out[mask_bad2add] += 1
+    data_mask_out[mask_bad2add] |= 1
 
     log.info ('{} zero-weight pixels in combined image, of which {} are not '
               'coinciding with already flagged pixels'
@@ -2376,7 +2381,7 @@ def imcombine (field_ID, imagelist, fits_out, combine_type, filt, overwrite=True
 
     if False:
         if len(imtable) != 2:
-            data_mask_out[mask_bad2add] += 1
+            data_mask_out[mask_bad2add] |= 1
         else:
             # for combination of 2 images, replace these
             # pixels in the data with the minimum
