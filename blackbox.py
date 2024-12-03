@@ -115,8 +115,8 @@ except Exception as e:
                  'blackbox; issue with IERS file?: {}'.format(e))
 
 
-__version__ = '2.0.0'
-keywords_version = '2.0.0'
+__version__ = '1.4.0'
+keywords_version = '1.2.2'
 
 
 ################################################################################
@@ -4684,7 +4684,7 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True,
             # corresponding path
             date_tmp = (Time(mjd_noon, format='mjd').isot.split('T')[0]
                         .replace('-','/'))
-            path_tmp = '{}/{}/{}/{}_'.format(red_dir, date_tmp, imgtype, tel)
+            path_tmp = '{}/{}/{}/{}_20'.format(red_dir, date_tmp, imgtype, tel)
 
             # additional search string, which will select particular
             # filter for flats
@@ -4822,7 +4822,7 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True,
             # evening date
             nmax = int(get_par(set_bb.ncal_max,tel)[imgtype])
 
-            # difference between observed MJD and mignight of the
+            # difference between observed MJD and midnight of the
             # evening date
             mjd_midnight = date2mjd('{}'.format(date_eve), time_str='23:59')
             mjd_obs_delta = mjd_obs - mjd_midnight
@@ -6263,6 +6263,21 @@ def jnow2icrs (ra_in, dec_in, equinox, icrs2jnow=False):
 
     """function to convert RA and DEC coordinates in decimal degrees to
        ICRS, or back using icrs2jnow=True
+
+    N.B.: Steven added this conversion to the Hydra (on 7 March 2024
+          for BG2 and BG4, and on 15 Nov 2024 for BG3), which is
+          probably the correct way of transforming between mount
+          coordinates and J2000:
+
+    # --------------------------------------------------------------------------
+    # SB added on 7 March 2024 - reporting in J2000 instead of Jnow
+    current_epoch = time.localtime().tm_year+time.localtime().tm_yday/365.25
+    pointing_J2000 = coords.EquatorialCoordinatesEquinox(self.pointing.ra,self.pointing.dec,epoch=current_epoch) # still in Jnow
+    pointing_J2000.transformToEpoch(2000) # now in J2000
+    ra_value = str(pointing_J2000.ra.h)
+    dec_value = str(pointing_J2000.dec.d)
+    # --------------------------------------------------------------------------
+
 
     """
 
