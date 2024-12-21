@@ -401,7 +401,7 @@ qc_range = {
                                                                             'q': [ (20.3, 23.6), (19.6, 23.6), (0, 30) ],
                                                                             'r': [ (19.6, 22.9), (18.9, 22.9), (0, 30) ],
                                                                             'i': [ (19.0, 22.3), (18.3, 22.3), (0, 30) ],
-                                                                            'z': [ (17.9, 21.2), (17.2, 21.2), (0, 30) ]}, 'key_type': 'trans', 'pos': True , 'comment': '[mag] full-frame transient [T-NSIGMA]-sigma lim. mag'},
+                                                                            'z': [ (17.9, 21.2), (17.2, 21.2), (0, 30) ]}, 'key_type': 'trans', 'pos': True , 'comment': '[mag] full-frame transient [T-NSIGMA]-sigma limiting mag'},
         # previously using sigma method:
         #'T-LMAG' :  {'default':'None', 'val_type': 'sigma',   'val_range': {'u': [ (19.0, 0.15) ],
         #                                                                    'g': [ (20.1, 0.15) ],
@@ -412,27 +412,31 @@ qc_range = {
 
 
         # some additional ones to make sure these are listed in the dummy output catalogs
-        'REDFILE':  {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': False, 'comment': 'BlackBOX reduced image name'},
-        'MASKFILE': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': False, 'comment': 'BlackBOX mask image name'},
+        'REDFILE':  {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': False, 'comment': 'BlackBOX reduced image name'},
+        'MASKFILE': {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': False, 'comment': 'BlackBOX mask image name'},
 
-        'PSF-SIZE': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': True , 'comment': '[pix] size PSF image for optimal subtraction'},
-        'PSF-CFGS': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': True , 'comment': '[config. pix] size PSF configuration image'},
-        'PC-EXTCO': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': True , 'comment': '[mag] filter extinction coefficient (k) used'},
-        'AIRMASSC': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': True , 'comment': 'Airmass at image center'},
-        'RA-CNTR':  {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': False, 'comment': 'RA (ICRS) at image center (astrometry.net)'},
-        'DEC-CNTR': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': False, 'comment': 'DEC (ICRS) at image center (astrometry.net)'},
+        'PSF-SIZE': {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': True , 'comment': '[pix] size PSF image for optimal subtraction'},
+        'PSF-CFGS': {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': True , 'comment': '[config. pix] size PSF configuration image'},
+        'PC-EXTCO': {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': True , 'comment': '[mag] filter extinction coefficient (k) used'},
+        'AIRMASSC': {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': True , 'comment': 'Airmass at image center'},
+        'RA-CNTR':  {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': False, 'comment': 'RA (ICRS) at image center (astrometry.net)'},
+        'DEC-CNTR': {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': False, 'comment': 'DEC (ICRS) at image center (astrometry.net)'},
 
-        'NSIGMA':   {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': True , 'comment': '[sigma] input source detection threshold'},
+        'NSIGMA':   {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': True , 'comment': '[sigma] input source detection threshold'},
 
-        'DUMCAT':   {'default': False, 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': False, 'comment': 'dummy catalog without sources?'},
-        'TDUMCAT':  {'default': False, 'val_type': 'skip',    'val_range': None,                                'key_type': 'trans',  'pos': False, 'comment': 'dummy transient catalog without sources?'},
-        'QC-FLAG':  {'default':'red',  'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': False, 'comment': 'QC flag color (green|yellow|orange|red)'},
-        'TQC-FLAG': {'default':'red',  'val_type': 'skip',    'val_range': None,                                'key_type': 'trans',  'pos': False, 'comment': 'transient QC flag (green|yellow|orange|red)'},
+        'DUMCAT':   {'default': False, 'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': False, 'comment': 'dummy catalog without sources?'},
+        'TDUMCAT':  {'default': False, 'val_type': 'skip', 'val_range': None, 'key_type': 'trans', 'pos': False, 'comment': 'dummy transient catalog without sources?'},
+        'QC-FLAG':  {'default':'red',  'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': False, 'comment': 'QC flag color (green|yellow|orange|red)'},
+        'TQC-FLAG': {'default':'red',  'val_type': 'skip', 'val_range': None, 'key_type': 'trans', 'pos': False, 'comment': 'transient QC flag (green|yellow|orange|red)'},
 
-        'T-NSIGMA': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'trans',  'pos': True , 'comment': '[sigma] input transient detection threshold'},
+        'T-NSIGMA': {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'trans', 'pos': True , 'comment': '[sigma] input transient detection threshold'},
+
+        'PC-ZPERR': {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': True , 'comment': '[mag] weighted error zeropoint'},
+        'Z-FNRERR': {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'trans', 'pos': True , 'comment': 'weighted error flux ratio (Fnew/Fref) full image'},
+        'T-LFNU' :  {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'trans', 'pos': True , 'comment': '[microJy] full-frame transient [T-NSIGMA]-sigma limiting Fnu'},
+        'BJD-OBS':  {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': True , 'comment': '[d] Barycentric JD (using DATE-OBS, RA/DEC-CNTR)'},
 
         #
-
     },
 
 
@@ -667,7 +671,7 @@ qc_range = {
                                                                             'q': [ (20.3, 23.6), (19.6, 23.6), (0, 30) ],
                                                                             'r': [ (19.6, 22.9), (18.9, 22.9), (0, 30) ],
                                                                             'i': [ (19.0, 22.3), (18.3, 22.3), (0, 30) ],
-                                                                            'z': [ (17.9, 21.2), (17.2, 21.2), (0, 30) ]}, 'key_type': 'trans', 'pos': True , 'comment': '[mag] full-frame transient [T-NSIGMA]-sigma lim. mag'},
+                                                                            'z': [ (17.9, 21.2), (17.2, 21.2), (0, 30) ]}, 'key_type': 'trans', 'pos': True , 'comment': '[mag] full-frame transient [T-NSIGMA]-sigma limiting mag'},
         # previously using sigma method:
         #'T-LMAG' :  {'default':'None', 'val_type': 'sigma',   'val_range': {'u': [ (19.0, 0.15) ],
         #                                                                    'g': [ (20.1, 0.15) ],
@@ -678,24 +682,29 @@ qc_range = {
 
 
         # some additional ones to make sure these are listed in the dummy output catalogs
-        'REDFILE':  {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': False, 'comment': 'BlackBOX reduced image name'},
-        'MASKFILE': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': False, 'comment': 'BlackBOX mask image name'},
+        'REDFILE':  {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': False, 'comment': 'BlackBOX reduced image name'},
+        'MASKFILE': {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': False, 'comment': 'BlackBOX mask image name'},
 
-        'PSF-SIZE': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': True , 'comment': '[pix] size PSF image for optimal subtraction'},
-        'PSF-CFGS': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': True , 'comment': '[config. pix] size PSF configuration image'},
-        'PC-EXTCO': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': True , 'comment': '[mag] filter extinction coefficient (k) used'},
-        'AIRMASSC': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': True , 'comment': 'Airmass at image center'},
-        'RA-CNTR':  {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': False, 'comment': 'RA (ICRS) at image center (astrometry.net)'},
-        'DEC-CNTR': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': False, 'comment': 'DEC (ICRS) at image center (astrometry.net)'},
+        'PSF-SIZE': {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': True , 'comment': '[pix] size PSF image for optimal subtraction'},
+        'PSF-CFGS': {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': True , 'comment': '[config. pix] size PSF configuration image'},
+        'PC-EXTCO': {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': True , 'comment': '[mag] filter extinction coefficient (k) used'},
+        'AIRMASSC': {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': True , 'comment': 'Airmass at image center'},
+        'RA-CNTR':  {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': False, 'comment': 'RA (ICRS) at image center (astrometry.net)'},
+        'DEC-CNTR': {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': False, 'comment': 'DEC (ICRS) at image center (astrometry.net)'},
 
-        'NSIGMA':   {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': True , 'comment': '[sigma] input source detection threshold'},
+        'NSIGMA':   {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': True , 'comment': '[sigma] input source detection threshold'},
 
-        'DUMCAT':   {'default': False, 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': False, 'comment': 'dummy catalog without sources?'},
-        'TDUMCAT':  {'default': False, 'val_type': 'skip',    'val_range': None,                                'key_type': 'trans',  'pos': False, 'comment': 'dummy transient catalog without sources?'},
-        'QC-FLAG':  {'default':'red',  'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': False, 'comment': 'QC flag color (green|yellow|orange|red)'},
-        'TQC-FLAG': {'default':'red',  'val_type': 'skip',    'val_range': None,                                'key_type': 'trans',  'pos': False, 'comment': 'transient QC flag (green|yellow|orange|red)'},
+        'DUMCAT':   {'default': False, 'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': False, 'comment': 'dummy catalog without sources?'},
+        'TDUMCAT':  {'default': False, 'val_type': 'skip', 'val_range': None, 'key_type': 'trans', 'pos': False, 'comment': 'dummy transient catalog without sources?'},
+        'QC-FLAG':  {'default':'red',  'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': False, 'comment': 'QC flag color (green|yellow|orange|red)'},
+        'TQC-FLAG': {'default':'red',  'val_type': 'skip', 'val_range': None, 'key_type': 'trans', 'pos': False, 'comment': 'transient QC flag (green|yellow|orange|red)'},
 
-        'T-NSIGMA': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'trans',  'pos': True , 'comment': '[sigma] input transient detection threshold'},
+        'T-NSIGMA': {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'trans', 'pos': True , 'comment': '[sigma] input transient detection threshold'},
+
+        'PC-ZPERR': {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': True , 'comment': '[mag] weighted error zeropoint'},
+        'Z-FNRERR': {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'trans', 'pos': True , 'comment': 'weighted error flux ratio (Fnew/Fref) full image'},
+        'T-LFNU' :  {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'trans', 'pos': True , 'comment': '[microJy] full-frame transient [T-NSIGMA]-sigma limiting Fnu'},
+        'BJD-OBS':  {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': True , 'comment': '[d] Barycentric JD (using DATE-OBS, RA/DEC-CNTR)'},
 
         #
     },
@@ -925,7 +934,7 @@ qc_range = {
                                                                             'q': [ (20.3, 23.6), (19.6, 23.6), (0, 30) ],
                                                                             'r': [ (19.6, 22.9), (18.9, 22.9), (0, 30) ],
                                                                             'i': [ (19.0, 22.3), (18.3, 22.3), (0, 30) ],
-                                                                            'z': [ (17.9, 21.2), (17.2, 21.2), (0, 30) ]}, 'key_type': 'trans', 'pos': True , 'comment': '[mag] full-frame transient [T-NSIGMA]-sigma lim. mag'},
+                                                                            'z': [ (17.9, 21.2), (17.2, 21.2), (0, 30) ]}, 'key_type': 'trans', 'pos': True , 'comment': '[mag] full-frame transient [T-NSIGMA]-sigma limiting mag'},
         # previously using sigma method:
         #'T-LMAG' :  {'default':'None', 'val_type': 'sigma',   'val_range': {'u': [ (19.0, 0.15) ],
         #                                                                    'g': [ (20.1, 0.15) ],
@@ -936,24 +945,29 @@ qc_range = {
 
 
         # some additional ones to make sure these are listed in the dummy output catalogs
-        'REDFILE':  {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': False, 'comment': 'BlackBOX reduced image name'},
-        'MASKFILE': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': False, 'comment': 'BlackBOX mask image name'},
+        'REDFILE':  {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': False, 'comment': 'BlackBOX reduced image name'},
+        'MASKFILE': {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': False, 'comment': 'BlackBOX mask image name'},
 
-        'PSF-SIZE': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': True , 'comment': '[pix] size PSF image for optimal subtraction'},
-        'PSF-CFGS': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': True , 'comment': '[config. pix] size PSF configuration image'},
-        'PC-EXTCO': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': True , 'comment': '[mag] filter extinction coefficient (k) used'},
-        'AIRMASSC': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': True , 'comment': 'Airmass at image center'},
-        'RA-CNTR':  {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': False, 'comment': 'RA (ICRS) at image center (astrometry.net)'},
-        'DEC-CNTR': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': False, 'comment': 'DEC (ICRS) at image center (astrometry.net)'},
+        'PSF-SIZE': {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': True , 'comment': '[pix] size PSF image for optimal subtraction'},
+        'PSF-CFGS': {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': True , 'comment': '[config. pix] size PSF configuration image'},
+        'PC-EXTCO': {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': True , 'comment': '[mag] filter extinction coefficient (k) used'},
+        'AIRMASSC': {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': True , 'comment': 'Airmass at image center'},
+        'RA-CNTR':  {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': False, 'comment': 'RA (ICRS) at image center (astrometry.net)'},
+        'DEC-CNTR': {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': False, 'comment': 'DEC (ICRS) at image center (astrometry.net)'},
 
-        'NSIGMA':   {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': True , 'comment': '[sigma] input source detection threshold'},
+        'NSIGMA':   {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': True , 'comment': '[sigma] input source detection threshold'},
 
-        'DUMCAT':   {'default': False, 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': False, 'comment': 'dummy catalog without sources?'},
-        'TDUMCAT':  {'default': False, 'val_type': 'skip',    'val_range': None,                                'key_type': 'trans',  'pos': False, 'comment': 'dummy transient catalog without sources?'},
-        'QC-FLAG':  {'default':'red',  'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': False, 'comment': 'QC flag color (green|yellow|orange|red)'},
-        'TQC-FLAG': {'default':'red',  'val_type': 'skip',    'val_range': None,                                'key_type': 'trans',  'pos': False, 'comment': 'transient QC flag (green|yellow|orange|red)'},
+        'DUMCAT':   {'default': False, 'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': False, 'comment': 'dummy catalog without sources?'},
+        'TDUMCAT':  {'default': False, 'val_type': 'skip', 'val_range': None, 'key_type': 'trans', 'pos': False, 'comment': 'dummy transient catalog without sources?'},
+        'QC-FLAG':  {'default':'red',  'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': False, 'comment': 'QC flag color (green|yellow|orange|red)'},
+        'TQC-FLAG': {'default':'red',  'val_type': 'skip', 'val_range': None, 'key_type': 'trans', 'pos': False, 'comment': 'transient QC flag (green|yellow|orange|red)'},
 
-        'T-NSIGMA': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'trans',  'pos': True , 'comment': '[sigma] input transient detection threshold'},
+        'T-NSIGMA': {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'trans', 'pos': True , 'comment': '[sigma] input transient detection threshold'},
+
+        'PC-ZPERR': {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': True , 'comment': '[mag] weighted error zeropoint'},
+        'Z-FNRERR': {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'trans', 'pos': True , 'comment': 'weighted error flux ratio (Fnew/Fref) full image'},
+        'T-LFNU' :  {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'trans', 'pos': True , 'comment': '[microJy] full-frame transient [T-NSIGMA]-sigma limiting Fnu'},
+        'BJD-OBS':  {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': True , 'comment': '[d] Barycentric JD (using DATE-OBS, RA/DEC-CNTR)'},
 
         #
     },
@@ -1184,7 +1198,7 @@ qc_range = {
                                                                             'q': [ (20.3, 23.6), (19.6, 23.6), (0, 30) ],
                                                                             'r': [ (19.6, 22.9), (18.9, 22.9), (0, 30) ],
                                                                             'i': [ (19.0, 22.3), (18.3, 22.3), (0, 30) ],
-                                                                            'z': [ (17.9, 21.2), (17.2, 21.2), (0, 30) ]}, 'key_type': 'trans', 'pos': True , 'comment': '[mag] full-frame transient [T-NSIGMA]-sigma lim. mag'},
+                                                                            'z': [ (17.9, 21.2), (17.2, 21.2), (0, 30) ]}, 'key_type': 'trans', 'pos': True , 'comment': '[mag] full-frame transient [T-NSIGMA]-sigma limiting mag'},
         # previously using sigma method:
         #'T-LMAG' :  {'default':'None', 'val_type': 'sigma',   'val_range': {'u': [ (19.0, 0.15) ],
         #                                                                    'g': [ (20.1, 0.15) ],
@@ -1195,24 +1209,29 @@ qc_range = {
 
 
         # some additional ones to make sure these are listed in the dummy output catalogs
-        'REDFILE':  {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': False, 'comment': 'BlackBOX reduced image name'},
-        'MASKFILE': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': False, 'comment': 'BlackBOX mask image name'},
+        'REDFILE':  {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': False, 'comment': 'BlackBOX reduced image name'},
+        'MASKFILE': {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': False, 'comment': 'BlackBOX mask image name'},
 
-        'PSF-SIZE': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': True , 'comment': '[pix] size PSF image for optimal subtraction'},
-        'PSF-CFGS': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': True , 'comment': '[config. pix] size PSF configuration image'},
-        'PC-EXTCO': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': True , 'comment': '[mag] filter extinction coefficient (k) used'},
-        'AIRMASSC': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': True , 'comment': 'Airmass at image center'},
-        'RA-CNTR':  {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': False, 'comment': 'RA (ICRS) at image center (astrometry.net)'},
-        'DEC-CNTR': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': False, 'comment': 'DEC (ICRS) at image center (astrometry.net)'},
+        'PSF-SIZE': {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': True , 'comment': '[pix] size PSF image for optimal subtraction'},
+        'PSF-CFGS': {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': True , 'comment': '[config. pix] size PSF configuration image'},
+        'PC-EXTCO': {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': True , 'comment': '[mag] filter extinction coefficient (k) used'},
+        'AIRMASSC': {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': True , 'comment': 'Airmass at image center'},
+        'RA-CNTR':  {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': False, 'comment': 'RA (ICRS) at image center (astrometry.net)'},
+        'DEC-CNTR': {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': False, 'comment': 'DEC (ICRS) at image center (astrometry.net)'},
 
-        'NSIGMA':   {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': True , 'comment': '[sigma] input source detection threshold'},
+        'NSIGMA':   {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': True , 'comment': '[sigma] input source detection threshold'},
 
-        'DUMCAT':   {'default': False, 'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': False, 'comment': 'dummy catalog without sources?'},
-        'TDUMCAT':  {'default': False, 'val_type': 'skip',    'val_range': None,                                'key_type': 'trans',  'pos': False, 'comment': 'dummy transient catalog without sources?'},
-        'QC-FLAG':  {'default':'red',  'val_type': 'skip',    'val_range': None,                                'key_type': 'full',   'pos': False, 'comment': 'QC flag color (green|yellow|orange|red)'},
-        'TQC-FLAG': {'default':'red',  'val_type': 'skip',    'val_range': None,                                'key_type': 'trans',  'pos': False, 'comment': 'transient QC flag (green|yellow|orange|red)'},
+        'DUMCAT':   {'default': False, 'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': False, 'comment': 'dummy catalog without sources?'},
+        'TDUMCAT':  {'default': False, 'val_type': 'skip', 'val_range': None, 'key_type': 'trans', 'pos': False, 'comment': 'dummy transient catalog without sources?'},
+        'QC-FLAG':  {'default':'red',  'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': False, 'comment': 'QC flag color (green|yellow|orange|red)'},
+        'TQC-FLAG': {'default':'red',  'val_type': 'skip', 'val_range': None, 'key_type': 'trans', 'pos': False, 'comment': 'transient QC flag (green|yellow|orange|red)'},
 
-        'T-NSIGMA': {'default':'None', 'val_type': 'skip',    'val_range': None,                                'key_type': 'trans',  'pos': True , 'comment': '[sigma] input transient detection threshold'},
+        'T-NSIGMA': {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'trans', 'pos': True , 'comment': '[sigma] input transient detection threshold'},
+
+        'PC-ZPERR': {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': True , 'comment': '[mag] weighted error zeropoint'},
+        'Z-FNRERR': {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'trans', 'pos': True , 'comment': 'weighted error flux ratio (Fnew/Fref) full image'},
+        'T-LFNU' :  {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'trans', 'pos': True , 'comment': '[microJy] full-frame transient [T-NSIGMA]-sigma limiting Fnu'},
+        'BJD-OBS':  {'default':'None', 'val_type': 'skip', 'val_range': None, 'key_type': 'full',  'pos': True , 'comment': '[d] Barycentric JD (using DATE-OBS, RA/DEC-CNTR)'},
 
         #
     },
