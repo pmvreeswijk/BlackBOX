@@ -54,7 +54,7 @@ import set_blackbox as set_bb
 import qc
 
 
-__version__ = '0.9.4'
+__version__ = '0.9.5'
 
 
 ################################################################################
@@ -62,8 +62,8 @@ __version__ = '0.9.4'
 def buildref (telescope=None, fits_hdrtable_list=None, date_start=None,
               date_end=None, field_IDs=None, filters=None, ascii_inputfiles=None,
               go_deep=None, qc_flag_max=None, seeing_max=None, skip_zogy=False,
-              make_colfig=False, filters_colfig='iqu', mode_ref=False,
-              results_dir=None, extension=None, keep_tmp=None):
+              dry_run=False, make_colfig=False, filters_colfig='iqu',
+              mode_ref=False, results_dir=None, extension=None, keep_tmp=None):
 
 
     """Module to consider one specific or all available field IDs within a
@@ -158,12 +158,11 @@ def buildref (telescope=None, fits_hdrtable_list=None, date_start=None,
     # not needed anymore as header tables are ready to be used
     if fits_hdrtable_list is None:
 
-        # get base folder name of header tables from set_blackbox
-        hdrtables_dir = get_par(set_bb.hdrtables_dir,tel)
-
         # refer to the existing header tables for both ML and BG
         if tel == 'ML1':
 
+            # get base folder name of header tables from set_blackbox
+            hdrtables_dir = get_par(set_bb.hdrtables_dir,tel)
             table_name = '{}/{}_headers_cat.fits'.format(hdrtables_dir, tel)
             fits_hdrtable_list = [table_name]
 
@@ -173,6 +172,9 @@ def buildref (telescope=None, fits_hdrtable_list=None, date_start=None,
             fits_hdrtable_list = []
             for tel_tmp in ['BG2', 'BG3', 'BG4']:
                 if tel in tel_tmp:
+
+                    # get base folder name of header tables from set_blackbox
+                    hdrtables_dir = get_par(set_bb.hdrtables_dir,tel_tmp)
                     table_name = '{}/{}_headers_cat.fits'.format(hdrtables_dir,
                                                                  tel_tmp)
                     fits_hdrtable_list.append(table_name)
@@ -708,9 +710,10 @@ def buildref (telescope=None, fits_hdrtable_list=None, date_start=None,
 
             limmag_proj = limmags_sort_cum[mask_sort_cum][-1]
 
-            log.info ('projected (target) {}-band limiting magnitude of '
-                      'co-add: {:.2f} ({})'
-                      .format(filt, limmag_proj, limmag_target))
+            log.info ('field {} projected (target) {}-band limiting magnitude '
+                      'of co-add: {:.2f} ({}), using {} files'
+                      .format(obj, filt, limmag_proj, limmag_target,
+                              nfiles_used))
 
 
 
@@ -727,6 +730,7 @@ def buildref (telescope=None, fits_hdrtable_list=None, date_start=None,
             combine_type_list.append(combine_type)
             A_swarp_list.append(A_swarp)
             nsigma_clip_list.append(nsigma_clip)
+
 
 
     if len(table)==0:
@@ -751,7 +755,7 @@ def buildref (telescope=None, fits_hdrtable_list=None, date_start=None,
             prep_ref (list_of_imagelists[i], obj_list[i], filt_list[i],
                       radec_list[i], imagesize_list[i], nfiles_list[i],
                       limmag_proj_list[i], combine_type_list[i],
-                      A_swarp_list[i], nsigma_clip_list[i], skip_zogy)
+                      A_swarp_list[i], nsigma_clip_list[i], skip_zogy, dry_run)
 
     else:
 
@@ -765,7 +769,9 @@ def buildref (telescope=None, fits_hdrtable_list=None, date_start=None,
                                        nfiles_list, limmag_proj_list,
                                        combine_type_list, A_swarp_list,
                                        nsigma_clip_list,
-                                       [skip_zogy] * len(obj_list), nproc=nproc)
+                                       [skip_zogy] * len(obj_list),
+                                       [dry_run] * len(obj_list),
+                                       nproc=nproc)
 
 
 
@@ -913,11 +919,10 @@ def prep_colfig (field_ID, filters):
 
 def ref_already_exists (ref_path, tel, field_ID, filt, get_filename=False):
 
-    # list files in ref_path with search string [tel]_[fieldID]_[filt]
+    # list files in ref_path with search string _[fieldID]_[filt]
     # and ending with _red.fits.fz
-    list_ref = bb.list_files(ref_path, search_str='{}_{:0>5}_{}_'
-                             .format(tel, field_ID, filt),
-                             end_str='_red.fits.fz')
+    list_ref = zogy.list_files(ref_path, search_str='_{:0>5}_{}_'
+                               .format(field_ID, filt), end_str='_red.fits.fz')
 
     # initialize exists and filename
     exists, filename = False, None
@@ -927,10 +932,14 @@ def ref_already_exists (ref_path, tel, field_ID, filt, get_filename=False):
         exists = True
         filename = list_ref[-1]
         if len(list_ref) > 1:
+            dates = [fn.split('_')[-2] for fn in list_ref]
+            idx_latest = np.argsort(dates)[-1]
+            filename = list_ref[idx_latest]
             log.warning ('multiple reference images with the same field ID/'
                          'filter combination {:0>5}/{} present in {}:\n{}\n'
-                         'returning the last one'
-                         .format(field_ID, filt, ref_path, list_ref))
+                         'returning the latest one: {}'
+                         .format(field_ID, filt, ref_path, list_ref, filename))
+
 
     if get_filename:
         return exists, filename
@@ -941,7 +950,11 @@ def ref_already_exists (ref_path, tel, field_ID, filt, get_filename=False):
 ################################################################################
 
 def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
-              combine_type, A_swarp, nsigma_clip, skip_zogy, dlimmag_min=0.3):
+              combine_type, A_swarp, nsigma_clip, skip_zogy, dry_run=False):
+
+
+    # read minimum limiting magnitude improvement
+    dlimmag_min = get_par(set_br.dlimmag_min,tel)
 
 
     # determine and create reference directory
@@ -961,7 +974,8 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
 
 
     # create folder
-    bb.make_dir (ref_path)
+    if not dry_run:
+        bb.make_dir (ref_path)
 
 
     # name of output file, including full path
@@ -985,13 +999,20 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
 
         else:
 
-            # only remake the reference image if new individual files
-            # are available
-            log.info ('reference image {} already exists; checking if it needs '
-                      'updating'.format(ref_fits_old))
             # read header
             header_ref_old = zogy.read_hdulist (ref_fits_old, get_data=False,
                                                 get_header=True)
+            limmag_old = header_ref_old['LIMMAG']
+            log.info ('reference image {} with limiting magnitude {}={:.2f} '
+                      'already exists'.format(ref_fits_old, filt, limmag_old))
+
+
+            # only remake the reference image if new individual files
+            # are available; the check that the new ref image is
+            # sufficiently deep to replace the old ref is done after
+            # creating the new image
+
+
             # check how many images were used
             if 'R-NUSED' in header_ref_old:
                 n_used = header_ref_old['R-NUSED']
@@ -1018,6 +1039,11 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
                           .format(field_ID, filt))
                 return
 
+
+
+    if dry_run:
+        log.info ('end of dry_run; not creating any reference image(s)')
+        return
 
 
     # prepare temporary folder
@@ -1189,10 +1215,10 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
                 limmag = header_ref['LIMMAG']
                 limmag_old = header_ref_old['LIMMAG']
 
-                if limmag - limmag_old > dlimmag_min:
+                if dlimmag_min is None or limmag - limmag_old > dlimmag_min:
 
                     # first (re)move old reference files
-                    oldfiles = bb.list_files (ref_base)
+                    oldfiles = zogy.list_files (ref_base)
                     if len(oldfiles)!=0:
                         if False:
                             # remove them
@@ -3202,6 +3228,12 @@ if __name__ == "__main__":
                         'if left to default of None, the catalog header tables '
                         'available for ML and BG will be used')
 
+    #parser.add_argument('--combine_method', type=str, default='clipped',
+    #                    help='method of image combination; default=clipped',
+    #                    choices=['median', 'average', 'min', 'max', 'weighted',
+    #                             'chi2', 'sum', 'clipped', 'weighted_weight',
+    #                             'median_weight'])
+
     parser.add_argument('--date_start', type=str, default=None,
                         help='start date (noon) to include images, date string '
                         '(e.g. yyyymmdd) or days relative to noon today '
@@ -3246,6 +3278,10 @@ if __name__ == "__main__":
                         help='skip execution of zogy on resulting image?; '
                         'default=False')
 
+    parser.add_argument('--dry_run', type=str2bool, default=False,
+                        help='run routine without creating ref images; '
+                        'default=False')
+
     #parser.add_argument('--make_colfig', type=str2bool, default=False,
     #                    help='make color figures from uqi filters?; '
     #                    'default=False')
@@ -3283,6 +3319,7 @@ if __name__ == "__main__":
 
     buildref (telescope = args.telescope,
               fits_hdrtable_list = fits_hdrtable_list,
+              #combine_method = args.combine_method,
               date_start = args.date_start,
               date_end = args.date_end,
               field_IDs = args.field_IDs,
@@ -3292,6 +3329,7 @@ if __name__ == "__main__":
               qc_flag_max = args.qc_flag_max,
               seeing_max = args.seeing_max,
               skip_zogy = args.skip_zogy,
+              dry_run = args.dry_run,
               #make_colfig = args.make_colfig,
               filters_colfig = args.filters_colfig,
               mode_ref = args.mode_ref,
