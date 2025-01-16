@@ -38,7 +38,7 @@ keep_tmp = False
 # AND, NAND, OR or NOR
 combine_type = 'clipped'
 
-# maximum spread in seeing values (using PSF-SEE) allowed when
+# maximum spread in seeing values (using S-SEEING) allowed when
 # selecting images to combine in 'clipped' mode to avoid clipping of
 # bright stars; abs(highest seeing / lowest seeing - 1) <=
 # max_spread_seeing
@@ -104,4 +104,9 @@ nimages_min = 3
 # maximum number of images used, after the date/qc-flag/seeing cuts
 # and sorting the list by LIMMAG; if input parameter deep is True,
 # this maximum is disregarded
-nimages_max = 15
+nimages_max = 25
+
+# minimum limiting magnitude improvement - with respect to possibly
+# existing reference image in the same filter - required for new ref
+# image to be created; if set to None, this requirement is dropped
+dlimmag_min = 0.5
