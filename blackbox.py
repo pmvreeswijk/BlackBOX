@@ -5,7 +5,7 @@ import copy
 import tempfile
 import sys
 import calendar
-
+import warnings
 
 #import multiprocessing as mp
 #mp_ctx = mp.get_context('spawn')
@@ -115,7 +115,7 @@ except Exception as e:
                  'blackbox; issue with IERS file?: {}'.format(e))
 
 
-__version__ = '1.4.0'
+__version__ = '1.4.1'
 keywords_version = '1.2.2'
 
 
@@ -4393,7 +4393,7 @@ def mask_init (data, header, filt, imgtype):
             # level (ADU) is taken from blackbox settings file, which
             # needs to be multiplied by the gain and have the mean
             # biaslevel subtracted
-            satlevel_electrons = (get_par(set_bb.satlevel,tel) *
+            satlevel_electrons = (np.array(get_par(set_bb.satlevel,tel)) *
                                   np.min(get_par(set_bb.gain,tel))
                                   - header['BIASMEAN'])
             mask_sat = (data >= satlevel_electrons)
@@ -6376,6 +6376,363 @@ def os_corr (data, header, imgtype, xbin=1, ybin=1, data_limit=2000, tel=None):
        consists of the data sections only, i.e. without the overscan
        regions. The [header] is update in place.
 
+       Updated in Jan 2025 to replace original function os_corr();
+       main change is that instead of column-by-column subtraction of
+       horizontal overscan section, a spline fit is performed over the
+       range x=0:150 and a polynomial fit over the range
+       x=150:1320. For BlackGEM, any column in the horizontal overscan
+       section that has a saturated pixel in the data section will not
+       be fit; this is to avoid oversubtracting columns affected by
+       saturated stars leaking flux into the overscan section.
+    """
+
+    if get_par(set_zogy.timing,tel):
+        t = time.time()
+
+
+    # to be able to detect the interpolate.UnivariateSpline user
+    # warning in a try-except statement
+    warnings.filterwarnings('error')
+
+
+    # infer channel, data and overscan sections
+    chan_sec, data_sec, os_sec_hori, os_sec_vert, data_sec_red = (
+        define_sections(np.shape(data), xbin=xbin, ybin=ybin, tel=tel))
+
+
+    # number of data columns and rows in the channel (without overscans)
+    ncols = get_par(set_bb.xsize_chan,tel) // xbin
+    nrows = get_par(set_bb.ysize_chan,tel) // ybin
+
+    # initialize output data array (without overscans)
+    ny = get_par(set_bb.ny,tel)
+    nx = get_par(set_bb.nx,tel)
+    data_out = np.zeros((nrows*ny, ncols*nx), dtype='float32')
+
+    # and arrays to calculate average means and stds over all channels
+    nchans = np.shape(data_sec)[0]
+    mean_vos = np.zeros(nchans)
+    std_vos = np.zeros(nchans)
+    median_hos = np.zeros(nchans)
+
+    vos_poldeg = get_par(set_bb.voscan_poldeg,tel)
+    nrows_chan = np.shape(data[chan_sec[0]])[0]
+    y_vos = np.arange(nrows_chan)
+
+    nrows_overlap = nrows_chan - nrows
+
+
+    # channel saturation levels
+    satlevel = np.array(get_par(set_bb.satlevel,tel))
+    gain = np.array(get_par(set_bb.gain,tel))
+    satlevel_electrons = satlevel * gain
+
+
+    for i_chan in range(nchans):
+
+
+        # -----------------
+        # vertical overscan
+        # -----------------
+
+        # first subtract a low-order polynomial fit to the clipped
+        # mean (not median, because input pixels are still integers!)
+        # of the vertical overcan section from the entire channel
+
+        # determine clipped mean for each row
+        data_vos = data[os_sec_vert[i_chan]]
+        mean_vos_col, __, __ = sigma_clipped_stats(
+            data_vos, axis=1, mask_value=0, cenfunc='mean')
+
+
+        # fit low order polynomial to vertical overscan, avoiding
+        # outlying values due to e.g. very bright star that bleeds
+        # into the vertical overscan sections at the bottom of the
+        # image for channels 1-8, and at the top for channels 9-16
+        try:
+            polyfit_ok = True
+            nsigma = 5
+            mean, median, stddev = sigma_clipped_stats(
+                mean_vos_col, sigma=nsigma, cenfunc='mean')
+            if stddev==0:
+                mask_fit = np.ones(nrows_chan, dtype=bool)
+            else:
+                mask_fit = (np.abs(mean_vos_col-mean)/stddev <= nsigma)
+
+            # do not fit overlap of vertical and horizontal overscans,
+            # at least for channel 9 of BG2, this leads to trouble;
+            # N.B.: overscan sections of channels 9-16 are mirrored in
+            # y with respect to channels 1-8
+            if i_chan < 8:
+                mask_fit[nrows:] = False
+            else:
+                mask_fit[:nrows_overlap] = False
+
+            # perform fit
+            p = np.polyfit(y_vos[mask_fit], mean_vos_col[mask_fit], vos_poldeg)
+
+
+        except Exception as e:
+            polyfit_ok = False
+            #log.exception(traceback.format_exc())
+            log.exception('exception was raised during polynomial fit to '
+                          'channel {} vertical overscan'.format(i_chan))
+
+
+        # add fit coefficients to image header
+        for nc in range(len(p)):
+            p_reverse = p[::-1]
+            if np.isfinite(p_reverse[nc]):
+                value = p_reverse[nc]
+            else:
+                value = 'None'
+            header['BIAS{}A{}'.format(i_chan+1, nc)] = (
+                value, '[e-] channel {} vert. overscan A{} polyfit coeff'
+                .format(i_chan+1, nc))
+
+        # fit values
+        fit_vos_col = np.polyval(p, y_vos)
+        if not np.all(np.isfinite(fit_vos_col)):
+            polyfit_ok = False
+
+        header['VFITOK{}'.format(i_chan+1)] = (
+            polyfit_ok, 'channel {} vert. overscan polyfit finite?'
+            .format(i_chan+1))
+
+
+        # if polynomial fit is reliable, subtract this off the entire
+        # channel; otherwise subtract the nanmedian of the vos row
+        # means
+        if polyfit_ok:
+            mean_vos[i_chan] = np.mean(fit_vos_col)
+            data[chan_sec[i_chan]] -= fit_vos_col.reshape(nrows_chan,1)
+        else:
+            mean_vos[i_chan] = np.nanmedian(mean_vos_col)
+            data[chan_sec[i_chan]] -= mean_vos[i_chan]
+
+
+        # mean levels of vertical and horizontal overscans do not
+        # always correspond, e.g. for channel 9 of BG2 there is clear
+        # difference of ~5-10e-; correct for this level offset by
+        # determining the sigma-clipped mean value of the
+        # vos-subtracted data on the right side of the horizontal
+        # overscan
+        dlevel, __, __ = sigma_clipped_stats (
+            data[os_sec_hori[i_chan]][:,ncols-300:ncols], cenfunc='mean')
+        #log.info ('dlevel: {}'.format(dlevel))
+        data[os_sec_hori[i_chan]] -= dlevel
+
+
+        # determine std of overscan subtracted vos:
+        __, __, std_vos[i_chan] = sigma_clipped_stats(
+            data[os_sec_vert[i_chan]], mask_value=0, cenfunc='mean')
+
+
+
+        # -------------------
+        # horizontal overscan
+        # -------------------
+
+        # determine the running clipped mean of the overscan using all
+        # values for [ncols] columns
+        data_hos = data[os_sec_hori[i_chan]][:,:ncols]
+
+
+        # replace very high values (due to bright objects on edge of
+        # channel) with function [inter_pix] in zogy.py
+        if tel=='ML1':
+            mask_hos = (data_hos > data_limit)
+        else:
+            # for BlackGEM mask columns where one or more pixels in
+            # data section is at or above the saturation level
+            mask_hos = np.zeros_like(data_hos, dtype=bool)
+            mask_row = np.any(data[data_sec[i_chan]] >=
+                              0.9*satlevel_electrons[i_chan], axis=0)
+            mask_hos[:] |= mask_row
+
+
+        # add one or two pixels connected to this mask
+        mask_hos = ndimage.binary_dilation(
+            mask_hos, structure=np.ones((3,3)).astype('bool'), iterations=1)
+
+
+
+        # determine clipped mean for each column, first defining
+        # masked array
+        data_hos_ma = np.ma.masked_array(data_hos, mask=mask_hos)
+        # sigma_clip
+        nsigma = 2.5
+        data_hos_ma = sigma_clip (data_hos_ma, axis=0, cenfunc='mean',
+                                  sigma=nsigma)
+        # number of rows in each column, used below
+        # to estimate the error in the mean
+        nvalues_col = np.sum(~data_hos_ma.mask, axis=0)
+        # clipped mean and std
+        mean_hos = np.nanmean(data_hos_ma, axis=0)
+        std_hos = np.nanstd(data_hos_ma, axis=0, ddof=1)
+        # mask of columns with more than 1 valid value after
+        # clipping
+        mask_valid = (nvalues_col > 1)
+
+
+        # spline fit errors
+        xcol = np.arange(len(mean_hos)) + 1
+        err_hos = np.zeros_like(mean_hos)
+        err_hos[mask_valid] = (std_hos[mask_valid] /
+                               np.sqrt(nvalues_col[mask_valid]))
+
+        # weights
+        weights = np.zeros_like(err_hos)
+        mask_nonzero = (err_hos != 0)
+        weights[mask_nonzero] = 1/err_hos[mask_nonzero]
+        # do not fit spline for first three columns if all of them are
+        # valid
+        if np.all(mask_valid[0:3]):
+            weights[0:3] = 0
+
+
+        # index up to which spline is used, and afterwards the
+        # polynomial fit
+        idx_switch = 150
+        overlap = 30
+
+        # perform spline fit
+        idx_fit = np.arange(idx_switch + overlap)
+        npoints = np.sum(mask_valid[idx_fit] & mask_nonzero[idx_fit])
+
+        # this make_splrep() is giving occasional issues, despite this
+        # method being recommended over the UnivariateSpline method
+        # below; for the moment use the latter
+        #
+        #fit = interpolate.make_splrep(xcol[idx_fit][mask_valid[idx_fit]],
+        #                              mean_hos[idx_fit][mask_valid[idx_fit]],
+        #                              w=weights[idx_fit][mask_valid[idx_fit]],
+        #                              k=2, s=npoints)
+        try:
+            m = mask_valid
+            splfit = interpolate.UnivariateSpline(xcol[idx_fit][m[idx_fit]],
+                                                  mean_hos[idx_fit][m[idx_fit]],
+                                                  w=weights[idx_fit][m[idx_fit]],
+                                                  k=2, s=npoints)
+        except UserWarning as e:
+            log.warning ('problem with fitting spline to channel {} overscan'
+                         '; trying again with k=3 and 50% higher smoothing '
+                         'parameter s'.format(i_chan+1))
+            splfit = interpolate.UnivariateSpline(xcol[idx_fit][m[idx_fit]],
+                                                  mean_hos[idx_fit][m[idx_fit]],
+                                                  w=weights[idx_fit][m[idx_fit]],
+                                                  k=3, s=1.5*npoints)
+
+
+
+        # lowish order polynomial fit for data beyond idx_switch
+        mask_valid_poly = mask_valid.copy()
+        mask_valid_poly[0:idx_switch-overlap] = False
+
+        if not (tel=='BG2' and i_chan==8):
+
+            for it in range(3):
+                p = np.polyfit(xcol[mask_valid_poly],
+                               mean_hos[mask_valid_poly], 7)
+                fit_poly = np.polyval(p, xcol)
+                # reject data
+                #log.info ('it: {}, np.sum(mask_valid_poly): {}'
+                #          .format(it, np.sum(mask_valid_poly)))
+                mask_valid_poly &= (np.abs(fit_poly - mean_hos) <= 3*err_hos)
+
+
+            # overscan array to be subtracted
+            oscan = fit_poly
+
+        else:
+
+            # for channel 9 of BG2, need to split polynomial fit into
+            # two pieces, separated at column x=654
+            idx_split = 654
+
+            mask_fit = mask_valid_poly.copy()
+            mask_fit[idx_split:] = False
+            for it in range(3):
+                p = np.polyfit(xcol[mask_fit], mean_hos[mask_fit], 5)
+                fit1_poly = np.polyval(p, xcol)
+                # reject data
+                #log.info ('it: {}, np.sum(mask_fit) 1: {}'
+                #          .format(it, np.sum(mask_fit)))
+                mask_fit &= (np.abs(fit1_poly - mean_hos) <= 3*err_hos)
+
+
+            mask_fit = mask_valid_poly.copy()
+            mask_fit[:idx_split] = False
+            for it in range(3):
+                p = np.polyfit(xcol[mask_fit], mean_hos[mask_fit], 5)
+                fit2_poly = np.polyval(p, xcol)
+                # reject data
+                #log.info ('it: {}, np.sum(mask_fit) 2: {}'
+                #          .format(it, np.sum(mask_fit)))
+                mask_fit &= (np.abs(fit2_poly - mean_hos) <= 3*err_hos)
+
+
+            # overscan array to be subtracted
+            oscan = fit1_poly
+            oscan[idx_split:] = fit2_poly[idx_split:]
+
+
+
+
+        # replace columns up to idx_switch with spline fit
+        oscan[0:idx_switch] = splfit(xcol[0:idx_switch])
+        # for first couple of columns, adopt mean if valid
+        oscan[0:3][mask_valid[0:3]] = mean_hos[0:3][mask_valid[0:3]]
+
+
+
+        # finally, subtract horizontal overscan from data section
+        data[data_sec[i_chan]] -= oscan
+
+        # place into [data_out]
+        data_out[data_sec_red[i_chan]] = data[data_sec[i_chan]]
+
+
+
+    # add headers outside above loop to make header more readable
+    for i_chan in range(nchans):
+        header['BIASM{}'.format(i_chan+1)] = (
+            mean_vos[i_chan], '[e-] channel {} mean vertical overscan'
+            .format(i_chan+1))
+
+    for i_chan in range(nchans):
+        header['RDN{}'.format(i_chan+1)] = (
+            std_vos[i_chan], '[e-] channel {} sigma (STD) vertical overscan'
+            .format(i_chan+1))
+
+
+    # write the average of both the means and standard deviations
+    # determined for each channel to the header
+    header['BIASMEAN'] = (np.nanmean(mean_vos), '[e-] average all channel means '
+                          'vert. overscan')
+    header['RDNOISE'] = (np.nanmean(std_vos), '[e-] average all channel sigmas '
+                         'vert. overscan')
+
+
+    # reset warnings
+    warnings.resetwarnings()
+
+
+    return data_out
+
+
+################################################################################
+
+def os_corr_orig (data, header, imgtype, xbin=1, ybin=1, data_limit=2000,
+                  tel=None):
+
+    """Function that corrects [data] for the overscan signal in the
+       vertical and horizontal overscan strips. The definitions of the
+       different data/overscan/channel sections are taken from
+       [set_blackbox].  The function returns a data array that
+       consists of the data sections only, i.e. without the overscan
+       regions. The [header] is update in place.
+
     """
 
     if get_par(set_zogy.timing,tel):
@@ -6410,6 +6767,8 @@ def os_corr (data, header, imgtype, xbin=1, ybin=1, data_limit=2000, tel=None):
     nchans = np.shape(data_sec)[0]
     mean_vos = np.zeros(nchans)
     std_vos = np.zeros(nchans)
+    median_vos = np.zeros(nchans)
+    median_hos = np.zeros(nchans)
 
     vos_poldeg = get_par(set_bb.voscan_poldeg,tel)
     nrows_chan = np.shape(data[chan_sec[0]])[0]
@@ -6423,8 +6782,8 @@ def os_corr (data, header, imgtype, xbin=1, ybin=1, data_limit=2000, tel=None):
         # -----------------
 
         # first subtract a low-order polynomial fit to the clipped
-        # mean (not median!) of the vertical overcan section from the
-        # entire channel
+        # mean (not median, because input pixels are still integers!)
+        # of the vertical overcan section from the entire channel
 
         # determine clipped mean for each row
         data_vos = data[os_sec_vert[i_chan]]
@@ -6490,8 +6849,9 @@ def os_corr (data, header, imgtype, xbin=1, ybin=1, data_limit=2000, tel=None):
             plt.close()
 
         data_vos = data[os_sec_vert[i_chan]]
-        # determine mean and std of overscan subtracted vos:
-        __, __, std_vos[i_chan] = sigma_clipped_stats(data_vos, mask_value=0)
+        # determine std of overscan subtracted vos:
+        __, median_vos[i_chan], std_vos[i_chan] = sigma_clipped_stats(
+            data_vos, mask_value=0)
 
 
         # -------------------
@@ -6506,7 +6866,7 @@ def os_corr (data, header, imgtype, xbin=1, ybin=1, data_limit=2000, tel=None):
         # channel) with function [inter_pix] in zogy.py
         mask_hos = (data_hos > data_limit)
 
-        # if it concerns a single column on its own that if covering
+        # if it concerns a single column on its own that is covering
         # at least half the overscan height, unmask that column
         mask_x = (np.sum(mask_hos, axis=0) > 0.5 * mask_hos.shape[0])
 
@@ -6543,8 +6903,21 @@ def os_corr (data, header, imgtype, xbin=1, ybin=1, data_limit=2000, tel=None):
         else:
             oscan = mean_hos[0:ncols]
 
-        # subtract horizontal overscan
+
+        # subtract horizontal overscan from data section
         data[data_sec[i_chan]] -= oscan
+
+        # for channel 9 of BG2, add difference between clipped median
+        # of vertical and horizontal overscans, where for both the
+        # vertical overscan has been subtracted
+        #
+        # CHECK!!!
+        if False and tel=='BG2' and i_chan==8:
+            __, median_hos[i_chan], __ = sigma_clipped_stats(data_hos,
+                                                             mask_value=0)
+            data[data_sec[i_chan]] += (median_vos[i_chan] - median_hos[i_chan])
+
+
         # place into [data_out]
         data_out[data_sec_red[i_chan]] = data[data_sec[i_chan]]
 
@@ -7292,6 +7665,7 @@ def add_headkeys (path_full, fits_headers, search_str='', end_str='',
                   tel=None, nproc=1):
 
     # read [fits_headers]
+    log.info ('reading fits table {}'.format(fits_headers))
     table_headers = Table.read(fits_headers, memmap=True)
 
 
@@ -7343,6 +7717,7 @@ def add_headkeys (path_full, fits_headers, search_str='', end_str='',
             with tempfile.NamedTemporaryFile(delete=True, suffix='.fits') as f:
                 table_headers.write (f.name, overwrite=True)
                 copy_file (f.name, fits_headers)
+                log.info ('done copying')
 
         else:
             table_headers.write(fits_headers, overwrite=True)
