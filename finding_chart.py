@@ -141,7 +141,7 @@ def main():
         # full name of telescope used
         tel = filename.split('/')[-1][0:3]
         dict_tel = {'ML1': 'MeerLICHT', 'BG2': 'BlackGEM-2',
-                    'BG3': 'BlackGEM-4', 'BG4': 'BlackGEM-4'}
+                    'BG3': 'BlackGEM-3', 'BG4': 'BlackGEM-4'}
         telescope = dict_tel[tel]
 
 
