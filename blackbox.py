@@ -115,7 +115,7 @@ except Exception as e:
                  'blackbox; issue with IERS file?: {}'.format(e))
 
 
-__version__ = '1.4.1'
+__version__ = '1.4.2'
 keywords_version = '1.2.2'
 
 
@@ -1448,8 +1448,9 @@ def blackbox_reduce (filename):
             ds9_arrays(gain_cor=data)
 
 
-        # crosstalk correction
-        ######################
+
+        # old crosstalk correction
+        ##########################
         if False and imgtype == 'object':
             # not needed for biases, darks or flats
             try:
@@ -1472,6 +1473,7 @@ def blackbox_reduce (filename):
 
             if get_par(set_zogy.display,tel):
                 ds9_arrays(Xtalk_cor=data)
+
 
 
         # overscan correction
@@ -1556,6 +1558,7 @@ def blackbox_reduce (filename):
             lock.release()
 
 
+
         # master bias subtraction
         #########################
         mbias_processed = False
@@ -1637,6 +1640,7 @@ def blackbox_reduce (filename):
                 lock.release()
 
 
+
         # create initial mask array
         ###########################
         if imgtype == 'object' or imgtype == 'flat':
@@ -1702,6 +1706,7 @@ def blackbox_reduce (filename):
             lock.release()
 
 
+
         # master flat division
         ######################
         mflat_processed = False
@@ -1739,26 +1744,6 @@ def blackbox_reduce (filename):
 
 
 
-        # new crosstalk correction
-        ######################
-        try:
-            log.info('correcting for the crosstalk')
-            xtalk_processed = False
-            crosstalk_file = get_par(set_bb.crosstalk_file,tel)
-            # data array is corrected in place; data_mask remains unchanged
-            xtalk_corr (data, crosstalk_file, data_mask)
-        except Exception as e:
-            #log.exception(traceback.format_exc())
-            log.exception('exception was raised during [xtalk_corr] of image '
-                          '{}: {}'.format(filename, e))
-        else:
-            xtalk_processed = True
-        finally:
-            header['XTALK-P'] = (xtalk_processed, 'corrected for crosstalk?')
-            header['XTALK-F'] = (crosstalk_file.split('/')[-1],
-                                 'name crosstalk coefficients file')
-
-
 
         # PMV 2018/12/20: fringe correction is not yet done, but
         # still add these keywords to the header
@@ -1792,7 +1777,7 @@ def blackbox_reduce (filename):
 
         if get_par(set_zogy.display,tel):
             value_cosmic = get_par(set_zogy.mask_value['cosmic ray'],tel)
-            mask_cosmics = (data_mask & value_cosmic == value_cosmic)
+            mask_cosmics = (data_mask & value_cosmic != 0)
             data_mask_cosmics = np.zeros_like (mask_cosmics, dtype='uint8')
             data_mask_cosmics[mask_cosmics] = value_cosmic
             log.info ('number of cosmics per second: {}'
@@ -1800,6 +1785,30 @@ def blackbox_reduce (filename):
             ds9_arrays(data=data_precosmics,
                        mask_cosmics=data_mask_cosmics,
                        cosmic_cor=data)
+
+
+
+
+        # new crosstalk correction
+        ##########################
+        try:
+            log.info('correcting for the crosstalk')
+            xtalk_processed = False
+            crosstalk_file = get_par(set_bb.crosstalk_file,tel)
+            # data array is corrected in place; data_mask remains unchanged
+            xtalk_corr (data, crosstalk_file, data_mask)
+        except Exception as e:
+            #log.exception(traceback.format_exc())
+            log.exception('exception was raised during [xtalk_corr] of image '
+                          '{}: {}'.format(filename, e))
+        else:
+            xtalk_processed = True
+        finally:
+            header['XTALK-P'] = (xtalk_processed, 'corrected for crosstalk?')
+            header['XTALK-F'] = (crosstalk_file.split('/')[-1],
+                                 'name crosstalk coefficients file')
+
+
 
 
         # satellite trail detection
@@ -6271,6 +6280,8 @@ def jnow2icrs (ra_in, dec_in, equinox, icrs2jnow=False):
 
     # --------------------------------------------------------------------------
     # SB added on 7 March 2024 - reporting in J2000 instead of Jnow
+     # To do it more correctly, need to work in ICRS rather than J2000.
+   # Current version also only takes precession into account
     current_epoch = time.localtime().tm_year+time.localtime().tm_yday/365.25
     pointing_J2000 = coords.EquatorialCoordinatesEquinox(self.pointing.ra,self.pointing.dec,epoch=current_epoch) # still in Jnow
     pointing_J2000.transformToEpoch(2000) # now in J2000
@@ -6350,6 +6361,7 @@ def define_sections (data_shape, xbin=1, ybin=1, tel=None):
     # channel horizontal overscan sections; shape=(16,2)
     # cut off [ncut] pixels to avoid including pixels on the edge of the
     # overscan that are contaminated with flux from the image
+    ncut = 10
     ncut_hori = max(ncut // ybin, 1)
     ysize_os_cut = ysize_os - ncut_hori
     os_sec_hori = tuple([(slice(y,y+ysize_os_cut), slice(x,x+dx))
@@ -6538,22 +6550,64 @@ def os_corr (data, header, imgtype, xbin=1, ybin=1, data_limit=2000, tel=None):
         data_hos = data[os_sec_hori[i_chan]][:,:ncols]
 
 
-        # replace very high values (due to bright objects on edge of
-        # channel) with function [inter_pix] in zogy.py
         if tel=='ML1':
+
+            # replace very high values (due to bright objects on edge
+            # of channel) with function [inter_pix] in zogy.py
             mask_hos = (data_hos > data_limit)
+
+
+            # if it concerns a single column on its own that is covering
+            # at least half the overscan height, unmask that column
+            mask_x = (np.sum(mask_hos, axis=0) > 0.5 * mask_hos.shape[0])
+
+
+            # opening with [True,True] will remove single True value from
+            # mask_x but will leave multiple adjacent True values be
+            mask_x_open = ndimage.binary_opening(mask_x, structure=np.ones(2))
+
+
+            # identify any single True values that were removed
+            mask_x_restore = np.logical_xor (mask_x, mask_x_open)
+
+
+            # reset mask_hos for that/those column(s)
+            mask_hos[:,mask_x_restore] = False
+
+
+            # add couple of pixels connected to this mask
+            mask_hos = ndimage.binary_dilation(mask_hos,
+                                               structure=np.ones((3,3)).astype('bool'),
+                                               iterations=2)
+
         else:
-            # for BlackGEM mask columns where one or more pixels in
-            # data section is at or above the saturation level
+
+            # for BlackGEM identify columns where one/a few or more
+            # pixels in data section is at or above the saturation
+            # level in the vicinity of the overscan section; those
+            # columns tend to leak flux into the overscan section;
+            # make a distinction between lightly and heavily saturated
+            # stars
             mask_hos = np.zeros_like(data_hos, dtype=bool)
-            mask_row = np.any(data[data_sec[i_chan]] >=
-                              0.9*satlevel_electrons[i_chan], axis=0)
-            mask_hos[:] |= mask_row
+            ypix_lim = {'BG2':(2640,5280), 'BG3':(1320,2640), 'BG4':(1320,2640)}
+            if i_chan >= 8:
+                ypix_range1 = range(0, ypix_lim[tel][0])
+                ypix_range2 = range(0, ypix_lim[tel][1])
+            else:
+                ypix_range1 = range(nrows-ypix_lim[tel][0], nrows)
+                ypix_range2 = range(nrows-ypix_lim[tel][1], nrows)
 
 
-        # add one or two pixels connected to this mask
-        mask_hos = ndimage.binary_dilation(
-            mask_hos, structure=np.ones((3,3)).astype('bool'), iterations=1)
+            # define row pixels that were affected by nearby saturated
+            # stars
+            mask_sat_row = (np.sum(data[data_sec[i_chan]][ypix_range1,:] >=
+                                   0.9*satlevel_electrons[i_chan], axis=0) >= 3)
+            # for heavily saturated stars
+            mask_sat_row |= (np.sum(data[data_sec[i_chan]][ypix_range2,:] >=
+                                    0.9*satlevel_electrons[i_chan], axis=0) >= 10)
+
+            # update mask_hos
+            mask_hos[:] |= mask_sat_row
 
 
 
@@ -6610,16 +6664,28 @@ def os_corr (data, header, imgtype, xbin=1, ybin=1, data_limit=2000, tel=None):
         #                              k=2, s=npoints)
         try:
             m = mask_valid
+
+            # to avoid spline fitting single high points, median
+            # smooth the points to be fit
+            mean_hos_2fit = mean_hos[idx_fit][m[idx_fit]]
+            dpix = 1
+            nfit = len(mean_hos_2fit)
+            mean_hos_2fit[3:] = [np.ma.median(mean_hos_2fit[max(k-dpix,3):
+                                                            min(k+dpix+1,nfit)])
+                                 for k in range(3,nfit)]
+
             splfit = interpolate.UnivariateSpline(xcol[idx_fit][m[idx_fit]],
-                                                  mean_hos[idx_fit][m[idx_fit]],
+                                                  mean_hos_2fit,
+                                                  #mean_hos[idx_fit][m[idx_fit]],
                                                   w=weights[idx_fit][m[idx_fit]],
                                                   k=2, s=npoints)
         except UserWarning as e:
             log.warning ('problem with fitting spline to channel {} overscan'
                          '; trying again with k=3 and 50% higher smoothing '
-                         'parameter s'.format(i_chan+1))
+                         'parameter s: {})'.format(i_chan+1), e)
             splfit = interpolate.UnivariateSpline(xcol[idx_fit][m[idx_fit]],
-                                                  mean_hos[idx_fit][m[idx_fit]],
+                                                  mean_hos_2fit,
+                                                  #mean_hos[idx_fit][m[idx_fit]],
                                                   w=weights[idx_fit][m[idx_fit]],
                                                   k=3, s=1.5*npoints)
 
@@ -6683,6 +6749,31 @@ def os_corr (data, header, imgtype, xbin=1, ybin=1, data_limit=2000, tel=None):
         oscan[0:idx_switch] = splfit(xcol[0:idx_switch])
         # for first couple of columns, adopt mean if valid
         oscan[0:3][mask_valid[0:3]] = mean_hos[0:3][mask_valid[0:3]]
+
+
+
+
+        # CHECK!!! - test: use original subtraction of
+        # column-by-column for columns with no/few saturated pixels,
+        # defined in mask_sat_row already determined above; make sure
+        # there are sufficient values in the overscan column through
+        # mask_valid
+        mask_usemean = ~mask_sat_row & mask_valid
+        oscan[mask_usemean] = mean_hos[mask_usemean]
+
+
+        if False:
+            plt.errorbar (xcol, mean_hos, yerr=err_hos, color='k',
+                          linestyle="None", capsize=2)
+            plt.plot (xcol, mean_hos, 'k.')
+            plt.plot (xcol, splfit(xcol), 'b-')
+            plt.plot (xcol, oscan, 'g-')
+            plt.xlim (0,200)
+            plt.ylim (max(-50, np.amin(mean_hos)), np.amax(mean_hos))
+            plt.title('channel: {}'.format(i_chan+1))
+            plt.plot (xcol, oscan, '-', color='purple')
+            plt.savefig('hos_chan{:02}.pdf'.format(i_chan+1))
+            plt.close()
 
 
 
@@ -7012,14 +7103,18 @@ def xtalk_corr (data, crosstalk_file, data_mask=None):
     # prepare masks for source and victium channels separately
     mask_value = get_par(set_zogy.mask_value,tel)
     val_bad = mask_value['bad']
+    val_cosmic = mask_value['cosmic ray']
     val_edge = mask_value['edge']
 
-    # use positive fluxes and pixels not affected by bad pixels in
-    # source channel
-    mask_source = ((data > 0) & (data_mask & val_bad != val_bad))
+    # use positive fluxes and pixels not affected by bad pixels or
+    # cosmics in source channel
+    mask_source = ((data > 0) &
+                   (data_mask & val_bad == 0) &
+                   (data_mask & val_cosmic == 0))
+
 
     # avoid pixels that land in edge region in victim channel
-    mask_victim = ((data_mask & val_edge != val_edge))
+    mask_victim = (data_mask & val_edge == 0)
 
 
     # use matrix multiplication with np.matmul; it is much faster
