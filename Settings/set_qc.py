@@ -87,7 +87,12 @@ qc_range = {
                                                                               'z': [ (0.0, 0.09) ]},            'key_type': 'ref', 'pos': True , 'comment': '[mag] sigma (STD) zeropoint sigma'},
 
         # let PC-MZPD scale with PC-ZPSTD ranges as 1st degree polynomial: PC-MZPD = 0.3 + 3.5 * PC-ZPSTD
-        'PC-MZPD' : {'default':'None', 'val_type': 'key',     'val_range': [ (0,'0.3+3.5*header[\'PC-ZPSTD\']') ], 'key_type': 'ref', 'pos': True , 'comment': '[mag] maximum zeropoint difference between subimages'},
+        #'PC-MZPD' : {'default':'None', 'val_type': 'key',     'val_range': [ (0,'0.3+3.5*header[\'PC-ZPSTD\']') ], 'key_type': 'ref', 'pos': True , 'comment': '[mag] maximum zeropoint difference between subimages'},
+        # updated limits Feb 2025
+        'PC-MZPD' : {'default':'None', 'val_type': 'key',     'val_range': [ (0,'0.00+5*header[\'PC-ZPSTD\']'),
+                                                                             (0,'0.02+5*header[\'PC-ZPSTD\']'),
+                                                                             (0,'0.05+5*header[\'PC-ZPSTD\']'),
+                                                                            ], 'key_type': 'ref', 'pos': True , 'comment': '[mag] maximum zeropoint difference between subimages'},
 
 
 
@@ -343,8 +348,13 @@ qc_range = {
         #                                                                    'i': [ (0.02, 0.05) ],
         #                                                                    'z': [ (0.03, 0.05) ]},             'key_type': 'full', 'pos': True , 'comment': '[mag] maximum zeropoint difference between subimages'},
 
-        # let PC-MZPD scale with PC-ZPSTD ranges as 1st degree polynomial: PC-MZPD = 0.3 + 3.5 * PC-ZPSTD
-        'PC-MZPD' : {'default':'None', 'val_type': 'key',     'val_range': [ (0,'0.3+3.5*header[\'PC-ZPSTD\']') ], 'key_type': 'full', 'pos': True , 'comment': '[mag] maximum zeropoint difference between subimages'},
+        # let PC-MZPD scale with header PC-ZPSTD as 1st degree polynomial: PC-MZPD = 0.3 + 3.5 * PC-ZPSTD
+        #'PC-MZPD' : {'default':'None', 'val_type': 'key',     'val_range': [ (0,'0.3+3.5*header[\'PC-ZPSTD\']') ], 'key_type': 'full', 'pos': True , 'comment': '[mag] maximum zeropoint difference between subimages'},
+        # updated limits Feb 2025
+        'PC-MZPD' : {'default':'None', 'val_type': 'key',     'val_range': [ (0,'0.00+5*header[\'PC-ZPSTD\']'),
+                                                                             (0,'0.02+5*header[\'PC-ZPSTD\']'),
+                                                                             (0,'0.05+5*header[\'PC-ZPSTD\']'),
+                                                                            ], 'key_type': 'full', 'pos': True , 'comment': '[mag] maximum zeropoint difference between subimages'},
 
 
         'PC-MZPS' : {'default':'None', 'val_type': 'skip',    'val_range': {'u': [ (0.01, 0.02) ],
@@ -614,7 +624,12 @@ qc_range = {
         #                                                                    'z': [ (0.03, 0.05) ]},             'key_type': 'full', 'pos': True , 'comment': '[mag] maximum zeropoint difference between subimages'},
 
         # let PC-MZPD scale with PC-ZPSTD ranges as 1st degree polynomial: PC-MZPD = 0.3 + 3.5 * PC-ZPSTD
-        'PC-MZPD' : {'default':'None', 'val_type': 'key',     'val_range': [ (0,'0.3+3.5*header[\'PC-ZPSTD\']') ], 'key_type': 'full', 'pos': True , 'comment': '[mag] maximum zeropoint difference between subimages'},
+        #'PC-MZPD' : {'default':'None', 'val_type': 'key',     'val_range': [ (0,'0.3+3.5*header[\'PC-ZPSTD\']') ], 'key_type': 'full', 'pos': True , 'comment': '[mag] maximum zeropoint difference between subimages'},
+        # updated limits Feb 2025
+        'PC-MZPD' : {'default':'None', 'val_type': 'key',     'val_range': [ (0,'0.00+5*header[\'PC-ZPSTD\']'),
+                                                                             (0,'0.02+5*header[\'PC-ZPSTD\']'),
+                                                                             (0,'0.05+5*header[\'PC-ZPSTD\']'),
+                                                                            ], 'key_type': 'full', 'pos': True , 'comment': '[mag] maximum zeropoint difference between subimages'},
 
 
         'PC-MZPS' : {'default':'None', 'val_type': 'skip',    'val_range': {'u': [ (0.01, 0.02) ],
@@ -877,7 +892,12 @@ qc_range = {
         #                                                                    'z': [ (0.03, 0.05) ]},             'key_type': 'full', 'pos': True , 'comment': '[mag] maximum zeropoint difference between subimages'},
 
         # let PC-MZPD scale with PC-ZPSTD ranges as 1st degree polynomial: PC-MZPD = 0.3 + 3.5 * PC-ZPSTD
-        'PC-MZPD' : {'default':'None', 'val_type': 'key',     'val_range': [ (0,'0.3+3.5*header[\'PC-ZPSTD\']') ], 'key_type': 'full', 'pos': True , 'comment': '[mag] maximum zeropoint difference between subimages'},
+        #'PC-MZPD' : {'default':'None', 'val_type': 'key',     'val_range': [ (0,'0.3+3.5*header[\'PC-ZPSTD\']') ], 'key_type': 'full', 'pos': True , 'comment': '[mag] maximum zeropoint difference between subimages'},
+        # updated limits Feb 2025
+        'PC-MZPD' : {'default':'None', 'val_type': 'key',     'val_range': [ (0,'0.00+5*header[\'PC-ZPSTD\']'),
+                                                                             (0,'0.02+5*header[\'PC-ZPSTD\']'),
+                                                                             (0,'0.05+5*header[\'PC-ZPSTD\']'),
+                                                                            ], 'key_type': 'full', 'pos': True , 'comment': '[mag] maximum zeropoint difference between subimages'},
 
 
         'PC-MZPS' : {'default':'None', 'val_type': 'skip',    'val_range': {'u': [ (0.01, 0.02) ],
@@ -1141,7 +1161,12 @@ qc_range = {
         #                                                                    'z': [ (0.03, 0.05) ]},             'key_type': 'full', 'pos': True , 'comment': '[mag] maximum zeropoint difference between subimages'},
 
         # let PC-MZPD scale with PC-ZPSTD ranges as 1st degree polynomial: PC-MZPD = 0.3 + 3.5 * PC-ZPSTD
-        'PC-MZPD' : {'default':'None', 'val_type': 'key',     'val_range': [ (0,'0.3+3.5*header[\'PC-ZPSTD\']') ], 'key_type': 'full', 'pos': True , 'comment': '[mag] maximum zeropoint difference between subimages'},
+        #'PC-MZPD' : {'default':'None', 'val_type': 'key',     'val_range': [ (0,'0.3+3.5*header[\'PC-ZPSTD\']') ], 'key_type': 'full', 'pos': True , 'comment': '[mag] maximum zeropoint difference between subimages'},
+        # updated limits Feb 2025
+        'PC-MZPD' : {'default':'None', 'val_type': 'key',     'val_range': [ (0,'0.00+5*header[\'PC-ZPSTD\']'),
+                                                                             (0,'0.02+5*header[\'PC-ZPSTD\']'),
+                                                                             (0,'0.05+5*header[\'PC-ZPSTD\']'),
+                                                                            ], 'key_type': 'full', 'pos': True , 'comment': '[mag] maximum zeropoint difference between subimages'},
 
 
         'PC-MZPS' : {'default':'None', 'val_type': 'skip',    'val_range': {'u': [ (0.01, 0.02) ],
