@@ -79,8 +79,8 @@ pixscale_out = 0.5642
 back_type = 'blackbox'
 
 
-# scale channel zeropoints to full-image zeropoint
-scale_chan_zps = True
+# scale zeropoints to full-image zeropoint
+scale_zps = True
 
 
 #===============================================================================
@@ -90,11 +90,11 @@ scale_chan_zps = True
 # use absolute target limiting magnitudes suggested by PaulG; see his
 # email from 2021-01-06; if input parameter deep is True, this target
 # limmag is not considered
-limmag_target = {'ML1': {'u': 21.0, 'g': 22.3, 'q': 22.5, 'r': 22.0, 'i': 21.3, 'z': 20.5},
+#limmag_target = {'ML1': {'u': 21.0, 'g': 22.3, 'q': 22.5, 'r': 22.0, 'i': 21.3, 'z': 20.5},
 # 1st reference images for Blackgem (March 2024): ~deepest image taken + 1 mag
-                 'BG': {'u': 21.1, 'g': 22.0, 'q': 22.8, 'r': 21.8, 'i': 21.8, 'z': 20.3}}
+#                 'BG': {'u': 21.1, 'g': 22.0, 'q': 22.8, 'r': 21.8, 'i': 21.8, 'z': 20.3}}
 # use all images
-#limmag_target = {'u': 30.0, 'g': 30.0, 'q': 30.0, 'r': 30.0, 'i': 30.0, 'z': 30.0}
+limmag_target = {'u': 30.0, 'g': 30.0, 'q': 30.0, 'r': 30.0, 'i': 30.0, 'z': 30.0}
 
 
 # require at least this number of images, after the
@@ -104,9 +104,14 @@ nimages_min = 3
 # maximum number of images used, after the date/qc-flag/seeing cuts
 # and sorting the list by LIMMAG; if input parameter deep is True,
 # this maximum is disregarded
-nimages_max = 25
+#nimages_max = 25
+
+# minimum required improvement in projected limiting magnitude by
+# adding individual image; if less than this, image will not be used;
+# if input parameter deep is True, this parameter is disregarded
+dlimmag_proj_min = 0.01
 
 # minimum limiting magnitude improvement - with respect to possibly
 # existing reference image in the same filter - required for new ref
 # image to be created; if set to None, this requirement is dropped
-dlimmag_min = 0.5
+dlimmag_min = None
