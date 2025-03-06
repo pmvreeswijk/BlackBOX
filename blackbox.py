@@ -115,7 +115,7 @@ except Exception as e:
                  'blackbox; issue with IERS file?: {}'.format(e))
 
 
-__version__ = '1.4.2'
+__version__ = '1.4.3'
 keywords_version = '1.2.2'
 
 
@@ -1265,7 +1265,7 @@ def blackbox_reduce (filename):
                 # remove 'Constant.pm' or '.XIM-unix'
                 if entry.is_dir() and entry.name.startswith('BG'):
                     log.info ('removing folder {}'.format(entry.path))
-                    shutil.rmtree(entry.path)
+                    shutil.rmtree(entry.path, ignore_errors=True)
 
 
 
@@ -1318,8 +1318,10 @@ def blackbox_reduce (filename):
         # copy relevant files to tmp folder for object images
         if imgtype == 'object':
 
-            log.info ('copying existing products to tmp folder')
+            # indicate reduction is being skipped
+            do_reduction = False
 
+            log.info ('copying existing products to tmp folder')
             # copy files to tmp folder, unless both cat_extract and
             # trans_extract are turned off
             if (get_par(set_bb.cat_extract,tel) or
@@ -1328,7 +1330,13 @@ def blackbox_reduce (filename):
                                 get_par(set_bb.img_reduce_exts,tel),
                                 move=False, run_fpack=False)
 
-            do_reduction = False
+                # since an existing logfile was just copied to the tmp
+                # folder, need to attach it to logging (again)
+                fileHandler = logging.FileHandler(logfile, 'a')
+                fileHandler.setFormatter(logFormatter)
+                fileHandler.setLevel('INFO')
+                log.addHandler(fileHandler)
+
 
         else:
             # for non-object images, leave function; if reduction steps would
@@ -2985,7 +2993,7 @@ def verify_header (filename, htypes=None):
         #'PC-FNCAL': {'htype':'full', 'dtype':int,   'DB':False, 'None_OK':True},
         #'PC-NCMAX': {'htype':'full', 'dtype':int,   'DB':False, 'None_OK':True},
         'PC-NCMIN': {'htype':'full', 'dtype':int,   'DB':False, 'None_OK':True},
-        'PC-ZPCHN': {'htype':'full', 'dtype':bool,  'DB':False, 'None_OK':True},
+        #'PC-ZPCHN': {'htype':'full', 'dtype':bool,  'DB':False, 'None_OK':True},
         'PC-ZPFDG': {'htype':'full', 'dtype':int,   'DB':False, 'None_OK':True},
         'PC-ZPF0':  {'htype':'full', 'dtype':float, 'DB':False, 'None_OK':True},
         'PC-TNSUB': {'htype':'full', 'dtype':int,   'DB':False, 'None_OK':True},
@@ -3876,7 +3884,7 @@ def make_dir (path, empty=False):
 
         # if already exists but needs to be empty, remove it first
         if isdir(path) and empty:
-            shutil.rmtree(path)
+            shutil.rmtree(path, ignore_errors=True)
 
         # do not check if directory exists, just try to make it; changed this
         # after racing condition occurred on the ilifu Slurm cluster when
@@ -3901,8 +3909,8 @@ def clean_tmp (tmp_path, keep_tmp):
 
         # delete [tmp_path] folder if [set_bb.keep_tmp] not True
         if not keep_tmp:
-            shutil.rmtree(tmp_path)
             log.info ('removing temporary folder: {}'.format(tmp_path))
+            shutil.rmtree(tmp_path, ignore_errors=True)
 
         else:
             # otherwise fpack its fits images
@@ -6679,10 +6687,10 @@ def os_corr (data, header, imgtype, xbin=1, ybin=1, data_limit=2000, tel=None):
                                                   #mean_hos[idx_fit][m[idx_fit]],
                                                   w=weights[idx_fit][m[idx_fit]],
                                                   k=2, s=npoints)
-        except UserWarning as e:
+        except UserWarning as uw:
             log.warning ('problem with fitting spline to channel {} overscan'
                          '; trying again with k=3 and 50% higher smoothing '
-                         'parameter s: {})'.format(i_chan+1), e)
+                         'parameter s; warning: {})'.format(i_chan+1, uw))
             splfit = interpolate.UnivariateSpline(xcol[idx_fit][m[idx_fit]],
                                                   mean_hos_2fit,
                                                   #mean_hos[idx_fit][m[idx_fit]],
@@ -7741,14 +7749,11 @@ def copy_file (src_file, dest, move=False, verbose=True):
 
 
         # gsutil command (not actively supported anymore)
-        cmd = ['gsutil', '-q', cp_cmd, src_file, dest]
+        #cmd = ['gsutil', '-q', cp_cmd, src_file, dest]
         # gcloud storage alternative
-        #cmd = ['gcloud', 'storage', cp_cmd, src_file, dest]
-
-
+        cmd = ['gcloud', 'storage', cp_cmd, src_file, dest]
         result = subprocess.run(cmd)
-        #result = subprocess.run(cmd, capture_output=True)
-        #log.info(result.stdout.decode('UTF-8'))
+
 
 
     return
@@ -7770,9 +7775,32 @@ def add_headkeys (path_full, fits_headers, search_str='', end_str='',
     log.info ('number of columns: {}'.format(len(colnames)))
 
 
-    # use [list_files] to determine which filenames to process
-    filenames = sorted(list_files('{}'.format(path_full), search_str=search_str,
-                                  end_str=end_str, recursive=True))
+    if isfile (path_full):
+
+        log.info ('{} recognized as existing file'.format(path_full))
+
+        # if input path_full is actually a file, read it, assuming it
+        # is an ASCII file without any header, with the filenames to
+        # process listed in the 1st column
+        table_fn = Table.read(path_full, format='ascii', names=['filename'],
+                              data_start=0)
+        filenames = sorted(table_fn['filename'])
+
+        if tel is not None:
+            # select filenames relevant for this telescope
+            filenames = [fn for fn in filenames if tel in fn]
+
+
+    else:
+
+        raise SystemExit
+
+        # use [list_files] to determine which filenames to process
+        filenames = sorted(list_files('{}'.format(path_full), search_str=search_str,
+                                      end_str=end_str, recursive=True))
+
+
+
     log.info ('number of filenames for which to add headers: {}'
               .format(len(filenames)))
 
