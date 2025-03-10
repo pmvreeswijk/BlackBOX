@@ -691,23 +691,24 @@ def buildref (telescope=None, fits_hdrtable_list=None, date_start=None,
 
                 mask_dlimmag = (dlimmag_proj >= dlimmag_proj_min)
                 if np.all(mask_dlimmag) or np.sum(mask_dlimmag)==0:
-                    nlow = nuse
+                    nlim = nuse
                 else:
-                    nlow = np.sum(mask_dlimmag)
+                    # adding 1 because first image is not present in mask_dlimmag
+                    nlim = np.sum(mask_dlimmag) + 1
 
 
-                log.info ('nlow: {}, nuse: {}, nmin: {}'.format(nlow, nuse, nmin))
+                log.info ('nlim: {}, nuse: {}, nmin: {}'.format(nlim, nuse, nmin))
 
 
                 # apply this cut only if enough images are left after
                 # the rejection
-                if nlow < nuse and nlow >= nmin:
+                if nlim < nuse and nlim >= nmin:
                     log.warning ('limiting number of images to {}; adding next '
                                  'best-limmag image does not improve projected '
                                  'limiting magnitude by more than {} mag (set '
                                  'by set_br.dlimmag_proj_min)'
-                                 .format(nlow, dlimmag_proj_min))
-                    nuse = min(nlow, nuse)
+                                 .format(nlim, dlimmag_proj_min))
+                    nuse = min(nlim, nuse)
 
 
 
