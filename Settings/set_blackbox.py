@@ -58,8 +58,12 @@ voscan_poldeg = 3
 # switch to keep tmp directories (True) or not (False)
 keep_tmp = False
 
+
+# switch to save thumbnails in transient catalog
+save_thumbnails = {'ML1': True, 'BG': False}
+
 # switch to save thumbnails as separate pngs in designated folder/bucket
-save_thumbnails = {'ML1': False, 'BG': True}
+save_thumbnails_pngs = {'ML1': False, 'BG': True}
 
 
 # name of telescope data base directory with the different
@@ -86,7 +90,7 @@ master_dir = {}; hdrtables_dir = {}; thumbnails_dir={}
 
 
 # ML/BG processing environment: 'test', 'staging', 'production'
-proc_env = 'test'
+proc_env = 'staging'
 
 
 # MeerLICHT directory structure
