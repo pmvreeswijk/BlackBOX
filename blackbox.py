@@ -115,7 +115,7 @@ except Exception as e:
                  'blackbox; issue with IERS file?: {}'.format(e))
 
 
-__version__ = '1.4.3'
+__version__ = '1.4.4'
 keywords_version = '1.2.2'
 
 
@@ -2465,15 +2465,29 @@ def blackbox_reduce (filename):
     verify_header (fits_tmp_cat, ['raw','full'])
     verify_header (fits_tmp_trans, ['raw','full','trans'])
 
+
     # run match2SSO to find known asteroids in the observation
     call_match2SSO(fits_tmp_trans, tel)
 
 
-    # if transient catalog exists, create png thumbnails for database
-    if get_par(set_bb.save_thumbnails,tel) and isfile(fits_tmp_trans):
-        #and qc_flag != 'red' and tqc_flag != 'red':
-        dir_dest = '{}/{}'.format(thumbnails_path, tmp_base.split('/')[-1])
-        save_png_thumbnails (fits_tmp_trans, dir_dest, nthreads=set_bb.nthreads)
+    # if transient catalog exists
+    if isfile(fits_tmp_trans):
+
+        # create png thumbnails for database
+        if get_par(set_bb.save_thumbnails_pngs,tel):
+            #and qc_flag != 'red' and tqc_flag != 'red':
+            dir_dest = '{}/{}'.format(thumbnails_path, tmp_base.split('/')[-1])
+            save_png_thumbnails (fits_tmp_trans, dir_dest,
+                                 nthreads=set_bb.nthreads)
+
+
+        # if not keeping thumbnails as columns in transient catalog,
+        # make a copy of the light version
+        fits_tmp_light = fits_tmp_trans.replace('.fits', '_light.fits')
+        save_thumbnails = get_par(set_bb.save_thumbnails,tel)
+        if not save_thumbnails and os.path.exists(fits_tmp_light):
+            copy_file (fits_tmp_light, fits_tmp_trans)
+
 
 
     # list of files to copy/move to reduced folder; need to include
@@ -2487,6 +2501,7 @@ def blackbox_reduce (filename):
         # make sure to copy dummy source catalog in case of a red flag
         list_2keep += ['_cat.fits']
         list_2keep += ['_cat_hdr.fits']
+
 
     # transient extraction products
     if get_par(set_bb.trans_extract,tel):
@@ -2611,7 +2626,7 @@ def save_png_thumbnails (fits_trans, dir_dest, nthreads=1):
         # Google Cloud bucket, then copying one by one just after
         # creation in function save_thumbs_row() is very slow (about
         # 1min for 100 files), so best to copy/move them with single
-        # command
+        # command here
         move = (not get_par(set_bb.keep_tmp,tel))
         if dir_dest[0:5] == 'gs://':
 
@@ -7748,12 +7763,25 @@ def copy_file (src_file, dest, move=False, verbose=True):
             cp_cmd = 'cp'
 
 
-        # gsutil command (not actively supported anymore)
-        #cmd = ['gsutil', '-q', cp_cmd, src_file, dest]
-        # gcloud storage alternative
-        cmd = ['gcloud', 'storage', cp_cmd, src_file, dest]
-        result = subprocess.run(cmd)
+        # sometimes this fails with a GCP credentials issue, so try a
+        # couple of times if destination file is not created
+        for i in range(3):
 
+            # gsutil command (not actively supported anymore)
+            #cmd = ['gsutil', '-q', cp_cmd, src_file, dest]
+            # gcloud storage alternative
+            cmd = ['gcloud', 'storage', cp_cmd, src_file, dest]
+            result = subprocess.run(cmd)
+
+            if isfile(dest):
+                # file was moved/copied ok
+                break
+            else:
+                if i < 2:
+                    log.warning ('command {} did not succeed; trying again'
+                                 .format(cmd))
+                else:
+                    log.error ('command {} failed')
 
 
     return
