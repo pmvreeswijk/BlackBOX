@@ -66,9 +66,12 @@ import platform
 from ASTA import ASTA
 
 import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 plt.style.use(astropy_mpl_style)
 matplotlib.rcParams.update({'font.size': 10})
+from matplotlib import colormaps
+from matplotlib.colors import Normalize
 
 
 import fitsio
@@ -115,7 +118,7 @@ except Exception as e:
                  'blackbox; issue with IERS file?: {}'.format(e))
 
 
-__version__ = '1.4.4'
+__version__ = '1.4.5'
 keywords_version = '1.2.2'
 
 
@@ -857,6 +860,8 @@ def create_jpg (filename, cmap='gray', ext='jpg'):
 
     """Create jpg image from fits"""
 
+    mem_use (label='at start of create_jpg')
+
     try:
 
         image_jpg = '{}.{}'.format(filename.split('.fits')[0], ext)
@@ -866,7 +871,8 @@ def create_jpg (filename, cmap='gray', ext='jpg'):
             log.info ('saving {} to {}'.format(filename, image_jpg))
 
             # read input image
-            data, header = read_hdulist(filename, get_header=True)
+            data, header = read_hdulist(filename, get_header=True,
+                                        dtype='float32')
 
 
             imgtype = header['IMAGETYP'].lower()
@@ -886,19 +892,29 @@ def create_jpg (filename, cmap='gray', ext='jpg'):
                         title += '{}:{}   '.format(key.lower(), header[key])
 
 
+            # label next to colorbar
+            if 'Scorr' in filename:
+                label = 'significance (sigma)'
+            else:
+                label = 'pixel value (e-)'
 
-            fig = plt.figure(figsize=(8.27,8.27))
+
+            fig, ax = plt.subplots(layout='constrained', figsize=(8.27,8.27))
             vmin, vmax = zscale(contrast=0.35).get_limits(data)
-            plt.imshow(data, cmap=cmap, vmin=vmin, vmax=vmax, origin='lower')
-            plt.colorbar(fraction=0.046, pad=0.04)
+            norm = Normalize(vmin=vmin, vmax=vmax, clip=True)
+            mapped_data = colormaps.get_cmap(cmap)(norm(data), bytes=True)
+            plt.imshow(mapped_data, cmap=cmap, origin='lower')
+            plt.colorbar(matplotlib.cm.ScalarMappable(norm=norm, cmap=cmap),
+                         ax=ax, label=label, orientation='vertical',
+                         fraction=0.05, pad=0.05)
             plt.title(title, fontsize=10)
             plt.xlabel('X (pixels)')
             plt.ylabel('Y (pixels)')
             plt.grid(None)
-            plt.tight_layout()
             plt.savefig(image_jpg, dpi=175)
             plt.close()
 
+            mem_use (label='at end of create_jpg')
 
     except Exception as e:
         #log.exception (traceback.format_exc())
@@ -1502,6 +1518,7 @@ def blackbox_reduce (filename):
 
         if get_par(set_zogy.display,tel):
             ds9_arrays(os_cor=data)
+
 
 
         # non-linearity correction
@@ -7724,6 +7741,12 @@ def copy_file (src_file, dest, move=False, verbose=True):
 
     """
 
+    # check if src_file exists
+    if not isfile(src_file):
+        log.error ('{} not found'.format(src_file))
+        return
+
+
     if verbose:
         if move:
             label = 'moving'
@@ -7733,6 +7756,14 @@ def copy_file (src_file, dest, move=False, verbose=True):
         log.info('{} {} to {}'.format(label, src_file, dest))
 
 
+    # input [dest] can be a file or directory, construct two possible
+    # output filenames to check for below; if dest is a file, fn1 will
+    # be the destination file, otherwise fn2 will be the destination
+    # file
+    fn1 = dest
+    fn2 = os.path.join(dest, src_file.split('/')[-1])
+
+
     # if not dealing with google cloud buckets, use shutil.copy2 or shutil.move
     if not (src_file[0:5] == 'gs://' or dest[0:5] == 'gs://'):
 
@@ -7740,11 +7771,7 @@ def copy_file (src_file, dest, move=False, verbose=True):
             shutil.copy2(src_file, dest)
         else:
 
-            # if destination file already exists, remove it; since
-            # input [dest] can be a file or directory, need to
-            # reconstruct the filename with two possibilities
-            fn1 = dest
-            fn2 = os.path.join(dest, src_file.split('/')[-1])
+            # if destination file already exists, remove it
             for fn in [fn1, fn2]:
                 if os.path.isfile(fn):
                     log.info ('{} already exists; removing it'.format(fn))
@@ -7773,7 +7800,7 @@ def copy_file (src_file, dest, move=False, verbose=True):
             cmd = ['gcloud', 'storage', cp_cmd, src_file, dest]
             result = subprocess.run(cmd)
 
-            if isfile(dest):
+            if isfile(fn1) or isfile(fn2):
                 # file was moved/copied ok
                 break
             else:
