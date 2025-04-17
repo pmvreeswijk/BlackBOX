@@ -1374,11 +1374,10 @@ def blackbox_reduce (filename):
             # files in reduced folder as they will become obsolete
             # with this re-reduction
             if imgtype == 'object':
-                #files_2remove = glob.glob('{}*'.format(new_base))
                 files_2remove = list_files(new_base)
             else:
-                # for biases and flats, just the reduced file itself,
-                # its log and jpg
+                # for biases and flats, just remove the reduced file
+                # itself, its log and jpg
                 file_jpg = '{}.jpg'.format(fits_out_present.split('.fits')[0])
                 # logfile is defined to be in the tmp folder, so need
                 # to define the output logfile here
@@ -1386,9 +1385,7 @@ def blackbox_reduce (filename):
                 files_2remove = [fits_out_present, file_log, file_jpg]
 
 
-            #for file_2remove in files_2remove:
-            #    log.info ('removing existing {}'.format(file_2remove))
-            #    os.remove(file_2remove)
+            # remove list of files
             remove_files(files_2remove, verbose=True)
 
 
@@ -2335,24 +2332,15 @@ def blackbox_reduce (filename):
         # the files (at least the header is updated by zogy in
         # function prep_optimal_subtraction)
         ref_files = list_files(ref_fits_in.split('_red.fits')[0])
-
-
-        make_symlink = False
         for ref_file in ref_files:
 
             tmp_file = '{}/{}'.format(tmp_path, ref_file.split('/')[-1])
 
-            if make_symlink:
-                # and funpack/unzip if necessary (before symbolic link
-                # to avoid unpacking multiple times during the same night)
-                ref_file = unzip(ref_file, put_lock=False)
-                # create symbolic link
-                os.symlink(ref_file, tmp_file)
-            else:
-                # alternatively, copy the file to tmp_path
-                copy_file (ref_file, tmp_file)
-                # and unzip if needed
-                unzip(tmp_file, put_lock=False)
+            # copy the file to tmp_path
+            copy_file (ref_file, tmp_file)
+            # and unzip if needed
+            unzip(tmp_file, put_lock=False)
+
 
 
         ref_fits = '{}/{}'.format(tmp_path, ref_fits_in.split('/')[-1])
@@ -3978,6 +3966,7 @@ def copy_files2keep (src_base, dest_base, ext2keep, move=True, run_fpack=True):
     # list of all files starting with [src_base]
     #src_files = glob.glob('{}*'.format(src_base))
     src_files = list_files(src_base)
+
 
     # loop this list
     for src_file in src_files:
@@ -6735,6 +6724,19 @@ def os_corr (data, header, imgtype, xbin=1, ybin=1, data_limit=2000, tel=None):
         mask_valid_poly = mask_valid.copy()
         mask_valid_poly[0:idx_switch-overlap] = False
 
+        # clean from high/low values
+        nsigma = 5
+        mean_hos_poly = mean_hos[mask_valid_poly]
+        mean, median, stddev = sigma_clipped_stats(
+            mean_hos_poly, sigma=nsigma, cenfunc='mean')
+        if stddev==0:
+            mask_fit_tmp = np.ones(len(mean_hos_poly), dtype=bool)
+        else:
+            mask_fit_tmp = (np.abs(mean_hos_poly-mean)/stddev <= nsigma)
+
+        mask_valid_poly[mask_valid_poly] = mask_fit_tmp
+
+
         if not (tel=='BG2' and i_chan==8):
 
             for it in range(3):
@@ -6791,29 +6793,41 @@ def os_corr (data, header, imgtype, xbin=1, ybin=1, data_limit=2000, tel=None):
         oscan[0:3][mask_valid[0:3]] = mean_hos[0:3][mask_valid[0:3]]
 
 
-
-
         # CHECK!!! - test: use original subtraction of
-        # column-by-column for columns with no/few saturated pixels,
-        # defined in mask_sat_row already determined above; make sure
-        # there are sufficient values in the overscan column through
-        # mask_valid
+        # column-by-column for "spline" columns with no/few saturated
+        # pixels, defined in mask_sat_row already determined above;
+        # make sure there are sufficient values in the overscan column
+        # through mask_valid
         mask_usemean = ~mask_sat_row & mask_valid
+        # only for column up to idx_switch
+        mask_usemean[idx_switch:] = False
+        #oscan_alt = oscan.copy()
         oscan[mask_usemean] = mean_hos[mask_usemean]
 
 
         if False:
+
+            #if tel=='BG2' and i_chan==8:
+            #    for i in range(idx_split-10,idx_split+10):
+            #        log.info ('i: {}, oscan[i]: {}, oscan_alt[i]: {}'
+            #                  .format(i, oscan[i], oscan_alt[i]))
+
+
             plt.errorbar (xcol, mean_hos, yerr=err_hos, color='k',
                           linestyle="None", capsize=2)
-            plt.plot (xcol, mean_hos, 'k.')
-            plt.plot (xcol, splfit(xcol), 'b-')
-            plt.plot (xcol, oscan, 'g-')
-            plt.xlim (0,200)
-            plt.ylim (max(-50, np.amin(mean_hos)), np.amax(mean_hos))
+            plt.plot (xcol, mean_hos, 'k.', label='mean_hos')
+            plt.plot (xcol, oscan_alt, '-', color='purple', label='overscan alt')
+            plt.plot (xcol, oscan, 'g-', label='overscan used')
+            plt.plot (xcol[:idx_switch], splfit(xcol[:idx_switch]), 'b-',
+                      label='spline fit')
+            plt.ylim (max(-50, np.amin(mean_hos)), abs(1.2*np.amax(oscan+10)))
             plt.title('channel: {}'.format(i_chan+1))
-            plt.plot (xcol, oscan, '-', color='purple')
+            plt.legend()
             plt.savefig('hos_chan{:02}.pdf'.format(i_chan+1))
+            plt.xlim (0,idx_switch+30)
+            plt.savefig('hos_chan{:02}_zoom.pdf'.format(i_chan+1))
             plt.close()
+
 
 
 
@@ -7732,6 +7746,92 @@ def write_fits (fits_out, data, header, overwrite=True, run_fpack=True,
 
 ################################################################################
 
+def copy_flist (filelist, dest, move=False, verbose=True):
+
+    # assume all files are either google cloud or not, so sufficient
+    # to only check the 1st file
+    google_cloud = (filelist[0][0:5]=='gs://' or dest[0:5]=='gs://')
+
+    # make sure files exist
+    filelist = [f for f in filelist if isfile(f)]
+    if len(filelist)==0:
+        log.warning ('no existing file(s) to copy or move')
+        return
+
+
+    if verbose:
+        if move:
+            label = 'moving'
+        else:
+            label = 'copying'
+
+        for src_file in filelist:
+            log.info('{} {} to {}'.format(label, src_file, dest))
+
+
+
+
+    if not google_cloud:
+        for src_file in filelist:
+
+            if not move:
+                shutil.copy2(src_file, dest)
+            else:
+
+                # input [dest] can be a file or directory, construct two possible
+                # output filenames to check for below; if dest is a file, fn1 will
+                # be the destination file, otherwise fn2 will be the destination
+                # file
+                fn1 = dest
+                fn2 = os.path.join(dest, src_file.split('/')[-1])
+
+                # if destination file already exists, remove it
+                for fn in [fn1, fn2]:
+                    if os.path.isfile(fn):
+                        log.info ('{} already exists; removing it'.format(fn))
+                        os.remove(fn)
+
+                # move
+                shutil.move(src_file, dest)
+
+
+    else:
+
+        # this could be done in python, but much easier with gsutil
+        # from the shell
+        if move:
+            cp_cmd = 'mv'
+        else:
+            cp_cmd = 'cp'
+
+
+        # sometimes this fails with a GCP credentials issue, so try a
+        # couple of times if destination file is not created
+        for i in range(3):
+
+            try:
+                # gsutil command (not actively supported anymore)
+                cmd = ['gsutil', '-m', '-q', cp_cmd, '-I', dest]
+                result = subprocess.run(cmd, input='\n'.join(filelist)
+                                        .encode('utf-8'))
+            except:
+                log.warning ('command {} did not succeed; trying again'
+                             .format(cmd))
+                if i==2:
+                    msg = 'command {} failed three times in a row'.format(cmd)
+                    log.exception (msg)
+                    raise RuntimeError (msg)
+
+            else:
+                break
+
+
+
+    return
+
+
+################################################################################
+
 def copy_file (src_file, dest, move=False, verbose=True):
 
     """function to copy or move a file [src_file] to [dest], which may
@@ -7795,9 +7895,9 @@ def copy_file (src_file, dest, move=False, verbose=True):
         for i in range(3):
 
             # gsutil command (not actively supported anymore)
-            #cmd = ['gsutil', '-q', cp_cmd, src_file, dest]
+            cmd = ['gsutil', '-q', cp_cmd, src_file, dest]
             # gcloud storage alternative
-            cmd = ['gcloud', 'storage', cp_cmd, src_file, dest]
+            #cmd = ['gcloud', 'storage', cp_cmd, src_file, dest]
             result = subprocess.run(cmd)
 
             if isfile(fn1) or isfile(fn2):
@@ -7808,7 +7908,9 @@ def copy_file (src_file, dest, move=False, verbose=True):
                     log.warning ('command {} did not succeed; trying again'
                                  .format(cmd))
                 else:
-                    log.error ('command {} failed')
+                    msg = 'command {} failed three times in a row'.format(cmd)
+                    log.exception (msg)
+                    raise RuntimeError (msg)
 
 
     return
