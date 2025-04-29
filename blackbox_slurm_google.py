@@ -56,8 +56,8 @@ raw_dir = {}
 red_dir = {}
 tmp_dir = {}
 
-#tels_running = ['BG2', 'BG3', 'BG4']
-tels_running = ['BG3', 'BG4']
+tels_running = ['BG2', 'BG3', 'BG4']
+#tels_running = ['BG3', 'BG4']
 for tel in tels_running:
     raw_dir[tel] = 'gs://blackgem-raw/{}'.format(tel)
     red_dir[tel] = 'gs://blackgem-red/{}'.format(tel)
@@ -313,11 +313,15 @@ def run_blackbox_slurm (date=None, telescope=None, mode='night',
                 # use different partitions for bias, flats and object images
                 if 'bias' in filename.lower() or 'dark' in filename.lower():
                     #partition = 'p1gb4t'
-                    partition = 'p1gb8'
+                    #partition = 'p1gb8'
+                    # CHECK!!! - for the moment gb16 is required to make jpgs
+                    partition = 'p2gb16'
 
                 elif 'flat' in filename.lower():
                     #partition = 'p2gb8t'
-                    partition = 'p1gb8'
+                    #partition = 'p1gb8'
+                    # CHECK!!! - for the moment gb16 is required to make jpgs
+                    partition = 'p2gb16'
 
                 else:
                     # for object images, use different partitions for
