@@ -843,14 +843,18 @@ def create_obslog (date, email=True, tel=None, weather_screenshot=True):
         height = 2150
     else:
         png_tmp = '{}/{}_LaSilla_meteo.png'.format(tmp_path, date_eve)
-        #webpage = 'https://www.ls.eso.org/lasilla/dimm/meteomonitor.html'
-        #webpage = 'https://archive.eso.org/asm/ambient-server?site=lasilla'
-        # date in format e.g. 28+Oct+2024
-        date_tmp = '{}+{}+{}'.format(date_eve[6:8],
-                                     calendar.month_abbr[int(date[4:6])],
-                                     date[0:4])
-        webpage = ('https://archive.eso.org/asm/ambient-server?'
-                   'night={}&site=lasilla'.format(date_tmp))
+
+        if True:
+            webpage = 'https://www.ls.eso.org/lasilla/dimm/meteomonitor.html'
+        else:
+            #webpage = 'https://archive.eso.org/asm/ambient-server?site=lasilla'
+            # date in format e.g. 28+Oct+2024
+            date_tmp = '{}+{}+{}'.format(date_eve[6:8],
+                                         calendar.month_abbr[int(date[4:6])],
+                                         date[0:4])
+            webpage = ('https://archive.eso.org/asm/ambient-server?'
+                       'night={}&site=lasilla'.format(date_tmp))
+
         # the following line is only returning a white stripe, perhaps
         # only the very top of the webpage?
         #webpage = ('https://www.eso.org/asm/ui/publicLog?name=LaSilla&startDate='
