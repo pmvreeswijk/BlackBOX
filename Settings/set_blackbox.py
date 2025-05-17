@@ -188,9 +188,15 @@ for tel in ['ML1', 'BG2', 'BG3', 'BG4']:
 # blackbox, e.g. ML1_bpm_r_0p2_20200727.fits.fz, instead of making
 # these dictionaries with the filters as keys.
 bad_pixel_mask = {'ML1': '{}/BPM/ML1/ML1_bpm_0p2_20200727.fits.fz'.format(cal_dir),
-                  'BG2': '{}/BPM/BG2/BG2_bpm_0p2_20240312.fits.fz'.format(cal_dir),
-                  'BG3': '{}/BPM/BG3/BG3_bpm_0p2_20230531.fits.fz'.format(cal_dir),
-                  'BG4': '{}/BPM/BG4/BG4_bpm_0p2_20230531.fits.fz'.format(cal_dir)}
+                  #'BG2': '{}/BPM/BG2/BG2_bpm_0p2_20240312.fits.fz'.format(cal_dir),
+                  #'BG3': '{}/BPM/BG3/BG3_bpm_0p2_20230531.fits.fz'.format(cal_dir),
+                  #'BG4': '{}/BPM/BG4/BG4_bpm_0p2_20230531.fits.fz'.format(cal_dir),
+                  'BG2': '{}/BPM/BG2/BG2_bpm_0p2_20250130.fits.fz'.format(cal_dir),
+                  'BG3': '{}/BPM/BG3/BG3_bpm_0p2_20250130.fits.fz'.format(cal_dir),
+                  'BG4': '{}/BPM/BG4/BG4_bpm_0p2_20250130.fits.fz'.format(cal_dir),
+
+
+                  }
 
 # name of ML/BG field definition file
 mlbg_fieldIDs = '{}/MLBG_FieldIDs_Feb2022_nGaia.fits'.format(cal_dir)
