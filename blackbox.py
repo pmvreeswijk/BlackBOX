@@ -4788,7 +4788,11 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True,
                     # the latter through the setting parameter
                     # flat_reject_eve
                     flat_reject_eve = get_par(set_bb.flat_reject_eve,tel)
-                    if flat_reject_eve and  mjd_obs[i_file] % 1 > 0.5:
+                    if (flat_reject_eve and
+                        (mjd_obs[i_file] % 1 > 0.5 or
+                         # for BlackGEM in Chilean summer, flats can
+                         # be taken just after midnight UT
+                         mjd_obs[i_file] % 1 < 0.1)):
 
                         log.warn ('rejecting evening flat {}'.format(filename))
                         mask_keep[i_file] = False
@@ -4881,10 +4885,11 @@ def master_prep (fits_master, data_shape, create_master, pick_alt=True,
             # future nights are included
             all_past = np.all(mjd_obs_delta < 0)
             if np.amin(np.abs(mjd_obs_delta)) > 0.5 and all_past:
-                log.warning ('all calibration files are from before midnight '
-                             'of {} and longer than 12 hours ago; no point in '
+                log.warning ('all {} selected calibration files closest in time '
+                             'to midnight of {} are from before this date and '
+                             'taken longer than 12 hours ago; no point in '
                              'making master {}'
-                             .format(date_eve, fits_master))
+                             .format(nmax, date_eve, fits_master))
                 return None
 
 
