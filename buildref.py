@@ -58,7 +58,7 @@ import qc
 from google.cloud import storage
 
 
-__version__ = '0.9.7'
+__version__ = '0.9.8'
 
 
 ################################################################################
@@ -871,7 +871,7 @@ def set_date (date, start=True):
             mjd = mjd_today_noon + round(float(date))
         else:
             # otherwise convert date string to mjd
-            date = re.sub(',|-|\.|\/', '', date)
+            date = re.sub(r',|-|\.|\/', '', date)
             mjd = bb.date2mjd ('{}'.format(date), time_str='12:00')
 
     return mjd
@@ -1843,6 +1843,10 @@ def imcombine_mp (field_ID, imagelist, fits_out, combine_type, filt,
     header_out['R-NFILES'] = (nfiles, 'number of images within constraints '
                               'available')
     header_out['R-NUSED'] = (len(imtable), 'number of images used to combine')
+
+    # zeropoint scaling?
+    header_out['R-ZPSCL'] = (scale_zps, 'zeropoint-scaled images before combining?')
+
 
     # names of images that were used
     for nimage, image in enumerate(imtable['image_name_tmp']):
