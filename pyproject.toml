@@ -5,6 +5,7 @@ build-backend = 'setuptools.build_meta'
 
 [project]
 name = 'blackbox'
+dynamic = ['version']
 authors = [
   {name = 'Paul Vreeswijk', email = 'pmvreeswijk@gmail.com'},
   {name = 'Kerry Paterson'},
@@ -22,7 +23,6 @@ dependencies = [
         'watchdog', 'astroscrappy', 'acstools', 'ephem', 'memory-profiler',
         'astroplan', 'google-cloud-storage', 'google-cloud-pubsub', 'Pillow',
         'google-cloud-logging']
-dynamic = ['version']
 
 [project.urls]
 Homepage = 'https://github.com/pmvreeswijk/BlackBOX'
