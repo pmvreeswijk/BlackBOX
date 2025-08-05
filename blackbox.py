@@ -208,7 +208,9 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     google_cloud = (get_par(set_bb.raw_dir,tel)[0:5] == 'gs://')
 
 
-    # in google_cloud mode, do not keep general logfile
+    # in google_cloud mode, do not keep general logfile; N.B.: this
+    # general logfile is now created in separate scripts that submit
+    # the jobs to Slurm
     if not google_cloud:
 
         if not isdir(get_par(set_bb.log_dir,tel)):
@@ -2621,7 +2623,8 @@ def save_png_thumbnails (fits_trans, dir_dest, nthreads=1):
         if isdir(dir_dest):
             log.warning ('removing all existing files in {}'.format(dir_dest))
             if dir_dest[0:5] == 'gs://':
-                cmd = ['gcloud', 'storage', 'rm', '{}/*'.format(dir_dest)]
+                #cmd = ['gcloud', 'storage', 'rm', '{}/*'.format(dir_dest)]
+                cmd = ['gsutil', 'rm', '{}/*'.format(dir_dest)]
                 result = subprocess.run(cmd)
             else:
                 make_dir (dir_dest, empty=True)
@@ -3881,6 +3884,8 @@ def close_log (log, logfile):
         if logfile in str(handler):
             log.info('removing handler {} from log'.format(handler))
             log.removeHandler(handler)
+            handler.close()
+
 
     # remove the last handler, which is assumed to be the filehandler
     # added inside blackbox_reduce
@@ -3929,7 +3934,7 @@ def clean_tmp (tmp_path, keep_tmp):
 
         # delete [tmp_path] folder if [set_bb.keep_tmp] not True
         if not keep_tmp:
-            log.info ('removing temporary folder: {}'.format(tmp_path))
+            #log.info ('removing temporary folder: {}'.format(tmp_path))
             shutil.rmtree(tmp_path, ignore_errors=True)
 
         else:
@@ -4091,7 +4096,12 @@ def copy_files2keep (src_base, dest_base, ext2keep, move=True, run_fpack=True):
 
                     # move or copy file if it does not need to be skipped
                     if not skip:
-                        copy_file (src_file, dest_file, move=move)
+                        if 'log' in src_file:
+                            # copy logfile as it is still being used
+                            copy_file (src_file, dest_file, move=False)
+                        else:
+                            copy_file (src_file, dest_file, move=move)
+
 
 
     return
