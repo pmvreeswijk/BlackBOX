@@ -1,32 +1,32 @@
 
 [build-system]
-requires = ['setuptools>=80', 'setuptools-scm>=8']
-build-backend = 'setuptools.build_meta'
+requires = ["setuptools>=80", "setuptools-scm>=8"]
+build-backend = "setuptools.build_meta"
 
 [project]
-name = 'blackbox'
+name = "blackbox"
 authors = [
-  {name = 'Paul Vreeswijk', email = 'pmvreeswijk@gmail.com'},
-  {name = 'Kerry Paterson'},
-  {name = 'Danielle Pieterse'},
+  {name = "Paul Vreeswijk", email = "pmvreeswijk@gmail.com"},
+  {name = "Kerry Paterson"},
+  {name = "Danielle Pieterse"},
 ]
-description = 'image processing sofware specifically written for BlackGEM and MeerLICHT images'
-readme = 'README.md'
-requires-python = '>=3.6'
-license = 'MIT'
+description = "image processing sofware specifically written for BlackGEM and MeerLICHT images"
+readme = "README.md"
+requires-python = ">=3.6"
+license = "MIT"
 dependencies = [
-	#'numpy', 'astropy', 'matplotlib', 'scipy', 'pyfftw'
-	#'lmfit', 'sip_tpv', 'scikit-image',
+	#"numpy", "astropy", "matplotlib", "scipy", "pyfftw"
+	#"lmfit", "sip_tpv", "scikit-image",
         # dependencies above: zogy
         # dependencies below: blackbox
-        'watchdog', 'astroscrappy', 'acstools', 'ephem', 'memory-profiler',
-        'astroplan', 'google-cloud-storage', 'google-cloud-pubsub', 'Pillow',
-        'google-cloud-logging']
-dynamic = ['version']
+        "watchdog", "astroscrappy", "acstools", "ephem", "memory-profiler",
+        "astroplan", "google-cloud-storage", "google-cloud-pubsub", "Pillow",
+        "google-cloud-logging"]
+dynamic = ["version"]
 
 [project.urls]
-Homepage = 'https://github.com/pmvreeswijk/BlackBOX'
+Homepage = "https://github.com/pmvreeswijk/BlackBOX"
 
 [tool.setuptools.packages.find]
-where = ['.']
-include = ['Settings']
+where = ["."]
+include = ["Settings"]
