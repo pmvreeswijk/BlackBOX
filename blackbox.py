@@ -722,7 +722,7 @@ def create_masters (master_date, run_fpack=True, nproc=1):
         filts_temp = get_par(set_zogy.zp_default,tel).keys()
     else:
         # extract filters from [filts]
-        filts_temp = re.sub(',|-|\.|\/', '', filts)
+        filts_temp = re.sub(r',|-|\.|\/', '', filts)
 
 
     # create list of master flats to process
@@ -7566,7 +7566,7 @@ def get_date_time (header):
     :returns: str -- '(date), (time)'
     '''
     date_obs = header['DATE-OBS'] #load date from header
-    date_obs_split = re.split('-|:|T|\.', date_obs) #split date into date and time
+    date_obs_split = re.split('-|:|T|\\.', date_obs) #split date into date and time
     return "".join(date_obs_split[0:3]), "".join(date_obs_split[3:6])
 
 
