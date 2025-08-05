@@ -1,10 +1,12 @@
 
 [build-system]
-requires = ['setuptools>=80', 'setuptools-scm>=8']
+requires = ['setuptools']
 build-backend = 'setuptools.build_meta'
 
 [project]
 name = 'blackbox'
+#dynamic = ['version']
+version = '1.4.6'
 authors = [
   {name = 'Paul Vreeswijk', email = 'pmvreeswijk@gmail.com'},
   {name = 'Kerry Paterson'},
@@ -22,7 +24,6 @@ dependencies = [
         'watchdog', 'astroscrappy', 'acstools', 'ephem', 'memory-profiler',
         'astroplan', 'google-cloud-storage', 'google-cloud-pubsub', 'Pillow',
         'google-cloud-logging']
-dynamic = ['version']
 
 [project.urls]
 Homepage = 'https://github.com/pmvreeswijk/BlackBOX'
@@ -30,5 +31,3 @@ Homepage = 'https://github.com/pmvreeswijk/BlackBOX'
 [tool.setuptools.packages.find]
 where = ['.']
 include = ['Settings']
-
-[tool.setuptools_scm]
