@@ -6,6 +6,7 @@ import tempfile
 import sys
 import calendar
 import warnings
+import socket
 
 #import multiprocessing as mp
 #mp_ctx = mp.get_context('spawn')
@@ -3907,15 +3908,31 @@ def make_dir (path, empty=False):
     # check if google_cloud is set
     if not path[0:5] == 'gs://':
 
-        # if already exists but needs to be empty, remove it first
-        if isdir(path) and empty:
-            shutil.rmtree(path, ignore_errors=True)
+        hostname = socket.gethostname()
+        if 'coma' in hostname and 'astro11' in path:
 
-        # do not check if directory exists, just try to make it; changed this
-        # after racing condition occurred on the ilifu Slurm cluster when
-        # reducing flatfields, where different tasks need to make the same
-        # directory
-        os.makedirs(path, exist_ok=True)
+            # if already exists but needs to be empty, remove it first
+            if isdir(path) and empty:
+                log.info ('cleaning up folder: {}'.format(path))
+                cmd = ['ssh', 'astro11-srv', 'rm', '-rf', path]
+                result = subprocess.run(cmd)
+
+
+            # make folder with full path using ssh to astro11-srv
+            cmd = ['ssh', 'astro11-srv', 'mkdir', '-p', path]
+            result = subprocess.run(cmd)
+
+        else:
+
+            # if already exists but needs to be empty, remove it first
+            if isdir(path) and empty:
+                shutil.rmtree(path, ignore_errors=True)
+
+            # do not check if directory exists, just try to make it;
+            # changed this after racing condition occurred on the
+            # ilifu Slurm cluster when reducing flatfields, where
+            # different tasks need to make the same directory
+            os.makedirs(path, exist_ok=True)
 
 
     return
@@ -7882,18 +7899,27 @@ def copy_file (src_file, dest, move=False, verbose=True):
     # if not dealing with google cloud buckets, use shutil.copy2 or shutil.move
     if not (src_file[0:5] == 'gs://' or dest[0:5] == 'gs://'):
 
-        if not move:
-            shutil.copy2(src_file, dest)
+        hostname = socket.gethostname()
+        if 'coma' in hostname and 'astro11' in dest:
+
+            # scp file to astro11
+            cmd = ['scp', src_file, 'astro11-srv:{}'.format(dest)]
+            result = subprocess.run(cmd)
+
         else:
 
-            # if destination file already exists, remove it
-            for fn in [fn1, fn2]:
-                if os.path.isfile(fn):
-                    log.info ('{} already exists; removing it'.format(fn))
-                    os.remove(fn)
+            if not move:
+                shutil.copy2(src_file, dest)
+            else:
 
-            # move
-            shutil.move(src_file, dest)
+                # if destination file already exists, remove it
+                for fn in [fn1, fn2]:
+                    if os.path.isfile(fn):
+                        log.info ('{} already exists; removing it'.format(fn))
+                        os.remove(fn)
+
+                # move
+                shutil.move(src_file, dest)
 
     else:
 
