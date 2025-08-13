@@ -229,7 +229,7 @@ def main():
         labels['Filter'] = filt
 
     if limmag is not None:
-        labels['Limiting magnitude'] = '{:.2f} (5$\sigma$)'.format(limmag)
+        labels['Limiting magnitude'] = r'{:.2f} (5$\sigma$)'.format(limmag)
 
     if args.run_id is not None:
         labels['Observing Run ID'] = args.run_id
