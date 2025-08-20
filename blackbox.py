@@ -2239,9 +2239,11 @@ def blackbox_reduce (filename):
     if (not get_par(set_bb.trans_extract,tel) or
         (not get_par(set_bb.create_ref,tel) and not ref_present)):
 
-        log.info('set_bb.trans_extract={}; processing new image only, '
+        log.info('set_bb.trans_extract={}; set_bb.create_ref={}, '
+                 'ref_present={}; processing new image only, '
                  'without comparison to ref image'
-                 .format(get_par(set_bb.trans_extract,tel)))
+                 .format(get_par(set_bb.trans_extract,tel),
+                         get_par(set_bb.create_ref,tel), ref_present))
         log.info('new_fits: {}'.format(new_fits))
         log.info('new_fits_mask: {}'.format(new_fits_mask))
 
@@ -5385,13 +5387,14 @@ def get_nearest_master (date_eve, imgtype, fits_master, filt=None):
                 end_str = '.fits.fz'
 
             # collect files
-            file_list.append(list_files(path_tmp, start_str=start_str,
-                                        end_str=end_str, recursive=True))
+            month_list = list_files(path_tmp, start_str=start_str,
+                                    end_str=end_str, recursive=True)
+            file_list.extend(month_list)
 
 
 
         # clean up lists in [file_list] and sort
-        file_list = sorted([f for sublist in file_list for f in sublist])
+        file_list = sorted(file_list)
         nfiles = len(file_list)
 
 
@@ -7900,10 +7903,19 @@ def copy_file (src_file, dest, move=False, verbose=True):
     if not (src_file[0:5] == 'gs://' or dest[0:5] == 'gs://'):
 
         hostname = socket.gethostname()
-        if 'coma' in hostname and 'astro11' in dest:
 
-            # scp file to astro11
-            cmd = ['scp', src_file, 'astro11-srv:{}'.format(dest)]
+        # if working on coma, need special copy to/from output dir
+        # using astro-srv
+        if 'coma' in hostname and ('astro11' in dest or 'astro11' in src_file):
+
+            if 'astro11' in dest:
+                # scp file to astro11
+                cmd = ['scp', src_file, 'astro11-srv:{}'.format(dest)]
+            elif 'astro11' in src_file:
+                # scp file from astro11
+                cmd = ['scp', 'astro11-srv:{}'.format(src_file), dest]
+
+            # run command
             result = subprocess.run(cmd)
 
         else:
