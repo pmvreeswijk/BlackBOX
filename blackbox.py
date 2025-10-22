@@ -1315,23 +1315,33 @@ def blackbox_reduce (filename):
 
 
 
-    # check if reduction steps could be skipped
+    # check if reduction steps could be skipped based on presence of
+    # reduced image and associated mask, hdr and log files
     file_present, fits_out_present = already_exists (fits_out, get_filename=True)
+    file_log = '{}.log'.format(fits_out_present.split('.fits')[0])
+    log_present = already_exists (file_log)
     if imgtype == 'object':
         mask_present = already_exists (fits_out_mask)
+        file_hdr = '{}_hdr.fits'.format(fits_out_present.split('.fits')[0])
+        hdr_present = already_exists (file_hdr)
     else:
-        # for non-object images, there is no mask
+        # for non-object images, there is no mask or header
         mask_present = True
+        hdr_present = True
 
-    # if reduced file and its possible mask exist, and img_reduce
-    # and force_reproc_new flags are not both set to True, reduction
-    # can be skipped
-    if (file_present and mask_present and
-        not (get_par(set_bb.img_reduce,tel) and
-             get_par(set_bb.force_reproc_new,tel))):
 
-        log.warning ('corresponding reduced {} image {} already exists; '
-                     'skipping its reduction'
+    present_tmp = [file_present, mask_present, hdr_present, log_present]
+    redfiles_present_all = np.all(present_tmp)
+    redfiles_present_any = np.any(present_tmp)
+
+
+    # if reduced files exist, and img_reduce and force_reproc_new
+    # flags are not both set to True, reduction can be skipped
+    if (redfiles_present_all and not (get_par(set_bb.img_reduce,tel) and
+                                      get_par(set_bb.force_reproc_new,tel))):
+
+        log.warning ('corresponding reduced {} image {} and associated files '
+                     'already exists; skipping its reduction'
                      .format(imgtype, fits_out_present.split('/')[-1]))
 
         # copy relevant files to tmp folder for object images
@@ -1368,7 +1378,7 @@ def blackbox_reduce (filename):
         # go through various reduction steps
         do_reduction = True
 
-        if file_present:
+        if redfiles_present_any:
 
             log.info ('forced reprocessing: removing all existing products '
                       'in reduced folder for {}'.format(filename))
@@ -1394,7 +1404,7 @@ def blackbox_reduce (filename):
 
 
         # write some info to the log
-        if file_present:
+        if redfiles_present_any:
             log.info('forced re-processing of {}'.format(filename))
         else:
             log.info('processing {}'.format(filename))
@@ -2014,10 +2024,12 @@ def blackbox_reduce (filename):
             return None
 
 
+
     elif not get_par(set_bb.force_reproc_new,tel):
 
         # stop processing here if cat_extract and/or trans_extract
         # products exist in reduced folder
+
         #new_list = glob.glob('{}*'.format(new_base))
         new_list = list_files(new_base)
         ext_list = []
@@ -2050,12 +2062,19 @@ def blackbox_reduce (filename):
             dumcat = is_dumcat(fits_cat)
 
 
+
+        # because some of the files in set_bb.img_reduce_exts are
+        # created during the catalog extraction, also include those in
+        # the check; N.B.: but not in the copying down below!
+        ext_list_plus = ext_list.extend(get_par(set_bb.img_reduce_exts,tel))
+
+
         # N.B.: note that the presence of sso files are not checked
         # for, so the reduction will not be redone if they are not
         # present; they can easily be redone in day mode of match2sso
         present = (np.array([ext in fn or 'sso' in ext
-                             for ext in ext_list for fn in new_list])
-                   .reshape(len(ext_list),-1).sum(axis=1))
+                             for ext in ext_list_plus for fn in new_list])
+                   .reshape(len(ext_list_plus),-1).sum(axis=1))
         #log.info ('present: {}'.format(present))
 
 
@@ -3164,199 +3183,6 @@ def call_match2SSO(filename, tel):
         m2sso.run_match2SSO(tel=tel, mode='night', cat2process=fits_for_m2sso,
                             date2process=None, list2process=None, logname=None,
                             overwrite=False)
-    return
-
-
-################################################################################
-
-def update_cathead (filename, header):
-
-    """obsolete: replaced by zogy.update_imcathead"""
-
-
-    if False:
-        # CHECK!!! temporarily making copy of transient
-        # catalog before header is updated
-        shutil.copy2(filename, filename.replace('.fits', '_tmpcopy.fits'))
-        # also save fits header
-        hdulist = fits.HDUList(fits.PrimaryHDU(header=header))
-        hdulist.writeto(filename.replace('.fits', '_tmphdr.fits'))
-
-
-    use_fitsio = False
-    if use_fitsio:
-        # played with fitsio to update headers in an attempt to use
-        # less disk space: astropy appears to make a copy when
-        # updating the file. However, the fitsio headers are slightly
-        # different from before, and would need to update all of the
-        # headers, also in zogy.py, which is too much hassle for the
-        # advantage, at least for now
-        with fitsio.FITS(filename, 'rw') as hdulist:
-            hdulist[-1].write_keys(dict(header))
-
-        # read updated header - used below - with astropy
-        header_update = read_hdulist(filename, get_data=False, get_header=True)
-
-    else:
-
-        with fits.open(filename, 'update', memmap=True) as hdulist:
-            # if existing header is minimal (practically only table
-            # columns), which can be the case if
-            # zogy.optimal_subtraction did not reach the end (due to
-            # an issue in the transient extraction) and QC-FLAG is not
-            # red (in which case a dummy catalog with header would
-            # have been created before this function is called), then
-            # add the full input [header] to it; FORMAT-P is only in
-            # header if end of zogy.optimal_subtraction was reached
-            if 'FORMAT-P' not in hdulist[-1].header:
-                hdulist[-1].header += header
-            else:
-                for key in header:
-                    if ('QC' in key or 'DUMCAT' in key or 'RAOFF' in key or
-                        'DECOFF' in key):
-                        hdulist[-1].header[key] = (header[key],
-                                                   header.comments[key])
-
-
-            header_update = hdulist[-1].header
-
-
-    # in case of transient catalog, also update the trans_light header
-    if 'trans' in filename:
-        transcat_light = filename.replace('.fits', '_light.fits')
-        # check if it exists
-        if isfile(transcat_light):
-            with fits.open(transcat_light, 'update', memmap=True) as hdulist:
-                # N.B.: cannot simply copy updated header above
-                # (header_update) as that will also define the
-                # thumbnail colmns while these are not present in the
-                # light version
-                #hdulist[-1].header = header_update
-                for key in header:
-                    if ('QC' in key or 'DUMCAT' in key or 'RAOFF' in key or
-                        'DECOFF' in key):
-                        hdulist[-1].header[key] = (header[key],
-                                                   header.comments[key])
-
-        else:
-            log.warning ('file {} does not exist'.format(transcat_light))
-
-
-    # create separate header file with updated header
-    hdulist = fits.HDUList(fits.PrimaryHDU(header=header_update))
-    hdulist.writeto(filename.replace('.fits', '_hdr.fits'), overwrite=True,
-                    output_verify='ignore')
-
-
-    mem_use (label='in update_cathead')
-
-    return
-
-
-################################################################################
-
-def update_imhead (filename, header, create_hdrfile=True):
-
-    """obsolete: replaced by zogy.update_imcathead"""
-
-    # update image header with extended header from ZOGY's
-    # optimal_subtraction
-
-    header['DATEFILE'] = (Time.now().isot, 'UTC date of writing file')
-
-    if '.fz' not in filename:
-
-        with fits.open(filename, 'update', memmap=True) as hdulist:
-            hdulist[-1].header = header
-
-    else:
-
-        # for an fpacked image, above update is not possible; use
-        # function [copy_header] instead
-        copy_header (filename, header)
-
-
-    if create_hdrfile:
-        # create separate header file
-        hdulist = fits.HDUList(fits.PrimaryHDU(header=header))
-        hdulist.writeto(filename.replace('.fz','').replace('.fits', '_hdr.fits'),
-                        overwrite=True, output_verify='ignore')
-
-
-    mem_use (label='in update_imhead')
-    return
-
-
-################################################################################
-
-def copy_header (fits_dest, header_src):
-
-    """obsolete: replaced by zogy.update_imcathead"""
-
-    """function to copy header of [fits_src] to [fits_dest]; all keywords
-       starting from [key_start] are first removed from the header of
-       [fits_dest], and then the corresponding keywords are copied
-       over from the header of [fits_src].
-
-       Mainly meant to replace the header of an fpacked fits image
-       using the header of its funpacked counterpart that was updated,
-       without touching its data - if the data was left
-       unchanged. This is to avoid unnecessary repeated funpacking and
-       fpacking images, leading to loss of precision.
-
-    """
-
-    # open fits_dest for updating
-    with fits.open(fits_dest, mode='update') as hdulist:
-        header_dest = hdulist[-1].header
-
-        # delete hdr_dest keys
-        process_keys (header_dest)
-
-        # copy keys
-        process_keys (header_dest, header_src)
-
-
-    return
-
-
-################################################################################
-
-def process_keys (hdr_dest, hdr_src=None, key_start='BUNIT'):
-
-    """obsolete: replaced by zogy.update_imcathead"""
-
-    # if hdr_src is not defined, loop through hdr_dest to delete the
-    # keywords; if it is, loop through the hdr_src keys to copy them
-    # to hdr_dest
-    if hdr_src is None:
-        hdr = hdr_dest
-    else:
-        hdr = hdr_src
-
-    process = False
-    for key in list(hdr.keys()):
-
-        if key_start in key:
-            # start deleting/copying
-            process = True
-
-        if process:
-            if hdr_src is None:
-                # delete key; need to check if it exists, as e.g. the
-                # key HISTORY has multiple entries and may have all
-                # been deleted already by a single del command
-                if key in list(hdr.keys()):
-                    del hdr_dest[key]
-            else:
-                # copy from hdr_src to hdr_dest
-                try:
-                    hdr_dest.append((key, hdr_src[key], hdr_src.comments[key]))
-                except Exception as e:
-                    log.error ('failed to copy key {} due to ValueError: {}'
-                               .format(key, e))
-
-
     return
 
 
