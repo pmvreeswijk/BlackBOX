@@ -225,7 +225,7 @@ sepmed = False
 use_asta = True
 
 # path to ASTA model file
-asta_model = '/Software/ASTA/model-best.keras'
+asta_model = '{}/model-best.keras'.format(cal_dir)
 
 # binning used for satellite trail detection
 sat_bin = 1
