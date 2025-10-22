@@ -2487,7 +2487,7 @@ def blackbox_reduce (filename):
         if get_par(set_bb.save_thumbnails_pngs,tel):
             #and qc_flag != 'red' and tqc_flag != 'red':
             dir_dest = '{}/{}'.format(thumbnails_path, tmp_base.split('/')[-1])
-            save_png_thumbnails (fits_tmp_trans, dir_dest,
+            save_png_thumbnails (fits_tmp_trans, dir_dest, tel=tel,
                                  nthreads=set_bb.nthreads)
 
 
@@ -2575,7 +2575,7 @@ def blackbox_reduce (filename):
 
 ################################################################################
 
-def save_png_thumbnails (fits_trans, dir_dest, nthreads=1):
+def save_png_thumbnails (fits_trans, dir_dest, tel=None, nthreads=1):
 
     """function to convert thumbnails in transient catalog
     [fits_trans] to separate png files (to be used by the Database)
