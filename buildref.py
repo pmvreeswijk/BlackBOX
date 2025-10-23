@@ -58,7 +58,7 @@ import qc
 from google.cloud import storage
 
 
-__version__ = '0.9.8'
+__version__ = '0.9.9'
 
 
 ################################################################################
@@ -1207,34 +1207,45 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
         # check quality control
         # ---------------------
 
-        qc_flag = qc.run_qc_check (header_optsub, tel, check_key_type='ref')
+        # only do so if mode_ref/ref_mode is True
+        if ref_mode and not skip_zogy:
+            qc_flag = qc.run_qc_check (header_optsub, tel, check_key_type='ref')
+        else:
+            qc_flag = 'green'
+
 
         if qc_flag == 'red':
             log.error ('encountered red flag; not saving reference image {} '
                        'to reference folder'.format(ref_fits))
-
         else:
-            # update [ref_fits] header with qc-flags
+
+            # read reference header
             header_ref = zogy.read_hdulist(ref_fits, get_data=False,
                                            get_header=True)
-            for key in header_optsub:
-                if 'QC' in key or 'DUMCAT' in key:
-                    log.info ('updating header keyword {} with: {} for image {}'
-                              .format(key, header_optsub[key], ref_fits))
-                    header_ref[key] = (header_optsub[key],
-                                       header_optsub.comments[key])
 
 
-            # update fits image and catalog headers and create
-            # separate header files
-            zogy.update_imcathead (ref_fits, header_ref, create_hdrfile=True)
-            ref_fits_cat = '{}.fits'.format(ref_fits.split('.fits')[0])
-            zogy.update_imcathead (ref_fits_cat, header_ref,
-                                   create_hdrfile=True)
+            # update [ref_fits] header with qc-flags if they are available
+            if ref_mode and not skip_zogy:
+
+                for key in header_optsub:
+                    if 'QC' in key or 'DUMCAT' in key:
+                        log.info ('updating header keyword {} with: {} for '
+                                  'image {}'.format(key, header_optsub[key],
+                                                    ref_fits))
+                        header_ref[key] = (header_optsub[key],
+                                           header_optsub.comments[key])
+
+
+                # update fits image and catalog headers and create
+                # separate header files
+                zogy.update_imcathead (ref_fits, header_ref, create_hdrfile=True)
+                ref_fits_cat = '{}.fits'.format(ref_fits.split('.fits')[0])
+                zogy.update_imcathead (ref_fits_cat, header_ref,
+                                       create_hdrfile=True)
 
 
 
-            # copy/move files to the reference folder
+            # define bases to copy/move files to the reference folder
             tmp_base = ref_fits.split('_red.fits')[0]
             ref_base = ref_fits_out.split('_red.fits')[0]
             # add date of creation to ref_base
@@ -1246,9 +1257,10 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
 
                 # before replacing old reference file, first check if
                 # delta LIMMAG is large enough; could already do so at
-                # start of this function [prep_ref] to avoid making the
-                # reference image, however, final LIMMAG is usually but
-                # not always smaller than the projected LIMMAG
+                # start of this function [prep_ref] to avoid making
+                # the reference image, however, final LIMMAG is
+                # usually - but not always - smaller than the
+                # projected LIMMAG
 
                 limmag = header_ref['LIMMAG']
                 limmag_old = header_ref_old['LIMMAG']
