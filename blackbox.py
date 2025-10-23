@@ -1324,13 +1324,13 @@ def blackbox_reduce (filename):
         mask_present = already_exists (fits_out_mask)
         file_hdr = '{}_hdr.fits'.format(fits_out_present.split('.fits')[0])
         hdr_present = already_exists (file_hdr)
+        present_tmp = [file_present, log_present, mask_present, hdr_present]
     else:
         # for non-object images, there is no mask or header
-        mask_present = True
-        hdr_present = True
+        present_tmp = [file_present, log_present]
 
 
-    present_tmp = [file_present, mask_present, hdr_present, log_present]
+    # check if all and any are present
     redfiles_present_all = np.all(present_tmp)
     redfiles_present_any = np.any(present_tmp)
 
@@ -1377,6 +1377,11 @@ def blackbox_reduce (filename):
 
         # go through various reduction steps
         do_reduction = True
+
+        if imgtype != 'object':
+
+
+
 
         if redfiles_present_any:
 
