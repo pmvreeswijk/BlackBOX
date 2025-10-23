@@ -1378,11 +1378,6 @@ def blackbox_reduce (filename):
         # go through various reduction steps
         do_reduction = True
 
-        if imgtype != 'object':
-
-
-
-
         if redfiles_present_any:
 
             log.info ('forced reprocessing: removing all existing products '
