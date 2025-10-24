@@ -1341,7 +1341,7 @@ def blackbox_reduce (filename):
                                       get_par(set_bb.force_reproc_new,tel))):
 
         log.warning ('corresponding reduced {} image {} and associated files '
-                     'already exists; skipping its reduction'
+                     'already exist; skipping its reduction'
                      .format(imgtype, fits_out_present.split('/')[-1]))
 
         # copy relevant files to tmp folder for object images
@@ -2065,8 +2065,10 @@ def blackbox_reduce (filename):
 
         # because some of the files in set_bb.img_reduce_exts are
         # created during the catalog extraction, also include those in
-        # the check; N.B.: but not in the copying down below!
-        ext_list_plus = ext_list.extend(get_par(set_bb.img_reduce_exts,tel))
+        # the check; N.B.: but not in the copying down below, which
+        # could overwrite the recently reduced files
+        ext_list_plus = ext_list[:]
+        ext_list_plus += get_par(set_bb.img_reduce_exts,tel)
 
 
         # N.B.: note that the presence of sso files are not checked
@@ -2100,12 +2102,12 @@ def blackbox_reduce (filename):
 
         else:
 
-            log.info ('copying existing {} data products from reduced to tmp '
-                      'folder to avoid repeating processing steps for {}'
-                      .format(text, filename))
-
             # otherwise, copy cat_extract products and trans_extract
             # to tmp folder and continue
+            log.info ('copying possibly existing {} data products from reduced '
+                      'to tmp folder to avoid repeating processing steps for {}'
+                      .format(text, filename))
+
             copy_files2keep(new_base, tmp_base, ext_list, move=False,
                             run_fpack=False)
 
