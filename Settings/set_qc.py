@@ -518,17 +518,19 @@ qc_range = {
         #                                                                    'r': [ (0, 0.017), (0, 0.018), (0, 0.019) ],
         #                                                                    'i': [ (0, 0.020), (0, 0.033), (0, 0.046) ],
         #                                                                    'z': [ (0, 0.045), (0, 0.060), (0, 0.075) ]}, 'key_type': 'flat', 'pos': True , 'comment': '(max(subs)-min(subs)) / (max(subs)+min(subs))'},
-        # increased u: 0.25 to 0.27, g: 0.13 to 0.17, q: 0.085 to 0.13, r: 0.065 to 0.09, i: 0.05 to  on 2025-04-22
+        # changed u: 0.25 to 0.27, g: 0.13 to 0.17, q: 0.085 to 0.13, r: 0.065 to 0.09, i: 0.05 to 0.07 on 2025-04-22 (MLBG_v134_update.sif)
+        # changed u: q: 0.13 to 0.12, z: 0.08 to 0.07 on 2025-11-18 (MLBG_v165staging.sif - after biases/flats until Sep 2025 had been made)
         'RDIF-MAX': {'default':'None', 'val_type': 'min_max', 'val_range': {'u': [ (0, 0.27) ],
                                                                             'g': [ (0, 0.17) ],
-                                                                            'q': [ (0, 0.13) ],
+                                                                            'q': [ (0, 0.12) ],
                                                                             'r': [ (0, 0.09) ],
                                                                             'i': [ (0, 0.07) ],
-                                                                            'z': [ (0, 0.08) ]}, 'key_type': 'flat', 'pos': True , 'comment': '(max(subs)-min(subs)) / (max(subs)+min(subs))'},
+                                                                            'z': [ (0, 0.07) ]}, 'key_type': 'flat', 'pos': True , 'comment': '(max(subs)-min(subs)) / (max(subs)+min(subs))'},
 
-        # changed u: 0.12 to 0.13, q: 0.07 to 0.08, r: 0.07 to 0.11, i: 0.06 to 0.07 on 2025-04-22
+        # changed u: 0.12 to 0.13, q: 0.07 to 0.08, r: 0.07 to 0.11, i: 0.06 to 0.07 on 2025-04-22 (MLBG_v134_update.sif)
+        # changed u: g: 0.12 to 0.11 on 2025-11-18 (MLBG_v165staging.sif - after biases/flats until Sep 2025 had been made)
         'RSTD-MAX': {'default':'None', 'val_type': 'min_max', 'val_range': {'u': [ (0, 0.13) ],
-                                                                            'g': [ (0, 0.12) ],
+                                                                            'g': [ (0, 0.11) ],
                                                                             'q': [ (0, 0.08) ],
                                                                             'r': [ (0, 0.11) ],
                                                                             'i': [ (0, 0.07) ],
@@ -794,7 +796,8 @@ qc_range = {
         #                                                                    'r': [ (0, 0.090), (0, 0.095), (0, 0.100) ],
         #                                                                    'i': [ (0, 0.060), (0, 0.070), (0, 0.080) ],
         #                                                                    'z': [ (0, 0.060), (0, 0.070), (0, 0.080) ]}, 'key_type': 'flat', 'pos': True , 'comment': '(max(subs)-min(subs)) / (max(subs)+min(subs))'},
-        # simplified to following values on 2025-04-22
+        # simplified values on 2025-04-22 (MLBG_v134_update.sif)
+        # kept same values on 2025-11-18 so that both flats before and after BG3 CCD cleaning satisfy these limits
         'RDIF-MAX': {'default':'None', 'val_type': 'min_max', 'val_range': {'u': [ (0, 0.27) ],
                                                                             'g': [ (0, 0.19) ],
                                                                             'q': [ (0, 0.13) ],
@@ -803,6 +806,7 @@ qc_range = {
                                                                             'z': [ (0, 0.13) ]}, 'key_type': 'flat', 'pos': True , 'comment': '(max(subs)-min(subs)) / (max(subs)+min(subs))'},
 
         # checked values and deemed ok on 2025-04-22
+        # kept same values on 2025-11-18 so that both flats before and after BG3 CCD cleaning satisfy these limits
         'RSTD-MAX': {'default':'None', 'val_type': 'min_max', 'val_range': {'u': [ (0, 0.19) ],
                                                                             'g': [ (0, 0.16) ],
                                                                             'q': [ (0, 0.11) ],
@@ -1065,7 +1069,8 @@ qc_range = {
         #'FLATRSTD': {'default':'None', 'val_type': 'sigma', 'val_range': [ (0,0.025),(0,0.026),(0,0.027)], 'key_type': None, 'pos': True , 'comment': 'relative sigma (STD) flat'},
 
         # increased max yellow and orange value of i- and z-band flats with 0.01 and 0.02, respectively, on 2024-01-03 because this value has increased since around 17 November 2023
-        # checked values and deemed ok on 2025-04-22
+        # checked values and deemed ok on 2025-04-22 (MLBG_v134_update.sif)
+        # checked values and deemed ok on 2025-11-18 (MLBG_v165staging.sif)
         'RDIF-MAX': {'default':'None', 'val_type': 'min_max', 'val_range': {'u': [ (0, 0.035) ],
                                                                             'g': [ (0, 0.025) ],
                                                                             'q': [ (0, 0.030) ],
@@ -1073,7 +1078,8 @@ qc_range = {
                                                                             'i': [ (0, 0.030) ],
                                                                             'z': [ (0, 0.070) ]},     'key_type': 'flat', 'pos': True , 'comment': '(max(subs)-min(subs)) / (max(subs)+min(subs))'},
 
-        # checked values and deemed ok on 2025-04-22
+        # checked values and deemed ok on 2025-04-22 (MLBG_v134_update.sif)
+        # checked values and deemed ok on 2025-11-18 (MLBG_v165staging.sif)
         'RSTD-MAX': {'default':'None', 'val_type': 'min_max', 'val_range': {'u': [ (0, 0.065) ],
                                                                             'g': [ (0, 0.065) ],
                                                                             'q': [ (0, 0.065) ],
