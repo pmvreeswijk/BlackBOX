@@ -261,6 +261,8 @@ def run_blackbox_slurm (date=None, telescope=None, mode='night',
     t_2v2 = time.time()
     # initialize list of transient catalogs that have been converted
     trans_2v2_done = []
+    # iterator
+    i_2v2 = 0
 
 
     # keep monitoring queue - which is being filled with new files
@@ -393,6 +395,10 @@ def run_blackbox_slurm (date=None, telescope=None, mode='night',
         # every hour or so
         if time.time() - t_2v2 > 3600:
 
+            # reset time stamp
+            t_2v2 = time.time()
+
+
             # list of all transient catalogs for the current night
             trans_2v2_all = []
             for tel in tels_running:
@@ -417,33 +423,38 @@ def run_blackbox_slurm (date=None, telescope=None, mode='night',
             # convert
             if len(trans_2v2_todo) > 0:
 
-                inlist = '{}/RunBlackBOX/trans_2v2_todo.inlist'.format(home_dir)
-                with open(inlist, 'w') as file:
-                    for item in trans_2v2_todo:
-                        file.write(item + '\n')
+                try:
+                    # increase iterator
+                    i_2v2 += 1
+
+                    # create inlist
+                    inlist = ('{}/RunBlackBOX/trans_2v2_todo_{}.inlist'
+                              .format(home_dir, i_2v2))
+                    with open(inlist, 'w') as file:
+                        for item in trans_2v2_todo:
+                            file.write(item + '\n')
 
 
-                jobname = 'convert_transcats'
-                partition = 'p8gb32t'
-                ncpu = partition.split('gb')[0].split('p')[1]
-                python_cmdstr = ('python {}/Python/convert_transcat_2v2.py {} '
-                                 '--dir_tmp /tmp --nthreads {} '
-                                 .format(home_dir, inlist, ncpu))
-                if False:
-                    slurm_process (python_cmdstr, partition, '1:00:00', jobname,
+                    jobname = 'convert_transcats_{}'.format(i_2v2)
+                    partition = 'p8gb64'
+                    ncpu = partition.split('gb')[0].split('p')[1]
+                    python_cmdstr = ('python {}/Python/convert_transcat_2v2.py '
+                                     '{} --dir_tmp /tmp --nthreads {}'
+                                     .format(home_dir, inlist, ncpu))
+                    slurm_process (python_cmdstr, partition, '3:00:00', jobname,
                                    job_dir)
+
+                except Exception as e:
+                    log.error ('following exception occurred when preparing and '
+                               'submitting convert_transcat_2v2 Slurm job: {}'
+                               .format(e))
+
                 else:
-                    log.warning ('command \n{}\n is not executed at the moment'
-                                 .format(python_cmdstr))
 
+                    # assuming that the Slurm job will finish ok, add
+                    # the catalogs processed to the done list
+                    trans_2v2_done.extend(trans_2v2_todo)
 
-                # add the catalogs just processed to the done list
-                trans_2v2_done.extend(trans_2v2_todo)
-
-
-
-            # reset time stamp
-            t_2v2 = time.time()
 
 
 
@@ -495,24 +506,25 @@ def run_blackbox_slurm (date=None, telescope=None, mode='night',
     # convert
     if len(trans_2v2_todo) > 0:
 
-        inlist = '{}/RunBlackBOX/trans_2v2_todo.inlist'.format(home_dir)
+        # increase iterator
+        i_2v2 += 1
+
+        # create inlist
+        inlist = ('{}/RunBlackBOX/trans_2v2_todo_{}.inlist'
+                  .format(home_dir, i_2v2))
         with open(inlist, 'w') as file:
             for item in trans_2v2_todo:
                 file.write(item + '\n')
 
 
-        jobname = 'convert_transcats'
+        jobname = 'convert_transcats_{}'.format(i_2v2)
         partition = 'p8gb32t'
         ncpu = partition.split('gb')[0].split('p')[1]
-        python_cmdstr = ('python {}/Python/convert_transcat_2v2.py {} '
-                         '--dir_tmp /tmp --nthreads {} '
+        python_cmdstr = ('python {}/Python/convert_transcat_2v2.py '
+                         '{} --dir_tmp /tmp --nthreads {}'
                          .format(home_dir, inlist, ncpu))
-        if False:
-            slurm_process (python_cmdstr, partition, '1:00:00', jobname,
-                           job_dir)
-        else:
-            log.warning ('command \n{}\n is not executed at the moment'
-                         .format(python_cmdstr))
+        slurm_process (python_cmdstr, partition, '3:00:00', jobname,
+                       job_dir)
 
 
     #---------------------------------------------------------------------------
