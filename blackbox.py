@@ -119,7 +119,7 @@ except Exception as e:
                  'blackbox; issue with IERS file?: {}'.format(e))
 
 
-__version__ = '1.4.7'
+__version__ = '1.4.8'
 keywords_version = '1.2.2'
 
 
@@ -1518,12 +1518,64 @@ def blackbox_reduce (filename):
             data = os_corr(data, header, imgtype, tel=tel)
         except Exception as e:
             #log.exception(traceback.format_exc())
-            log.exception('exception was raised during [os_corr] of image {}: {}'
+            log.exception('exception was raised during [os_corr] of image {}; '
+                          'adopting an overscan of zero for all channels: {}'
                           .format(filename, e))
+
+            # overscan correction was not successful and size of data
+            # is still that of raw image; need to extract the data
+            # sections, i.e. as if adopted overscan is zero
+
+            # infer channel, data and overscan sections
+            __, data_sec, __, __, data_sec_red = (
+                define_sections(np.shape(data), tel=tel))
+
+            # number of data columns and rows in the channel (without overscans)
+            ncols = get_par(set_bb.xsize_chan,tel)
+            nrows = get_par(set_bb.ysize_chan,tel)
+
+            # initialize output data array (without overscans)
+            ny = get_par(set_bb.ny,tel)
+            nx = get_par(set_bb.nx,tel)
+            data_out = np.zeros((nrows*ny, ncols*nx), dtype='float32')
+
+            nchans = np.shape(data_sec)[0]
+            for i_chan in range(nchans):
+                # place into [data_out]
+                data_out[data_sec_red[i_chan]] = data[data_sec[i_chan]]
+
+
+            # add headers outside above loop to make header more readable
+            for i_chan in range(nchans):
+                header['BIASM{}'.format(i_chan+1)] = (
+                    0.0, '[e-] channel {} mean vertical overscan'
+                    .format(i_chan+1))
+
+            for i_chan in range(nchans):
+                header['RDN{}'.format(i_chan+1)] = (
+                    10.0, '[e-] channel {} sigma (STD) vertical overscan'
+                    .format(i_chan+1))
+
+
+            # replace data with data_out
+            data = data_out
+
+
+            # update header with the average of both the means and
+            # standard deviations
+            header['BIASMEAN'] = (0.0, '[e-] average all channel means '
+                                  'vert. overscan')
+            header['RDNOISE'] = (10.0, '[e-] average all channel sigmas '
+                                 'vert. overscan')
+
+
         else:
             os_processed = True
         finally:
             header['OS-P'] = (os_processed, 'corrected for overscan?')
+
+            # reset warnings
+            warnings.resetwarnings()
 
 
         if get_par(set_zogy.display,tel):
@@ -4223,9 +4275,11 @@ def cosmics_corr (data, header, data_mask, header_mask):
     struct = np.ones((3,3), dtype=bool)
     __, ncosmics = ndimage.label(mask_cr, structure=struct)
     ncosmics_persec = ncosmics / float(header['EXPTIME'])
-    header['NCOSMICS'] = (ncosmics_persec, '[/s] number of cosmic rays identified')
+    header['NCOSMICS'] = (ncosmics_persec,
+                          '[/s] number of cosmic rays identified')
     # also add this to header of mask image
-    header_mask['NCOSMICS'] = (ncosmics_persec, '[/s] number of cosmic rays identified')
+    header_mask['NCOSMICS'] = (ncosmics_persec,
+                               '[/s] number of cosmic rays identified')
 
     log.info('number of cosmic rays identified: {}'.format(ncosmics))
 
@@ -4347,8 +4401,8 @@ def mask_init (data, header, filt, imgtype):
             # header_mask
             key = 'SATLEV{}'.format(i_chan+1)
             descr = '[e-] channel {} saturation threshold'.format(i_chan+1)
-            header[key] = (satlevel_chan, descr)
-            header_mask[key] = (satlevel_chan, descr)
+            header[key] = (round(satlevel_chan,1), descr)
+            header_mask[key] = (round(satlevel_chan,1), descr)
 
 
             # based on saturated pixels in current channel, define
@@ -6345,8 +6399,16 @@ def os_corr (data, header, imgtype, xbin=1, ybin=1, data_limit=2000, tel=None):
 
         # determine clipped mean for each row
         data_vos = data[os_sec_vert[i_chan]]
-        mean_vos_col, __, __ = sigma_clipped_stats(
-            data_vos, axis=1, mask_value=0, cenfunc='mean')
+        try:
+            mean_vos_col, __, __ = sigma_clipped_stats(
+                data_vos, axis=1, mask_value=0, cenfunc='mean')
+        except:
+            # do not mask out zero-valued pixels in data_vos; if all
+            # pixels are zero, this leads to an exception
+            log.warning ('exception was raised during determination of clipped '
+                         'mean for each row of vertical overscan section')
+            mean_vos_col, __, __ = sigma_clipped_stats(
+                data_vos, axis=1, cenfunc='mean')
 
 
         # fit low order polynomial to vertical overscan, avoiding
