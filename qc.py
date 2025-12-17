@@ -275,7 +275,8 @@ def qc_check (header, telescope='ML1', keywords=None, check_key_type=None,
         # perhaps this also improved for MeerLICHT with the index
         # files updates during early 2024, but for now too early to
         # tell
-        if (telescope=='ML1' and header['DEC'] <= -87 and
+        if (telescope=='ML1' and header['IMAGETYP'].lower()=='object' and
+            header['DEC'] <= -87 and
             key in ['A-DRA', 'A-DRASTD', 'A-DDEC', 'A-DDESTD']):
             val_range = np.array(3*val_range)
 
