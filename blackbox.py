@@ -119,7 +119,7 @@ except Exception as e:
                  'blackbox; issue with IERS file?: {}'.format(e))
 
 
-__version__ = '1.4.8'
+__version__ = '1.4.9'
 keywords_version = '1.2.2'
 
 
@@ -212,7 +212,7 @@ def run_blackbox (telescope=None, mode=None, date=None, read_path=None,
     # in google_cloud mode, do not keep general logfile; N.B.: this
     # general logfile is now created in separate scripts that submit
     # the jobs to Slurm
-    if not google_cloud:
+    if False and not google_cloud:
 
         if not isdir(get_par(set_bb.log_dir,tel)):
             os.makedirs(get_par(set_bb.log_dir,tel))
@@ -757,8 +757,8 @@ def create_masters (master_date, run_fpack=True, nproc=1):
 
 
     # for google cloud, the masters have their separate bucket
-    if master_dir[0:5] == 'gs://':
-        list_masters = [l.replace(red_dir, master_dir) for l in list_masters]
+    #if master_dir[0:5] == 'gs://':
+    list_masters = [l.replace(red_dir, master_dir) for l in list_masters]
 
 
     log.info ('list_masters: {}'.format(list_masters))
@@ -1614,7 +1614,7 @@ def blackbox_reduce (filename):
             run_qc_check (header, tel)
             # write fits
             fits_out = write_fits (fits_out, data.astype('float32'), header,
-                                   tel=tel)
+                                   tel=tel, logfile=logfile)
             # close down logging and leave
             close_log(log, logfile)
 
@@ -1694,7 +1694,7 @@ def blackbox_reduce (filename):
             run_qc_check (header, tel)
             # write fits
             fits_out = write_fits (fits_out, data.astype('float32'), header,
-                                   tel=tel)
+                                   tel=tel, logfile=logfile)
             # close down logging and leave
             close_log(log, logfile)
 
@@ -1762,7 +1762,7 @@ def blackbox_reduce (filename):
             run_qc_check (header, tel)
             # write fits
             fits_out = write_fits (fits_out, data.astype('float32'), header,
-                                   tel=tel)
+                                   tel=tel, logfile=logfile)
             # close down logging and leave
             close_log(log, logfile)
 
@@ -6718,12 +6718,17 @@ def os_corr (data, header, imgtype, xbin=1, ybin=1, data_limit=2000, tel=None):
         oscan[0:3][mask_valid[0:3]] = mean_hos[0:3][mask_valid[0:3]]
 
 
-        # CHECK!!! - test: use original subtraction of
-        # column-by-column for "spline" columns with no/few saturated
-        # pixels, defined in mask_sat_row already determined above;
-        # make sure there are sufficient values in the overscan column
-        # through mask_valid
-        mask_usemean = ~mask_sat_row & mask_valid
+        # use original subtraction of column-by-column for "spline"
+        # columns with no/few saturated pixels, defined in
+        # mask_sat_row already determined above; make sure there are
+        # sufficient values in the overscan column through mask_valid
+        #mask_usemean = ~mask_sat_row & mask_valid
+        mask_usemean = mask_valid
+        # mask_sat_row is only available for BG telescopes
+        if tel[0:2] == 'BG':
+            mask_usemean &= ~mask_sat_row
+
+
         # only for column up to idx_switch
         mask_usemean[idx_switch:] = False
         #oscan_alt = oscan.copy()
@@ -6786,6 +6791,10 @@ def os_corr (data, header, imgtype, xbin=1, ybin=1, data_limit=2000, tel=None):
 
     # reset warnings
     warnings.resetwarnings()
+
+
+    if get_par(set_zogy.timing,tel):
+        log_timing_memory (t0=t, label='in os_corr')
 
 
     return data_out
@@ -7563,7 +7572,7 @@ def sort_files(read_path, search_str, recursive=False):
 ################################################################################
 
 def write_fits (fits_out, data, header, overwrite=True, run_fpack=True,
-                run_create_jpg=True, master=False, tel=None):
+                run_create_jpg=True, master=False, tel=None, logfile=None):
 
 
     mem_use (label='in write_fits at start')
@@ -7593,6 +7602,20 @@ def write_fits (fits_out, data, header, overwrite=True, run_fpack=True,
         # create jpg
         if run_create_jpg:
             file_jpg = create_jpg (fits_out)
+
+
+        # move the log file
+        if logfile is not None:
+            dest_folder = os.path.dirname(fits_out)
+            copy_file (logfile, dest_folder+'/', move=True)
+
+            # try removing the tmp folder
+            tmp_path = os.path.dirname(logfile)
+            try:
+                os.rmdir(tmp_path)
+            except Exception as e:
+                log.warning ('could not remove tmp_path {}: {}'
+                             .format(tmp_path, e))
 
 
     else:
