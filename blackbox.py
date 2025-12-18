@@ -1755,7 +1755,7 @@ def blackbox_reduce (filename):
 
             # first add some image statistics to header
             if os_processed:
-                log.info ('data.dtype: {}'.format(data.dtype))
+                #log.info ('data.dtype: {}'.format(data.dtype))
                 get_flatstats (data, header, data_mask, tel=tel)
 
             # call [run_qc_check] to update header with any QC flags
@@ -3634,40 +3634,56 @@ def get_flatstats (data, header, data_mask, tel=None):
 
 
     # add some header keywords with the statistics
-    sec_temp = get_par(set_bb.flat_norm_sec,tel)
-    value_temp = '[{}:{},{}:{}]'.format(
-        sec_temp[0].start+1, sec_temp[0].stop+1,
-        sec_temp[1].start+1, sec_temp[1].stop+1)
+    sec_tmp = get_par(set_bb.flat_norm_sec,tel)
+    value_tmp = '[{}:{},{}:{}]'.format(
+        sec_tmp[0].start+1, sec_tmp[0].stop+1,
+        sec_tmp[1].start+1, sec_tmp[1].stop+1)
     header['STATSEC'] = (
-        value_temp, 'pre-defined statistics section [y1:y2,x1:x2]')
+        value_tmp, 'pre-defined statistics section [y1:y2,x1:x2]')
 
 
     # statistics on STATSEC
-    mask_use_temp = mask_use[sec_temp]
-    median_sec = np.nanmedian(data[sec_temp][mask_use_temp])
-    std_sec = np.nanstd(data[sec_temp][mask_use_temp])
+    mask_use_tmp = mask_use[sec_tmp]
+    median_sec = np.nanmedian(data[sec_tmp][mask_use_tmp])
+    std_sec = np.nanstd(data[sec_tmp][mask_use_tmp])
     # using masked array (slow!)
-    #median_sec = np.ma.median(data_masked[sec_temp])
-    #std_sec = np.ma.std(data_masked[sec_temp])
+    #median_sec = np.ma.median(data_masked[sec_tmp])
+    #std_sec = np.ma.std(data_masked[sec_tmp])
+
+    # check if values are finite
+    median_sec = check_finite(median_sec, 'MEDSEC', 'None')
+    std_sec = check_finite(std_sec, 'STDSEC', 'None')
+    if median_sec != 'None' and std_sec != 'None':
+        ratio_sec = std_sec/median_sec
+    else:
+        ratio_sec = 'None'
 
     header['MEDSEC'] = (median_sec, '[e-] median flat over STATSEC')
     header['STDSEC'] = (std_sec, '[e-] sigma (STD) flat over STATSEC')
-    header['RSTDSEC'] = (std_sec/median_sec, 'relative sigma (STD) flat '
-                         'over STATSEC')
+    header['RSTDSEC'] = (ratio_sec, 'relative sigma (STD) flat over STATSEC')
 
 
     # full image statistics
     index_stat = get_rand_indices(data.shape)
-    mask_use_temp = mask_use[index_stat]
-    median = np.nanmedian(data[index_stat][mask_use_temp])
-    std = np.nanstd(data[index_stat][mask_use_temp])
+    mask_use_tmp = mask_use[index_stat]
+    median = np.nanmedian(data[index_stat][mask_use_tmp])
+    std = np.nanstd(data[index_stat][mask_use_tmp])
     # masked array (slow!)
     #median = np.ma.median(data_masked[index_stat])
     #std = np.ma.std(data_masked[index_stat])
 
+    # check if values are finite
+    median = check_finite(median, 'FLATMED', 'None')
+    std = check_finite(std, 'FLATSTD', 'None')
+    if median != 'None' and std != 'None':
+        ratio_flat = std/median
+    else:
+        ratio_flat = 'None'
+
     header['FLATMED'] = (median, '[e-] median flat')
     header['FLATSTD'] = (std, '[e-] sigma (STD) flat')
-    header['FLATRSTD'] = (std/median, 'relative sigma (STD) flat')
+    header['FLATRSTD'] = (ratio_flat, 'relative sigma (STD) flat')
+
 
     # add the channel median level to the flatfield header
     chan_sec, data_sec, os_sec_hori, os_sec_vert, data_sec_red = (
@@ -3676,19 +3692,27 @@ def get_flatstats (data, header, data_mask, tel=None):
 
     for i_chan in range(nchans):
 
-        median_temp = np.nanmedian(data[data_sec_red[i_chan]])
-        header['FLATM{}'.format(i_chan+1)] = (
-            median_temp,
-            '[e-] channel {} median flat (bias-subtracted)'.format(i_chan+1))
+        med_chan = np.nanmedian(data[data_sec_red[i_chan]])
+        std_chan = np.nanstd(data[data_sec_red[i_chan]])
 
-        std_temp = np.nanstd(data[data_sec_red[i_chan]])
+        # check if values are finite
+        med_chan = check_finite(med_chan, 'FLATM{}'.format(i_chan+1), 'None')
+        std_chan = check_finite(std_chan, 'FLATS{}'.format(i_chan+1), 'None')
+        if med_chan != 'None' and std_chan != 'None':
+            ratio_chan = std_chan/med_chan
+        else:
+            ratio_chan = 'None'
+
+
+        header['FLATM{}'.format(i_chan+1)] = (
+            med_chan, '[e-] channel {} median flat (bias-subtracted)'
+            .format(i_chan+1))
+
         header['FLATS{}'.format(i_chan+1)] = (
-            std_temp,
-            '[e-] channel {} sigma (STD) flat'.format(i_chan+1))
+            std_chan, '[e-] channel {} sigma (STD) flat'.format(i_chan+1))
 
         header['FLATRS{}'.format(i_chan+1)] = (
-            std_temp/median_temp,
-            'channel {} relative sigma (STD) flat'.format(i_chan+1))
+            ratio_chan, 'channel {} relative sigma (STD) flat'.format(i_chan+1))
 
 
 
@@ -3735,12 +3759,15 @@ def get_flatstats (data, header, data_mask, tel=None):
     minimum = np.amin(mini_median[mask_cntr])
     maximum = np.amax(mini_median[mask_cntr])
     danstat = np.abs((maximum - minimum) / (maximum + minimum))
-    if not np.isfinite(danstat):
-        danstat = 'None'
+    # check if finite
+    danstat = check_finite(danstat, 'RDIF-MAX', 'None')
 
-    header['NSUBSTOT'] = (mask_cntr.size, 'number of subimages available for statistics')
-    header['NSUBS'] = (np.sum(mask_cntr), 'number of subimages used for statistics')
-    header['RDIF-MAX'] = (danstat, '(max(subs)-min(subs)) / (max(subs)+min(subs))')
+    header['NSUBSTOT'] = (mask_cntr.size,
+                          'number of subimages available for statistics')
+    header['NSUBS'] = (np.sum(mask_cntr),
+                       'number of subimages used for statistics')
+    header['RDIF-MAX'] = (danstat,
+                          '(max(subs)-min(subs)) / (max(subs)+min(subs))')
 
     mask_nonzero = (mini_median[mask_cntr] != 0)
     if np.sum(mask_nonzero) != 0:
@@ -3757,6 +3784,21 @@ def get_flatstats (data, header, data_mask, tel=None):
 
     return
 
+
+################################################################################
+
+def check_finite(value, label=None, value_replace=None):
+
+    if not np.finite(value):
+        if label is not None:
+            label_tmp = 'non-finite value for {}'.format(label)
+        if value_replace is not None:
+            value = value_replace
+            label_tmp += '; adopting {}'.format(value_replace)
+
+        log.warning (label_tmp)
+
+    return value
 
 ################################################################################
 
