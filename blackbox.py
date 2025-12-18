@@ -119,7 +119,7 @@ except Exception as e:
                  'blackbox; issue with IERS file?: {}'.format(e))
 
 
-__version__ = '1.4.9'
+__version__ = '1.5.0'
 keywords_version = '1.2.2'
 
 
