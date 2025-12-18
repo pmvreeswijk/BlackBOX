@@ -60,19 +60,20 @@ keep_tmp = False
 
 
 # switch to save thumbnails in transient catalog
-save_thumbnails = {'ML1': True, 'BG': False}
+save_thumbnails = {'ML1': False, 'BG': False}
 
 # switch to save thumbnails as separate pngs in designated folder/bucket
-save_thumbnails_pngs = {'ML1': False, 'BG': True}
+save_thumbnails_pngs = {'ML1': True, 'BG': True}
 
 
 # name of telescope data base directory with the different
 # subdirectories defined further below
-run_dir_base = {'ML1': '/idia/projects/meerlicht', 'BG': os.environ['HOME']}
+run_dir_base = {'ML1': '/idia/projects/meerlicht/data', 'BG': os.environ['HOME']}
+#run_dir_base = {'ML1': '/scratch3/users/pmv/data', 'BG': os.environ['HOME']}
 
 # temporary directory where data is reduced; ideally this is on a disk
 # with fast read/write speed; for ML1, this is the same as run_dir_base
-tmp_dir_base = {'ML1': run_dir_base['ML1']}
+tmp_dir_base = {'ML1': '{}/tmp'.format(run_dir_base['ML1'])}
 # for BlackGEM, it depends on whether tmp data is kept for inspection
 # or not
 if keep_tmp:
@@ -85,7 +86,7 @@ else:
 # 'BG4'] for the different paths to the raw, red, log, ref and tmp
 # directories, which can be used in [blackbox] to extract the correct
 # path for a given telescope
-run_dir = {}; raw_dir={}; red_dir={}; log_dir={}; ref_dir={}; tmp_dir={}
+raw_dir={}; red_dir={}; ref_dir={}; tmp_dir={}
 master_dir = {}; hdrtables_dir = {}; thumbnails_dir={}
 
 
@@ -95,33 +96,29 @@ proc_env = 'staging'
 
 # MeerLICHT directory structure
 # -----------------------------
-proc_env_dict = {'test': '/test_paulv',
-                 'staging': '/staging_paulv',
+proc_env_dict = {'test': '/test-env',
+                 'staging': '/staging-env',
                  'production': ''}
 proc_env_subdir = proc_env_dict[proc_env]
 
 
 for tel in ['ML1']:
 
-    # raw folder does not depend on the processing environment
-    run_dir[tel] = '{}/{}'.format(run_dir_base[tel], tel)
-    raw_dir[tel] = '{}/raw'.format(run_dir[tel])
+    # raw bucket does not depend on the processing environment
+    raw_dir[tel] = '/idia/projects/meerlicht/ML1/raw' #point to original raw dir
+    # neither does the tmp folder
+    tmp_dir[tel] = '{}/{}'.format(tmp_dir_base[tel], tel)
+
 
     # the following folders do depend on processing environment
-    red_dir[tel] = '{}{}/red'.format(run_dir[tel], proc_env_subdir)
-    log_dir[tel] = '{}{}/log'.format(run_dir[tel], proc_env_subdir)
-    ref_dir[tel] = '{}{}/ref'.format(run_dir[tel], proc_env_subdir)
-    tmp_dir[tel] = '{}/{}{}/tmp'.format(tmp_dir_base[tel], tel, proc_env_subdir)
-    hdrtables_dir[tel] = '{}/Headers{}'.format(run_dir_base[tel],
-                                               proc_env_subdir)
-    thumbnails_dir[tel] = '{}{}/thumbnails'.format(run_dir[tel], proc_env_subdir)
-
-
-    if proc_env == 'test':
-        # for the test environment, use the existing masters
-        master_dir[tel] = '{}/red'.format(run_dir[tel])
-    else:
-        master_dir[tel] = red_dir[tel]
+    red_dir[tel] = '{}{}/red/{}'.format(run_dir_base[tel], proc_env_subdir, tel)
+    ref_dir[tel] = '{}{}/ref'.format(run_dir_base[tel], proc_env_subdir)
+    hdrtables_dir[tel] = '{}{}/hdrtables/{}'.format(run_dir_base[tel],
+                                                    proc_env_subdir, tel)
+    thumbnails_dir[tel] = '{}{}/thumbnails/{}'.format(run_dir_base[tel],
+                                                      proc_env_subdir, tel)
+    master_dir[tel] = '{}{}/masters/{}'.format(run_dir_base[tel],
+                                               proc_env_subdir, tel)
 
 
 
