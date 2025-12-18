@@ -3789,7 +3789,7 @@ def get_flatstats (data, header, data_mask, tel=None):
 
 def check_finite(value, label=None, value_replace=None):
 
-    if not np.finite(value):
+    if not np.isfinite(value):
         if label is not None:
             label_tmp = 'non-finite value for {}'.format(label)
         if value_replace is not None:
