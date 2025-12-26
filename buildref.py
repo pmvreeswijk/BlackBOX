@@ -3868,7 +3868,7 @@ if __name__ == "__main__":
                         help='list of one or more (comma-separated) binary fits '
                         'tables, containing header keywords MJD-OBS, OBJECT, '
                         'FILTER, QC-FLAG, RA-CNTR, DEC-CNTR, S-SEEING, LIMMAG '
-                        'and S-BKGSTD of the possible images to be included; '
+                        'S-BKGSTD, ISTRACKI of the possible images to be included; '
                         'if left to default of None, the catalog header tables '
                         'available for ML and BG will be used')
 
