@@ -1062,14 +1062,6 @@ def blackbox_reduce (filename):
     raw_path, __ = get_path(header['DATE-OBS'], 'read')
 
 
-    # check quality control
-    qc_flag = run_qc_check (header, tel)
-    if qc_flag=='red':
-        log.error ('red QC flag in image {}; returning without making '
-                   'dummy catalogs'.format(filename))
-        return None
-
-
     # if 'IMAGETYP' keyword not one of those specified in input parameter
     # [imgtypes] or complete set: ['bias', 'dark', 'flat', 'object']
     if types is not None:
@@ -1092,6 +1084,18 @@ def blackbox_reduce (filename):
         log.exception ('exception was raised during [set_header] of image {}: '
                        '{}; returning without making dummy catalogs'
                        .format(filename, e))
+        return None
+
+
+    # check quality control; moved this check from below determination
+    # of raw_path (see above) to here, because ML4 raw images have
+    # value 'True' for ISTRACKI, which needs to be converted to
+    # boolean T in header, otherwise it is not recognized as such in
+    # qc check
+    qc_flag = run_qc_check (header, tel)
+    if qc_flag=='red':
+        log.error ('red QC flag in image {}; returning without making '
+                   'dummy catalogs'.format(filename))
         return None
 
 
