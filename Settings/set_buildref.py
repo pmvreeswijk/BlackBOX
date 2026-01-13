@@ -102,9 +102,9 @@ limmag_target = {'u': 30.0, 'g': 30.0, 'q': 30.0, 'r': 30.0, 'i': 30.0, 'z': 30.
 nimages_min = 3
 
 # maximum number of images used, after the date/qc-flag/seeing cuts
-# and sorting the list by LIMMAG; if input parameter deep is True,
-# this maximum is disregarded
-#nimages_max = 25
+# and sorting the list by LIMMAG; if input parameter deep is True or
+# this parameter is set to None, this maximum is disregarded
+nimages_max = 40 # for disk space of 100GB, 40 is about the maximum
 
 # minimum required improvement in projected limiting magnitude by
 # adding individual image; if less than this, image will not be used;
