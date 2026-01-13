@@ -58,7 +58,7 @@ import qc
 from google.cloud import storage
 
 
-__version__ = '0.9.9'
+__version__ = '0.9.10'
 
 
 ################################################################################
@@ -434,7 +434,7 @@ def buildref (telescope=None, fits_hdrtable_list=None, date_start=None,
     nmin = get_par(set_br.nimages_min,tel)
 
     # maximum number of images to be used
-    #nmax = get_par(set_br.nimages_max,tel)
+    nmax = get_par(set_br.nimages_max,tel)
 
 
     # loop fields
@@ -673,13 +673,6 @@ def buildref (telescope=None, fits_hdrtable_list=None, date_start=None,
             # [nuse] should not be larger than number of images available
             nuse = min (nuse, nfiles)
 
-            # if deep is not True, also limit number of images to
-            # nimages_max defined in settings file
-            #if not deep and nuse > nmax:
-            #    log.warning ('limiting number of images to {} defined in '
-            #                 'set_br.nimages_max'.format(nmax))
-            #    nuse = min(nuse, nmax)
-
 
             # check at which point adding another images does not
             # improve the projected limiting magnitude sufficiently
@@ -709,6 +702,15 @@ def buildref (telescope=None, fits_hdrtable_list=None, date_start=None,
                                  'by set_br.dlimmag_proj_min)'
                                  .format(nlim, dlimmag_proj_min))
                     nuse = min(nlim, nuse)
+
+
+                # if deep is not True, also limit number of images to
+                # nimages_max defined in settings file
+                if nmax is not None and nuse > nmax:
+                    log.warning ('limiting number of images to {} defined in '
+                                 'set_br.nimages_max'.format(nmax))
+                    nuse = min(nuse, nmax)
+
 
 
 
@@ -801,14 +803,14 @@ def buildref (telescope=None, fits_hdrtable_list=None, date_start=None,
         # arrange each process to call [prep_ref] to prepare the
         # reference image for a particular field and filter
         # combination, using the [imcombine] function
-        result = zogy.pool_func_lists (prep_ref, list_of_imagelists, obj_list,
-                                       filt_list, radec_list, imagesize_list,
-                                       nfiles_list, limmag_proj_list,
-                                       combine_type_list, A_swarp_list,
-                                       nsigma_clip_list,
-                                       [skip_zogy] * len(obj_list),
-                                       [dry_run] * len(obj_list),
-                                       nproc=nproc)
+        zogy.pool_func_lists (prep_ref, list_of_imagelists, obj_list,
+                              filt_list, radec_list, imagesize_list,
+                              nfiles_list, limmag_proj_list,
+                              combine_type_list, A_swarp_list,
+                              nsigma_clip_list,
+                              [skip_zogy] * len(obj_list),
+                              [dry_run] * len(obj_list),
+                              nproc=nproc)
 
 
 
@@ -818,8 +820,7 @@ def buildref (telescope=None, fits_hdrtable_list=None, date_start=None,
         log.info ('preparing color figures')
         # also prepare color figures
         try:
-            result = zogy.pool_func (prep_colfig, objs_uniq, filters_colfig,
-                                     nproc=nproc)
+            zogy.pool_func (prep_colfig, objs_uniq, filters_colfig, nproc=nproc)
         except Exception as e:
             #log.exception (traceback.format_exc())
             log.exception ('exception was raised during [pool_func]: {}'
@@ -1286,9 +1287,8 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
 
 
                     # now move [ref_2keep] to the reference directory
-                    result = bb.copy_files2keep(tmp_base, ref_base,
-                                                get_par(set_bb.ref_2keep,tel),
-                                                move=False)
+                    bb.copy_files2keep(tmp_base, ref_base,
+                                       get_par(set_bb.ref_2keep,tel), move=False)
 
                 else:
                     log.info ('improvement in limiting magnitude of ref image'
@@ -1301,9 +1301,8 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
             else:
 
                 # move [ref_2keep] to the reference directory
-                result = bb.copy_files2keep(tmp_base, ref_base,
-                                            get_par(set_bb.ref_2keep,tel),
-                                            move=False)
+                bb.copy_files2keep(tmp_base, ref_base,
+                                   get_par(set_bb.ref_2keep,tel), move=False)
 
 
 
@@ -1438,7 +1437,7 @@ def imcombine_mp (field_ID, imagelist, fits_out, combine_type, filt,
     if swarp_cfg is None:
         swarp_cfg = tmpdir+'/swarp.config'
         cmd = 'swarp -d > {}'.format(swarp_cfg)
-        result = subprocess.run(cmd, shell=True)
+        subprocess.run(cmd, shell=True)
     else:
         if not os.path.isfile(swarp_cfg):
             raise IOError ('file {} does not exist'.format(swarp_cfg))
@@ -1560,6 +1559,7 @@ def imcombine_mp (field_ID, imagelist, fits_out, combine_type, filt,
 
 
         except Exception as e:
+            imtable['xsize'][idx] = 0
             log.exception('exception was raised when reading header of {}\n'
                           'not using it in image combination: {}'
                           .format(image, e))
@@ -1750,7 +1750,7 @@ def imcombine_mp (field_ID, imagelist, fits_out, combine_type, filt,
                 # images in the tmp folder
                 #clipped2mask_orig (clip_logname, imagelist_tmp, nsigma_clip, fits_out)
                 clipped2mask_mp (clip_logname, imagelist_tmp, nsigma_clip, fits_out,
-                                 nthreads=nthreads)
+                                 nthreads=max(nthreads//2,1))
 
 
                 # for the 2nd pass, use the WEIGHTED combination, where
@@ -1766,9 +1766,8 @@ def imcombine_mp (field_ID, imagelist, fits_out, combine_type, filt,
         cmd = list(itertools.chain.from_iterable(list(cmd_dict.items())))
         cmd_str = ' '.join(cmd)
         log.info ('creating combined image with SWarp:\n{}'.format(cmd_str))
-        result = subprocess.call(cmd)
-
-
+        zogy.mem_use ('before npass={} creation of combined image'.format(npass))
+        subprocess.call(cmd)
         zogy.mem_use ('after npass={} creation of combined image'.format(npass))
 
 
@@ -1979,7 +1978,7 @@ def imcombine_mp (field_ID, imagelist, fits_out, combine_type, filt,
         cmd = list(itertools.chain.from_iterable(list(cmd_dict.items())))
         cmd_str = ' '.join(cmd)
         log.info ('creating MIN image with SWarp:\n{}'.format(cmd_str))
-        result = subprocess.call(cmd)
+        subprocess.call(cmd)
 
         # read minimum combination
         data_min = zogy.read_hdulist(fits_out_min, get_header=False,
@@ -2012,7 +2011,7 @@ def imcombine_mp (field_ID, imagelist, fits_out, combine_type, filt,
         cmd = list(itertools.chain.from_iterable(list(cmd_dict.items())))
         cmd_str = ' '.join(cmd)
         log.info ('creating OR mask with SWarp:\n{}'.format(cmd_str))
-        result = subprocess.call(cmd)
+        subprocess.call(cmd)
 
 
         # MIN mask
@@ -2025,7 +2024,7 @@ def imcombine_mp (field_ID, imagelist, fits_out, combine_type, filt,
         cmd = list(itertools.chain.from_iterable(list(cmd_dict.items())))
         cmd_str = ' '.join(cmd)
         log.info ('creating MIN mask with SWarp:\n{}'.format(cmd_str))
-        result = subprocess.call(cmd)
+        subprocess.call(cmd)
 
 
 
@@ -2072,7 +2071,7 @@ def imcombine_mp (field_ID, imagelist, fits_out, combine_type, filt,
 
                 if not os.path.isfile(image_remap):
                     try:
-                        result = zogy.run_remap (
+                        zogy.run_remap (
                             refimage, image, image_remap,
                             (image_size,image_size), config=swarp_cfg,
                             resample='N', resample_dir=tmpdir,
@@ -2103,7 +2102,7 @@ def imcombine_mp (field_ID, imagelist, fits_out, combine_type, filt,
             if not os.path.isfile(image_mask_remap):
 
                 try:
-                    result = zogy.run_remap (
+                    zogy.run_remap (
                         refimage, image_mask, image_mask_remap,
                         (image_size,image_size), config=swarp_cfg,
                         resampling_type='NEAREST', resample_dir=tmpdir,
@@ -2462,7 +2461,7 @@ def prep_inputimages (idx, imtable, scale_zps, back_type, tmpdir, keep_tmp,
         imtype = 'new'
         #sex_params = get_par(set_zogy.sex_par,tel)
         try:
-            result = zogy.run_sextractor(
+            zogy.run_sextractor(
                 image_tmp, sexcat, sex_config,
                 sex_params, pixscale, header, fit_psf=False,
                 return_fwhm_elong=False, fraction=1.0, fwhm=fwhm,
@@ -3444,7 +3443,8 @@ def clipped2mask_orig (clip_logname, imagelist, nsigma_clip, fits_ref):
 
     # read clip_logname file created by SWarp
     table = ascii.read(clip_logname, format='fast_no_header', data_start=0,
-                       names=['nfile', 'x', 'y', 'nsigma'])
+                       names=('nfile', 'x', 'y', 'nsigma'),
+                       dtype=(np.uint16, np.uint16, np.uint16, 'f4'))
 
     # keep only the entries above minimum sigma
     mask_keep = np.abs(table['nsigma']) > min(fsigma)
@@ -3488,8 +3488,8 @@ def clipped2mask_orig (clip_logname, imagelist, nsigma_clip, fits_ref):
         wcs_im = WCS(hdr_im)
         x_im, y_im = wcs_im.all_world2pix(ra_ref[mask_im], dec_ref[mask_im], 1)
         # update table_im coordinates with integers of x_im and y_im
-        table_im['x'] = (x_im+0.5).astype(int)
-        table_im['y'] = (y_im+0.5).astype(int)
+        table_im['x'] = (x_im+0.5).astype(np.uint16)
+        table_im['y'] = (y_im+0.5).astype(np.uint16)
 
         # discard objects beyond edges, if any
         mask_keep = ((table_im['x'] >= 1) & (table_im['x'] <= xsize) &
@@ -3500,6 +3500,7 @@ def clipped2mask_orig (clip_logname, imagelist, nsigma_clip, fits_ref):
         # use [pass_filters] to convert [table_im] with x, y, nsigma
         # into a boolean mask in which pixels to be masked are True
         t0 = time.time()
+        log.info ('running pass_filters on {}'.format(image))
         mask_im = pass_filters (table_im, fsize, fsigma, fmax, (ysize, xsize))
 
 
@@ -3515,11 +3516,12 @@ def clipped2mask_orig (clip_logname, imagelist, nsigma_clip, fits_ref):
                 val = mask_dict[key]
                 mask_sat |= (data_mask & val != 0)
 
+
         # indices of [mask_sat]=True pixels
         (y_sat, x_sat) = np.nonzero(mask_sat)
         # indices of [mask_im]=True pixels
         (y_im, x_im) = np.nonzero(mask_im)
-        dist2_limit = (5*header['PSF-FWHM'])**2
+        dist2_limit = (5*header['S-FWHM'])**2
         for i in range(np.sum(mask_sat)):
             dist2 = (x_im - x_sat[i])**2 + (y_im - y_sat[i])**2
             mask_dist = (dist2 <= dist2_limit)
@@ -3577,8 +3579,13 @@ def clipped2mask_mp (clip_logname, imagelist, nsigma_clip, fits_ref, nthreads=1)
 
 
     # read clip_logname file created by SWarp
-    table = ascii.read(clip_logname, format='fast_no_header', data_start=0,
-                       names=['nfile', 'x', 'y', 'nsigma'])
+    table = ascii.read(clip_logname, format='fast_no_header', guess=False,
+                       data_start=0, names=('nfile', 'x', 'y', 'nsigma'))
+
+    # update dtypes
+    table['nsigma'] = table['nsigma'].value.astype('float32')
+    for col in ['nfile', 'x', 'y']:
+        table[col] = table[col].value.astype(np.uint16)
 
 
     # keep only the entries above minimum sigma
@@ -3593,6 +3600,8 @@ def clipped2mask_mp (clip_logname, imagelist, nsigma_clip, fits_ref, nthreads=1)
     # convert pixel coordinates to RA,DEC
     wcs_ref = WCS(hdr_ref)
     ra_ref, dec_ref = wcs_ref.all_pix2world(table['x'], table['y'], 1)
+    ra_ref = ra_ref.astype('float32')
+    dec_ref = dec_ref.astype('float32')
 
 
     # loop imagelist; that list is assumed to correspond to the
@@ -3607,9 +3616,9 @@ def clipped2mask_mp (clip_logname, imagelist, nsigma_clip, fits_ref, nthreads=1)
 
     # multiprocess
     mask_dict = get_par(set_zogy.mask_value,tel)
-    result = zogy.pool_func (clipped2mask_loop, range(nimages), imagelist, table,
-                             ra_ref, dec_ref, xsize, ysize, fsize, fsigma, fmax,
-                             mask_dict, header, nproc=nthreads)
+    zogy.pool_func (clipped2mask_loop, range(nimages), imagelist, table,
+                    ra_ref, dec_ref, xsize, ysize, fsize, fsigma, fmax,
+                    mask_dict, header, nproc=nthreads)
 
 
     return
@@ -3628,6 +3637,7 @@ def clipped2mask_loop (nimage, imagelist, table, ra_ref, dec_ref, xsize, ysize,
 
     # if empty, continue with next image
     if len(table_im)==0:
+        log.warning ('table_im in clipped2mask_loop is empty')
         return
 
 
@@ -3641,8 +3651,8 @@ def clipped2mask_loop (nimage, imagelist, table, ra_ref, dec_ref, xsize, ysize,
     wcs_im = WCS(hdr_im)
     x_im, y_im = wcs_im.all_world2pix(ra_ref[mask_im], dec_ref[mask_im], 1)
     # update table_im coordinates with integers of x_im and y_im
-    table_im['x'] = (x_im+0.5).astype(int)
-    table_im['y'] = (y_im+0.5).astype(int)
+    table_im['x'] = (x_im+0.5).astype(np.uint16)
+    table_im['y'] = (y_im+0.5).astype(np.uint16)
 
 
     # discard objects beyond edges, if any
@@ -3654,6 +3664,7 @@ def clipped2mask_loop (nimage, imagelist, table, ra_ref, dec_ref, xsize, ysize,
     # use [pass_filters] to convert [table_im] with x, y, nsigma
     # into a boolean mask in which pixels to be masked are True
     t0 = time.time()
+    log.info ('running pass_filters on {}'.format(image))
     mask_im = pass_filters (table_im, fsize, fsigma, fmax, (ysize, xsize))
 
 
@@ -3669,12 +3680,14 @@ def clipped2mask_loop (nimage, imagelist, table, ra_ref, dec_ref, xsize, ysize,
             mask_sat |= (data_mask & val != 0)
 
 
-
     # indices of [mask_sat]=True pixels
     (y_sat, x_sat) = np.nonzero(mask_sat)
+
     # indices of [mask_im]=True pixels
     (y_im, x_im) = np.nonzero(mask_im)
-    dist2_limit = (5*header['PSF-FWHM'])**2
+
+
+    dist2_limit = (5*header['S-FWHM'])**2
     for i in range(np.sum(mask_sat)):
         dist2 = (x_im - x_sat[i])**2 + (y_im - y_sat[i])**2
         mask_dist = (dist2 <= dist2_limit)
