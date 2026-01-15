@@ -1750,7 +1750,8 @@ def imcombine_mp (field_ID, imagelist, fits_out, combine_type, filt,
                 # images in the tmp folder
                 #clipped2mask_orig (clip_logname, imagelist_tmp, nsigma_clip, fits_out)
                 clipped2mask_mp (clip_logname, imagelist_tmp, nsigma_clip, fits_out,
-                                 nthreads=max(nthreads//2,1))
+                                 #nthreads=max(nthreads//2,1))
+                                 nthreads=nthreads)
 
 
                 # for the 2nd pass, use the WEIGHTED combination, where
