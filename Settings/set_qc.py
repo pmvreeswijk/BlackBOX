@@ -275,7 +275,7 @@ qc_range = {
         # SExtractor
         'S-NOBJ'  : {'default':'None', 'val_type': 'skip',    'val_range': [ (4e3,1e7), (3e3,1e7), (1e3,1e7) ], 'key_type': 'full', 'pos': True , 'comment': 'number of objects detected by SExtractor'},
         'NOBJECTS': {'default':'None', 'val_type': 'min_max', 'val_range': [ (4e3,1e7), (1e3,1e7), (1e2,1e7) ], 'key_type': 'full', 'pos': True , 'comment': 'number of >= [NSIGMA]-sigma objects'},
-        'S-SEEING': {'default':'None', 'val_type': 'min_max', 'val_range': [ (1.5,4), (1,5), (0.5,7) ],         'key_type': 'full', 'pos': True , 'comment': '[arcsec] SExtractor seeing estimate'},
+        'S-SEEING': {'default':'None', 'val_type': 'min_max', 'val_range': [ (0.5,3), (0.5,5), (0.5,7) ],         'key_type': 'full', 'pos': True , 'comment': '[arcsec] SExtractor seeing estimate'},
         'S-SEESTD': {'default':'None', 'val_type': 'skip',    'val_range':  {'u': [ (0.1,0.3) ],
                                                                              'g': [ (0.1,0.1) ],
                                                                              'q': [ (0.1,0.1) ],
