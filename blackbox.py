@@ -5481,7 +5481,7 @@ def check_header1 (header, filename):
 
 
     # check if filename contains 'test'
-    if False:
+    if True:
         if 'test' in filename.lower():
             log.warning ('filename contains string \'test\'; '
                          'not processing {}'.format(filename))
