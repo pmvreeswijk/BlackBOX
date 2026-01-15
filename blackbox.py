@@ -2945,7 +2945,7 @@ def verify_header (filename, htypes=None):
         'WINDDIR':  {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':True},
         'SITELAT':  {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':True},
         'SITELONG': {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':True},
-        'ELEVATIO': {'htype':'raw', 'dtype':float, 'DB':True,  'None_OK':True},
+        'ELEVATIO': {'htype':'raw', 'dtype':int,   'DB':True,  'None_OK':True},
         #'WEATIME':  {'htype':'raw', 'dtype':str,   'DB':False, 'None_OK':True},
         'FILTER':   {'htype':'raw', 'dtype':str,   'DB':True,  'None_OK':False},
         #'FILTERID': {'htype':'raw', 'dtype':str,   'DB':False, 'None_OK':True},
@@ -5812,7 +5812,7 @@ def set_header(header, filename, silent=False):
     # SITELONG, SITELAT and ELEVATIO)
     lat = get_par(set_zogy.obs_lat,tel)
     lon = get_par(set_zogy.obs_lon,tel)
-    height = get_par(set_zogy.obs_height,tel)
+    height = int(get_par(set_zogy.obs_height,tel))
 
 
     # this keyword is added later on by Astrometry.net
