@@ -5,7 +5,7 @@ build-backend = 'setuptools.build_meta'
 
 [project]
 name = 'blackbox'
-version = '1.4.6'
+version = '1.5.0'
 #dynamic = ['version']
 authors = [
   {name = 'Paul Vreeswijk', email = 'pmvreeswijk@gmail.com'},
@@ -17,13 +17,14 @@ readme = 'README.md'
 requires-python = '>=3.6'
 license = 'MIT'
 dependencies = [
-	#'numpy', 'astropy', 'matplotlib', 'scipy', 'pyfftw'
-	#'lmfit', 'sip_tpv', 'scikit-image',
+        #'numpy', 'astropy', 'matplotlib', 'scipy', 'psutil',
+	#'pyfftw', 'lmfit', 'sip_tpv', 'scikit-image', 'healpy',
+	#'tensorflow-cpu', 'protobuf', 'fitsio', 'fsspec', 'gcsfs'
         # dependencies above: zogy
         # dependencies below: blackbox
         'watchdog', 'astroscrappy', 'acstools', 'ephem', 'memory-profiler',
         'astroplan', 'google-cloud-storage', 'google-cloud-pubsub', 'Pillow',
-        'google-cloud-logging', 'protobuf<6']
+        'google-cloud-logging']
 
 [project.urls]
 Homepage = 'https://github.com/pmvreeswijk/BlackBOX'
