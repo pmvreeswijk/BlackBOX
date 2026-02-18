@@ -298,13 +298,15 @@ def buildref (telescope=None, fits_hdrtable_list=None, date_start=None,
 
             # define list of filters if 2nd column is defined
             if len(cols)>1:
-                filter_list = list(table_ID[cols[1]])
+                filter_list = list(table_ID[cols[1]].astype(str))
+                log.info ('{}'.format(filter_list))
 
         else:
 
             # comma-split input string field_IDs into list; if no comma
             # is present, the list will contain a single entry
             field_ID_list = field_IDs.split(',')
+
 
 
         # check that the leading zeros are present for field IDs with
@@ -329,6 +331,11 @@ def buildref (telescope=None, fits_hdrtable_list=None, date_start=None,
         table = table[mask]
         log.info ('{} files left (FIELD_ID cut)'.format(len(table)))
 
+
+
+    # make sure filters are strings and not byte strings (popped up
+    # around Feb 2026 while using MLBG_v170staging.sif)
+    table['FILTER'] = table['FILTER'].astype(str)
 
 
     # if filter(s) is specified, select only images with filter(s)
@@ -369,10 +376,24 @@ def buildref (telescope=None, fits_hdrtable_list=None, date_start=None,
     # if max_seeing is specified, select only images with the same or
     # better seeing
     if max_seeing is not None:
+
+        # for all filters
         mask = (table['S-SEEING'] <= max_seeing)
         table = table[mask]
-        log.info ('{} files left (SEEING cut)'.format(len(table)))
 
+    elif tel[0:2] in ['ML', 'BG']:
+
+        # adopt seeing_max_filt dictionary from settings file
+        log.warning ('input parameter seeing_max parameter is None; adopting '
+                     'seeing_max_filt parameter from set_buildref.py settings '
+                     'file instead for MeerLICHT/BlackGEM:')
+        seeing_max_filt = get_par(set_br.seeing_max_filt,tel)
+        log.info ('{}'.format(seeing_max_filt))
+        mask = [table['S-SEEING'][i] <= seeing_max_filt[filt]
+                for i,filt in enumerate(table['FILTER'])]
+        table = table[mask]
+
+    log.info ('{} files left (SEEING cut)'.format(len(table)))
 
 
     # ensure that telescope is tracking
@@ -512,6 +533,7 @@ def buildref (telescope=None, fits_hdrtable_list=None, date_start=None,
             filts_toloop = filter_list[n_obj]
         else:
             filts_toloop = filts_uniq
+
 
 
         # loop filters
