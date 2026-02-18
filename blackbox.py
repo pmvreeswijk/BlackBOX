@@ -119,7 +119,7 @@ except Exception as e:
                  'blackbox; issue with IERS file?: {}'.format(e))
 
 
-__version__ = '1.5.0'
+__version__ = '1.5.1'
 keywords_version = '1.2.2'
 
 
@@ -1090,8 +1090,8 @@ def blackbox_reduce (filename):
     # check quality control; moved this check from below determination
     # of raw_path (see above) to here, because ML4 raw images have
     # value 'True' for ISTRACKI, which needs to be converted to
-    # boolean T in header, otherwise it is not recognized as such in
-    # qc check
+    # boolean T in header (done inside set_header()), otherwise it is
+    # not recognized as such in qc check
     qc_flag = run_qc_check (header, tel)
     if qc_flag=='red':
         log.error ('red QC flag in image {}; returning without making '
@@ -1193,62 +1193,72 @@ def blackbox_reduce (filename):
         # can use [list_files] to find [ref_fits_in] for both
         # ilifu/Slurm and google cloud, despite different names
         # (object or field ID was included in ref_path above):
-        # [ref_path]/ML1_[filt]_red.fits.fz - ilifu/Slurm
+        #
+        # [ref_path]/ML1_[filt]_red.fits.fz - ilifu/Slurm;
+        # updated with symbolic link to old filenames (July 2023):
+        # [ref_path]/ML1_[obj]_[filt]_[date]_red.fits.fz
+        #
         # and
         # [ref_path]/ML1_[obj]_[filt]_[date]_red.fits.fz - google
         # [ref_path]/BG_[obj]_[filt]_[date]_red.fits.fz - google
 
         # do not use telescope name here, to allow ML references to be
         # used for BG
-        list_ref = list_files(ref_path, search_str='_{}_'.format(filt),
-                              end_str='_red.fits.fz')
+        list_ref = list_files(ref_path, search_str='_{}_{}_'
+                              .format(obj, filt), end_str='_red.fits.fz')
 
 
         # check if there is a reference image at all
-        if len(list_ref)==0:
+        nrefs = len(list_ref)
+        if nrefs==0:
 
             ref_present = False
             ref_fits_in = None
 
         else:
 
-            # there are three possibilities for reference images:
-            # (1) ML or BG reference image is telescope-specific, so
-            #     built only from images taken with a single telescope
-            #     and its name starts with [tel]_; this is always the
-            #     case for ML1 and for BG this needs to be set with
-            #     input parameter mixBGs=False in buildref
-            # (2) for BG: reference image starting with BG_ is
-            #     typically built from a mix of BG telescopes
-            #     (although it could also be from one single telescope
-            #     if only those images were available or useful); this
-            #     mixing of BGs is the default option in buildref for BG
-            # (3) for BG: if no BG reference image available, use the
-            #     one from ML
-
-            # mask to check if any image in [list_ref] contains [tel]
-            mask_tel = np.array([tel in it.split('/')[-1] for it in list_ref])
-
-            # mask to check if any image in [list_ref] contains BG_
-            mask_BG = np.array(['BG_' in it.split('/')[-1] for it in list_ref])
-
-            if np.sum(mask_tel) > 0:
-                # use option (1)
-                list_ref = list(np.array(list_ref)[mask_tel])
-            elif np.sum(mask_BG) > 0:
-                # use option (2)
-                list_ref = list(np.array(list_ref)[mask_BG])
-
-
-            # sort the ones left in time and use the most recent one
-            # (there should be only 1 left, but just in case)
-
-            # !!!CHECK!!! N.B.: for ML: if the old ref image with name
-            # ML1_[filt]_red.fits.fz is still present, that will be
-            # picked if it is mixed with ref images with the new name
-            # ML1_[obj]_[filt]_[data]_red.fits.fz
             ref_present = True
-            ref_fits_in = sorted(list_ref)[-1].replace('.fz','')
+
+            # if there is a single ref image, use that one
+            if nrefs==1:
+
+                ref_fits_in = list_ref[0].replace('.fz','')
+
+            elif nrefs > 1:
+
+                # in case of multiple ref images, select the deepest
+                # one according to the LIMMAG header keyword
+                log.info ('available reference images: {}'.format(list_ref))
+
+                try:
+
+                    limmags_ref = np.zeros(nrefs)
+                    for i, fits_tmp in enumerate(list_ref):
+                        hdr_tmp = read_hdulist(fits_tmp, get_data=False,
+                                               get_header=True)
+                        if 'LIMMAG' in hdr_tmp:
+                            limmags_ref[i] = hdr_tmp['LIMMAG']
+                        else:
+                            log.warning('LIMMAG keyword not present in header '
+                                        'of {}'.format(fits_tmp))
+
+                    if np.all(limmags_ref==0):
+                        log.error('limiting magnitudes of available reference '
+                                  'images for field {} in filter {} are all '
+                                  'zero; reverting to using most recent one '
+                                  'according to date in the filename'
+                                  .format(obj, filt))
+                        raise
+
+                    else:
+                        idx = np.argmax(limmags_ref)
+                        ref_fits_in = list_ref[idx].replace('.fz','')
+
+                except:
+
+                    # instead of deepest, pick the most recent one
+                    ref_fits_in = sorted(list_ref)[-1].replace('.fz','')
+
 
 
             # check if the image being processed is not used as the
