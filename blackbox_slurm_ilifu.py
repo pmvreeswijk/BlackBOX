@@ -494,7 +494,7 @@ def slurm_process (python_cmdstr, nthreads, runtime, jobname, jobnight,
             f.write ('/software/common/singularity/3.9.1/bin/singularity exec '
                      '--bind /idia/projects/meerlicht '
                      '--env MLBG_CALDIR={} '
-                     '/idia/projects/meerlicht/Containers/ML_latest.sif {}\n'
+                     '/idia/projects/meerlicht/Containers/MLBG_latest.sif {}\n'
                      .format(cal_dir, python_cmdstr))
             f.write ('\n')
 
