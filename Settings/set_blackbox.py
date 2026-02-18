@@ -91,7 +91,7 @@ master_dir = {}; hdrtables_dir = {}; thumbnails_dir={}
 
 
 # ML/BG processing environment: 'test', 'staging', 'production'
-proc_env = 'staging'
+proc_env = 'production'
 
 
 # MeerLICHT directory structure
