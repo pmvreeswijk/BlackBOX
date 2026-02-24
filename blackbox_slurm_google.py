@@ -257,13 +257,6 @@ def run_blackbox_slurm (date=None, telescope=None, mode='night',
 
 
 
-    # time stamp for transient catalog conversion
-    t_2v2 = time.time()
-    # initialize list of transient catalogs that have been converted
-    trans_2v2_done = []
-    # iterator
-    i_2v2 = 0
-
 
     # keep monitoring queue - which is being filled with new files
     # detected by subscriber - as long as it is nighttime or the queue
@@ -322,22 +315,22 @@ def run_blackbox_slurm (date=None, telescope=None, mode='night',
                 # use different partitions for bias, flats and object images
                 if 'bias' in filename.lower() or 'dark' in filename.lower():
                     #partition = 'p1gb4t'
-                    #partition = 'p1gb8'
-                    # CHECK!!! - for the moment gb16 is required to make jpgs
-                    partition = 'p2gb16'
+                    partition = 'p1gb8'
+                    # CHECK!!! - is gb16 required to make jpgs?
+                    #partition = 'p2gb16'
 
                 elif 'flat' in filename.lower():
                     #partition = 'p2gb8t'
-                    #partition = 'p1gb8'
-                    # CHECK!!! - for the moment gb16 is required to make jpgs
-                    partition = 'p2gb16'
+                    partition = 'p1gb8'
+                    # CHECK!!! - is gb16 required to make jpgs?
+                    #partition = 'p2gb16'
 
                 else:
                     # for object images, use different partitions for
                     # fields with low and high number of expected gaia
                     # sources; default partition:
-                    #partition = 'p4gb16t'
-                    partition = 'p2gb16'
+                    #partition = 'p2gb16'
+                    partition = 'p4gb16t'
 
 
                     # if field contains many Gaia sources, use
@@ -353,12 +346,12 @@ def run_blackbox_slurm (date=None, telescope=None, mode='night',
 
                             # set partition depending on ngaia
                             if ngaia > 2e5:
-                                #partition = 'p8gb32t'
-                                partition = 'p4gb32'
+                                #partition = 'p4gb32'
+                                partition = 'p8gb32t'
 
                             if ngaia > 1e6:
-                                #partition = 'p16gb64t'
-                                partition = 'p8gb64'
+                                #partition = 'p8gb64'
+                                partition = 'p16gb64t'
 
 
                             log.info ('estimated # Gaia sources in field ({}): '
@@ -390,74 +383,6 @@ def run_blackbox_slurm (date=None, telescope=None, mode='night',
 
 
 
-        # 2025-10-16 - temporarily convert old transient catalogs to
-        # new "v2" format, until new pipeline is running; execute this
-        # every hour or so
-        if time.time() - t_2v2 > 3600:
-
-            # reset time stamp
-            t_2v2 = time.time()
-
-
-            # list of all transient catalogs for the current night
-            trans_2v2_all = []
-            for tel in tels_running:
-                if telescope in tel:
-                    trans_2v2_all.extend(list_files(
-                        '{}/{}'.format(red_dir[tel], date_dir),
-                        search_str='trans.fits'))
-
-
-            log.info ('{} transient catalogs present in night {}'
-                      .format(len(trans_2v2_all), date_eve))
-            log.info ('{} transient catalogs already converted'
-                      .format(len(trans_2v2_done)))
-
-
-            # catalogs still to be converted
-            trans_2v2_todo = list(set(trans_2v2_all) - set(trans_2v2_done))
-            log.info ('{} transient catalogs to be converted'
-                      .format(len(trans_2v2_todo)))
-
-
-            # convert
-            if len(trans_2v2_todo) > 0:
-
-                try:
-                    # increase iterator
-                    i_2v2 += 1
-
-                    # create inlist
-                    inlist = ('{}/RunBlackBOX/trans_2v2_todo_{}.inlist'
-                              .format(home_dir, i_2v2))
-                    with open(inlist, 'w') as file:
-                        for item in trans_2v2_todo:
-                            file.write(item + '\n')
-
-
-                    jobname = 'convert_transcats_{}'.format(i_2v2)
-                    partition = 'p8gb64'
-                    ncpu = partition.split('gb')[0].split('p')[1]
-                    python_cmdstr = ('python {}/Python/convert_transcat_2v2.py '
-                                     '{} --dir_tmp /tmp --nthreads {}'
-                                     .format(home_dir, inlist, ncpu))
-                    slurm_process (python_cmdstr, partition, '3:00:00', jobname,
-                                   job_dir)
-
-                except Exception as e:
-                    log.error ('following exception occurred when preparing and '
-                               'submitting convert_transcat_2v2 Slurm job: {}'
-                               .format(e))
-
-                else:
-
-                    # assuming that the Slurm job will finish ok, add
-                    # the catalogs processed to the done list
-                    trans_2v2_done.extend(trans_2v2_todo)
-
-
-
-
 
     log.info ('night has finished and queue is empty')
 
@@ -477,57 +402,6 @@ def run_blackbox_slurm (date=None, telescope=None, mode='night',
     log.info ('waited for {:.2f} hours for all individual jobs to finish'
               .format(nsec_wait/3600))
 
-
-
-    #---------------------------------------------------------------------------
-
-
-    # list of all transient catalogs for the current night
-    trans_2v2_all = []
-    for tel in tels_running:
-        if telescope in tel:
-            trans_2v2_all.extend(list_files(
-                '{}/{}'.format(red_dir[tel], date_dir),
-                search_str='trans.fits'))
-
-
-    log.info ('{} transient catalogs present in night {}'
-              .format(len(trans_2v2_all), date_eve))
-    log.info ('{} transient catalogs already converted'
-              .format(len(trans_2v2_done)))
-
-
-    # catalogs still to be converted
-    trans_2v2_todo = list(set(trans_2v2_all) - set(trans_2v2_done))
-    log.info ('{} transient catalogs to be converted'
-              .format(len(trans_2v2_todo)))
-
-
-    # convert
-    if len(trans_2v2_todo) > 0:
-
-        # increase iterator
-        i_2v2 += 1
-
-        # create inlist
-        inlist = ('{}/RunBlackBOX/trans_2v2_todo_{}.inlist'
-                  .format(home_dir, i_2v2))
-        with open(inlist, 'w') as file:
-            for item in trans_2v2_todo:
-                file.write(item + '\n')
-
-
-        jobname = 'convert_transcats_{}'.format(i_2v2)
-        partition = 'p8gb32t'
-        ncpu = partition.split('gb')[0].split('p')[1]
-        python_cmdstr = ('python {}/Python/convert_transcat_2v2.py '
-                         '{} --dir_tmp /tmp --nthreads {}'
-                         .format(home_dir, inlist, ncpu))
-        slurm_process (python_cmdstr, partition, '3:00:00', jobname,
-                       job_dir)
-
-
-    #---------------------------------------------------------------------------
 
 
     # create master frames
