@@ -468,7 +468,7 @@ qc_range = {
         'NONLIN-P': {'default': False, 'val_type': 'bool', 'val_range': [ False ],                   'key_type': 'full', 'pos': False, 'comment': 'corrected for non-linearity?'},
         'GAIN-P'  : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'key_type': 'full', 'pos': False, 'comment': 'corrected for gain?'},
         'OS-P'    : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'key_type': 'full', 'pos': False, 'comment': 'corrected for overscan?'},
-        'MBIAS-P' : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                   'key_type': 'full', 'pos': False, 'comment': 'corrected for master bias?'},
+        'MBIAS-P' : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'key_type': 'full', 'pos': False, 'comment': 'corrected for master bias?'},
         'MBIAS-F' : {'default':'None', 'val_type': 'skip', 'val_range': None,                        'key_type': 'full', 'pos': False, 'comment': 'name of master bias applied'},
         'MFLAT-P' : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'key_type': 'full', 'pos': False, 'comment': 'corrected for master flat?'},
         'MFLAT-F' : {'default':'None', 'val_type': 'skip', 'val_range': None,                        'key_type': 'full', 'pos': False, 'comment': 'name of master flat applied'},
@@ -529,12 +529,13 @@ qc_range = {
 
         # changed u: 0.12 to 0.13, q: 0.07 to 0.08, r: 0.07 to 0.11, i: 0.06 to 0.07 on 2025-04-22 (MLBG_v134_update.sif)
         # changed u: g: 0.12 to 0.11 on 2025-11-18 (MLBG_v165staging.sif - after biases/flats until Sep 2025 had been made)
-        'RSTD-MAX': {'default':'None', 'val_type': 'min_max', 'val_range': {'u': [ (0, 0.13) ],
-                                                                            'g': [ (0, 0.11) ],
-                                                                            'q': [ (0, 0.08) ],
-                                                                            'r': [ (0, 0.11) ],
-                                                                            'i': [ (0, 0.07) ],
-                                                                            'z': [ (0, 0.05) ]}, 'key_type': 'flat', 'pos': True , 'comment': 'max. relative sigma (STD) of subimages'},
+        # skipping for BG2 since 24 Feb 2026 because of dark spot with decreased sensitivity is probably changing in time
+        'RSTD-MAX': {'default':'None', 'val_type': 'skip', 'val_range': {'u': [ (0, 0.13) ],
+                                                                         'g': [ (0, 0.11) ],
+                                                                         'q': [ (0, 0.09) ],
+                                                                         'r': [ (0, 0.11) ],
+                                                                         'i': [ (0, 0.07) ],
+                                                                         'z': [ (0, 0.05) ]}, 'key_type': 'flat', 'pos': True , 'comment': 'max. relative sigma (STD) of subimages'},
 
         # master flat (these keywords should not end up in dummy catalogs: keytype should not be equal to 'full' or 'trans')
         'NFLAT'   : {'default':'None', 'val_type': 'min_max', 'val_range': [ (9,50), (7,8), (5,6) ],            'key_type': 'mflat', 'pos': True , 'comment': 'number of flat frames combined'},
@@ -747,7 +748,7 @@ qc_range = {
         'NONLIN-P': {'default': False, 'val_type': 'bool', 'val_range': [ False ],                   'key_type': 'full', 'pos': False, 'comment': 'corrected for non-linearity?'},
         'GAIN-P'  : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'key_type': 'full', 'pos': False, 'comment': 'corrected for gain?'},
         'OS-P'    : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'key_type': 'full', 'pos': False, 'comment': 'corrected for overscan?'},
-        'MBIAS-P' : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                   'key_type': 'full', 'pos': False, 'comment': 'corrected for master bias?'},
+        'MBIAS-P' : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'key_type': 'full', 'pos': False, 'comment': 'corrected for master bias?'},
         'MBIAS-F' : {'default':'None', 'val_type': 'skip', 'val_range': None,                        'key_type': 'full', 'pos': False, 'comment': 'name of master bias applied'},
         'MFLAT-P' : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'key_type': 'full', 'pos': False, 'comment': 'corrected for master flat?'},
         'MFLAT-F' : {'default':'None', 'val_type': 'skip', 'val_range': None,                        'key_type': 'full', 'pos': False, 'comment': 'name of master flat applied'},
@@ -807,12 +808,13 @@ qc_range = {
 
         # checked values and deemed ok on 2025-04-22
         # kept same values on 2025-11-18 so that both flats before and after BG3 CCD cleaning satisfy these limits
-        'RSTD-MAX': {'default':'None', 'val_type': 'min_max', 'val_range': {'u': [ (0, 0.19) ],
-                                                                            'g': [ (0, 0.16) ],
-                                                                            'q': [ (0, 0.11) ],
-                                                                            'r': [ (0, 0.09) ],
-                                                                            'i': [ (0, 0.05) ],
-                                                                            'z': [ (0, 0.04) ]},                'key_type': 'flat', 'pos': True , 'comment': 'max. relative sigma (STD) of subimages'},
+        # skipping for BG3 since 24 Feb 2026 because of dark spot with decreased sensitivity is probably changing in time
+        'RSTD-MAX': {'default':'None', 'val_type': 'skip', 'val_range': {'u': [ (0, 0.19) ],
+                                                                         'g': [ (0, 0.16) ],
+                                                                         'q': [ (0, 0.11) ],
+                                                                         'r': [ (0, 0.09) ],
+                                                                         'i': [ (0, 0.05) ],
+                                                                         'z': [ (0, 0.04) ]},                'key_type': 'flat', 'pos': True , 'comment': 'max. relative sigma (STD) of subimages'},
 
         # master flat (these keywords should not end up in dummy catalogs: keytype should not be equal to 'full' or 'trans')
         'NFLAT'   : {'default':'None', 'val_type': 'min_max', 'val_range': [ (9,50), (7,8), (5,6) ],            'key_type': 'mflat', 'pos': True , 'comment': 'number of flat frames combined'},
@@ -1025,7 +1027,7 @@ qc_range = {
         'NONLIN-P': {'default': False, 'val_type': 'bool', 'val_range': [ False ],                   'key_type': 'full', 'pos': False, 'comment': 'corrected for non-linearity?'},
         'GAIN-P'  : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'key_type': 'full', 'pos': False, 'comment': 'corrected for gain?'},
         'OS-P'    : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'key_type': 'full', 'pos': False, 'comment': 'corrected for overscan?'},
-        'MBIAS-P' : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                   'key_type': 'full', 'pos': False, 'comment': 'corrected for master bias?'},
+        'MBIAS-P' : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'key_type': 'full', 'pos': False, 'comment': 'corrected for master bias?'},
         'MBIAS-F' : {'default':'None', 'val_type': 'skip', 'val_range': None,                        'key_type': 'full', 'pos': False, 'comment': 'name of master bias applied'},
         'MFLAT-P' : {'default': False, 'val_type': 'bool', 'val_range': [ True ],                    'key_type': 'full', 'pos': False, 'comment': 'corrected for master flat?'},
         'MFLAT-F' : {'default':'None', 'val_type': 'skip', 'val_range': None,                        'key_type': 'full', 'pos': False, 'comment': 'name of master flat applied'},
