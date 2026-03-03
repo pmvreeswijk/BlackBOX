@@ -1264,6 +1264,7 @@ def blackbox_reduce (filename):
             # check if the image being processed is not used as the
             # only image for the current referent image; if that is
             # the case, leave the function
+            log.info ('ref image selected: {}'.format(ref_fits_in))
             header_ref = read_hdulist(ref_fits_in, get_data=False,
                                       get_header=True)
             if header_ref['R-NUSED']==1 and header_ref['R-IM1'] in fits_out:
@@ -1271,6 +1272,7 @@ def blackbox_reduce (filename):
                              'of field {} in filter {}; not processing it'
                              .format(fits_out.split('/')[-1], obj, filt))
                 return None
+
 
 
 
