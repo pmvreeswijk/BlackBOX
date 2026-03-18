@@ -123,4 +123,4 @@ dlimmag_proj_min = 0.01
 # minimum limiting magnitude improvement - with respect to possibly
 # existing reference image in the same filter - required for new ref
 # image to be created; if set to None, this requirement is dropped
-dlimmag_min = None
+dlimmag_min = 0
