@@ -64,7 +64,14 @@ qc_range = {
 
 
         # SExtractor
-        'S-SEEING': {'default':'None', 'val_type': 'min_max', 'val_range': [ (0.1,2) ],                         'key_type': 'ref', 'pos': True , 'comment': '[arcsec] SExtractor seeing estimate'},
+        #'S-SEEING': {'default':'None', 'val_type': 'min_max', 'val_range': [ (0.1,2) ],                         'key_type': 'ref', 'pos': True , 'comment': '[arcsec] SExtractor seeing estimate'},
+        # 2026-03-18: included filter dependence
+        'S-SEEING': {'default':'None', 'val_type': 'min_max', 'val_range': {'u': [ (0.1, 2.6) ],
+                                                                            'g': [ (0.1, 2.5) ],
+                                                                            'q': [ (0.1, 2.4) ],
+                                                                            'r': [ (0.1, 2.0) ],
+                                                                            'i': [ (0.1, 2.1) ],
+                                                                            'z': [ (0.1, 2.5) ]},               'key_type': 'ref', 'pos': True , 'comment': '[arcsec] SExtractor seeing estimate'},
         'S-ELONG' : {'default':'None', 'val_type': 'min_max', 'val_range': [ (1.0,1.5) ],                       'key_type': 'ref', 'pos': True , 'comment': 'SExtractor ELONGATION (A/B) estimate'},
         'S-BKG'   : {'default':'None', 'val_type': 'min_max', 'val_range': [ (0,5e2) ],                         'key_type': 'ref', 'pos': False, 'comment': '[e-] median background full image'},
 
