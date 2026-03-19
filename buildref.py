@@ -1019,7 +1019,7 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
 
     # determine and create reference directory
     if ref_mode:
-        # set according to definition in blackbox setttings file
+        # set according to definition in blackbox settings file
         ref_path = '{}/{:0>5}'.format(get_par(set_bb.ref_dir,tel), field_ID)
     else:
         # set to input parameter results_dir = global parameter dir_results
@@ -1273,7 +1273,7 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
             ref_base = ref_fits_out.split('_red.fits')[0]
             # add date of creation to ref_base
             date_today = Time.now().isot.split('T')[0].replace('-','')
-            ref_base = '{}_{}'.format(ref_base, date_today)
+            ref_base_date = '{}_{}'.format(ref_base, date_today)
 
 
             if exists and ref_mode:
@@ -1309,7 +1309,7 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
 
 
                     # now move [ref_2keep] to the reference directory
-                    bb.copy_files2keep(tmp_base, ref_base,
+                    bb.copy_files2keep(tmp_base, ref_base_date,
                                        get_par(set_bb.ref_2keep,tel), move=False)
 
                 else:
@@ -1323,7 +1323,7 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
             else:
 
                 # move [ref_2keep] to the reference directory
-                bb.copy_files2keep(tmp_base, ref_base,
+                bb.copy_files2keep(tmp_base, ref_base_date,
                                    get_par(set_bb.ref_2keep,tel), move=False)
 
 
