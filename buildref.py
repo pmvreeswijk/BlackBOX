@@ -1054,7 +1054,7 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
 
         if not ref_mode:
             log.warning ('reference image {} already exists; not remaking it'
-                         .format(ref_fits_out))
+                         .format(ref_fits_old))
             return
 
         else:
@@ -1063,8 +1063,10 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
             header_ref_old = zogy.read_hdulist (ref_fits_old, get_data=False,
                                                 get_header=True)
             limmag_old = header_ref_old['LIMMAG']
-            log.info ('reference image {} with limiting magnitude {}={:.2f} '
-                      'already exists'.format(ref_fits_old, filt, limmag_old))
+            log.info ('reference image {} already exists with limiting '
+                      'magnitude {}={:.2f}; checking if new images are '
+                      'available to create a deeper ref'
+                      .format(ref_fits_old, filt, limmag_old))
 
 
             # only remake the reference image if new individual files
@@ -1290,8 +1292,22 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
 
                 if dlimmag_min is None or limmag - limmag_old > dlimmag_min:
 
-                    # first (re)move old reference files
-                    oldfiles = zogy.list_files (ref_base)
+                    log.info ('dlimmag is None or limmag of new ref image: '
+                              '{:.2f} minus limmag of old ref image: {:0.2f} '
+                              'is greater than dlimmag_min: {}; replacing old '
+                              'ref image {} with {}'
+                              .format(limmag, limmag_old, dlimmag_min,
+                                      ref_fits_old, ref_base_date))
+
+
+                    # first (re)move old reference files; could be
+                    # from different telescope so ref_base may not be
+                    # the same; split name at filter to cut off date
+                    ref_base_old = ('{}_{}'.format(
+                        ref_fits_old.split('_{}'.format(filt))[0], filt))
+
+
+                    oldfiles = zogy.list_files (ref_base_old)
                     if len(oldfiles)!=0:
                         if False:
                             # remove them
@@ -1300,6 +1316,9 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
                             # or move them to the ref-old folder instead
                             old_path = '{}-old/{:0>5}'.format(
                                 get_par(set_bb.ref_dir,tel), field_ID)
+
+                            log.info ('moving old reference image files to {}'
+                                      .format(old_path))
 
                             bb.make_dir (old_path)
                             for f in oldfiles:
