@@ -3918,11 +3918,8 @@ def copy_files2keep (src_base, dest_base, ext2keep, move=True, run_fpack=True):
     same extensions. The base names should include the full path.
     """
 
-    # make copy of [ext2keep] to avoid modifying the input parameter
-    ext2keep_copy = np.copy(ext2keep)
-
     # select unique entries in input [ext2keep]
-    ext2keep_uniq = list(set(ext2keep_copy))
+    ext2keep_uniq = list(set(ext2keep))
     log.info ('extensions to copy: {}'.format(ext2keep_uniq))
 
     # list of all files starting with [src_base]
