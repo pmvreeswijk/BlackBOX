@@ -8,6 +8,7 @@ import collections
 import itertools
 import re
 import fnmatch
+import glob
 
 
 #import multiprocessing as mp
@@ -58,7 +59,7 @@ import qc
 from google.cloud import storage
 
 
-__version__ = '0.9.10'
+__version__ = '0.9.11'
 
 
 ################################################################################
@@ -1032,6 +1033,9 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
 
     log.info ('ref_path: {}'.format(ref_path))
 
+    # dealing with google cloud bucket?
+    google_cloud = (ref_path[0:5] == 'gs://')
+
 
     # create folder
     if not dry_run:
@@ -1112,9 +1116,20 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
     tmp_path = ('{}/{:0>5}/{}'.format(get_par(set_bb.tmp_dir,tel), field_ID,
                                       ref_fits_out.split('/')[-1]
                                       .replace('.fits','')))
+
+
+    # if running in google cloud, make sure any other fields folder in
+    # /tmp is deleted, otherwise disk will fill up if other jobs fail
+    if ref_mode and google_cloud and tmp_path[0:4]=='/tmp':
+        tmp_folders = glob.glob('/tmp/[0-1]????')
+        for folder in tmp_folders:
+            log.warning ('removing folder {}'.format(folder))
+            shutil.rmtree(folder)
+
+
+    # make folder for current field being processed
     bb.make_dir (tmp_path, empty=True)
     log.info ('tmp_path: {}'.format(tmp_path))
-
 
 
     # names of tmp output fits and its mask
@@ -1332,7 +1347,7 @@ def prep_ref (imagelist, field_ID, filt, radec, image_size, nfiles, limmag_proj,
                                        get_par(set_bb.ref_2keep,tel), move=False)
 
                 else:
-                    log.info ('improvement in limiting magnitude of ref image'
+                    log.info ('improvement in limiting magnitude of ref image '
                               'just created (limmag={:.2f}) over existing one '
                               '(limmag={:.2f}) is less than required threshold '
                               '(dlimmag_min>{}); sticking with old ref image'
