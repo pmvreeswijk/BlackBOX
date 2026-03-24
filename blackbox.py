@@ -2106,10 +2106,12 @@ def blackbox_reduce (filename):
         fits_trans = '{}_red_trans.fits'.format(new_base)
 
 
-        # initialize dumcat to False, as it may not become defined
-        # below (if trans_extract=True and cat_extract=False, but
-        # ref_present=False), causing an error
+        # initialize dumcat to False and logging label to
+        # 'img_reduce', as they may not become defined below (if
+        # trans_extract=True and cat_extract=False, but
+        # ref_present=False), causing an error further below
         dumcat = False
+        label = 'img_reduce'
 
 
         if get_par(set_bb.trans_extract,tel) and ref_present:
@@ -2119,7 +2121,7 @@ def blackbox_reduce (filename):
             # set to False
             ext_list += get_par(set_bb.cat_extract_exts,tel)
             ext_list += get_par(set_bb.trans_extract_exts,tel)
-            text = 'cat_extract and trans_extract'
+            label = 'cat_extract and trans_extract'
 
             # check if transient catalog is a dummy
             dumcat = is_dumcat(fits_trans)
@@ -2131,7 +2133,7 @@ def blackbox_reduce (filename):
 
         elif get_par(set_bb.cat_extract,tel):
             ext_list += get_par(set_bb.cat_extract_exts,tel)
-            text = 'cat_extract'
+            label = 'cat_extract'
 
             # check if full-source catalog is a dummy
             dumcat = is_dumcat(fits_cat)
@@ -2161,7 +2163,7 @@ def blackbox_reduce (filename):
                 log.info ('force_reproc_new is False and all {} data products '
                           'already present in reduced folder (ref image present?'
                           ': {}); nothing left to do for {}'
-                          .format(text, ref_present, filename))
+                          .format(label, ref_present, filename))
             else:
                 log.info ('force_reproc_new is False and full-source and/or '
                           'transient catalog is a dummy; nothing left to do for '
@@ -2181,7 +2183,7 @@ def blackbox_reduce (filename):
             # to tmp folder and continue
             log.info ('copying possibly existing {} data products from reduced '
                       'to tmp folder to avoid repeating processing steps for {}'
-                      .format(text, filename))
+                      .format(label, filename))
 
             copy_files2keep(new_base, tmp_base, ext_list, move=False,
                             run_fpack=False)
