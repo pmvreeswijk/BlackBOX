@@ -2105,6 +2105,13 @@ def blackbox_reduce (filename):
         fits_cat = '{}_red_cat.fits'.format(new_base)
         fits_trans = '{}_red_trans.fits'.format(new_base)
 
+
+        # initialize dumcat to False, as it may not become defined
+        # below (if trans_extract=True and cat_extract=False, but
+        # ref_present=False), causing an error
+        dumcat = False
+
+
         if get_par(set_bb.trans_extract,tel) and ref_present:
             # if [trans_extract] is set to True and a reference image
             # is present, both the cat_extract and trans_extract
