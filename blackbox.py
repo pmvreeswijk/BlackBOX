@@ -7980,8 +7980,6 @@ def add_headkeys (path_full, fits_headers, search_str='', end_str='',
 
     else:
 
-        raise SystemExit
-
         # use [list_files] to determine which filenames to process
         filenames = sorted(list_files('{}'.format(path_full), search_str=search_str,
                                       end_str=end_str, recursive=True))
