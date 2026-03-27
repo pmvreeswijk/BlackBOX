@@ -2704,19 +2704,19 @@ def save_png_thumbnails (fits_trans, dir_dest, tel=None, nthreads=1):
         cols2save = ['THUMBNAIL_{}'.format(c) for c in cols2save]
 
 
-        # define tmp and destination folders
-        dir_tmp = os.path.dirname(fits_trans)
+        # define tmp folder to put the pngs, which is a subfolder in
+        # the tmp folder with the image basename, making it more
+        # efficient to copy the files to a bucket
+        dir_tmp = '{}/{}'.format(os.path.dirname(fits_trans),
+                                 dir_dest.split('/')[-1])
+        # make it
+        make_dir(dir_tmp)
 
 
         # use multiprocessing to process rows in fits_trans, creating
-        # pngs in tmp folder
+        # pngs in subfolder of tmp folder
         pool_func (save_thumbs_row, range(nrows), fits_trans,
                    cols2save, dir_tmp, nproc=nthreads)
-
-
-        # search string to identify the pngs created (to distinguish
-        # them from other png files in tmp folder)
-        search_str = '{}/[0-9]*_[DRS]*.png'.format(dir_tmp)
 
 
         # make sure destination folder is empty, otherwise different
@@ -2748,8 +2748,8 @@ def save_png_thumbnails (fits_trans, dir_dest, tel=None, nthreads=1):
             # gsutil command (not actively supported anymore)
             #cmd = ['gsutil', '-m', '-q', cp_cmd, search_str, dir_dest]
             # gcloud storage alternative
-            cmd = ['gcloud', 'storage', cp_cmd, search_str, dir_dest]
-
+            cmd = ['gcloud', 'storage', cp_cmd, '--recursive', '--parallel',
+                   dir_tmp, '{}/'.format(dir_dest)]
             result = subprocess.run(cmd)
 
         else:
