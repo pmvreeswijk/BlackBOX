@@ -2707,8 +2707,7 @@ def save_png_thumbnails (fits_trans, dir_dest, tel=None, nthreads=1):
         # define tmp folder to put the pngs, which is a subfolder in
         # the tmp folder with the image basename, making it more
         # efficient to copy the files to a bucket
-        dir_tmp = '{}/{}'.format(os.path.dirname(fits_trans),
-                                 dir_dest.split('/')[-1])
+        dir_tmp = '{}/thumbnails'.format(os.path.dirname(fits_trans))
         # make it
         make_dir(dir_tmp)
 
@@ -2756,9 +2755,14 @@ def save_png_thumbnails (fits_trans, dir_dest, tel=None, nthreads=1):
             #cmd = ['gsutil', '-m', '-q', cp_cmd, search_str, dir_dest]
             # gcloud storage alternative; best to use cp command
             cmd = ['gcloud', 'storage', 'cp', '--recursive',
-                   dir_tmp, '/'.join(dir_dest.split('/')[:-1]),
-                   '--no-user-output-enabled']
+                   dir_tmp, dir_dest, '--no-user-output-enabled']
             result = subprocess.run(cmd)
+
+
+            # remove thumbnails from tmp folder if not kept
+            if not get_par(set_bb.keep_tmp,tel):
+                shutil.rmtree(dir_tmp, ignore_errors=True)
+
 
         else:
 
