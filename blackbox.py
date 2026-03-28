@@ -2719,6 +2719,12 @@ def save_png_thumbnails (fits_trans, dir_dest, tel=None, nthreads=1):
                    cols2save, dir_tmp, nproc=nthreads)
 
 
+
+        # search string to identify the pngs created (to distinguish
+        # them from other png files in tmp folder)
+        #search_str = '{}/[0-9]*_[DRS]*.png'.format(dir_tmp)
+
+
         # make sure destination folder is empty, otherwise different
         # reductions of the same image might lead to a mix of pngs
         if isdir(dir_dest):
@@ -2747,8 +2753,8 @@ def save_png_thumbnails (fits_trans, dir_dest, tel=None, nthreads=1):
 
             # gsutil command (not actively supported anymore)
             #cmd = ['gsutil', '-m', '-q', cp_cmd, search_str, dir_dest]
-            # gcloud storage alternative
-            cmd = ['gcloud', 'storage', cp_cmd, '--recursive', '--parallel',
+            # gcloud storage alternative; best to use cp command
+            cmd = ['gcloud', 'storage', 'cp', '--recursive', '--parallel',
                    dir_tmp, '{}/'.format(dir_dest)]
             result = subprocess.run(cmd)
 
