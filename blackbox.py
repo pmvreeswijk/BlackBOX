@@ -2722,7 +2722,7 @@ def save_png_thumbnails (fits_trans, dir_dest, tel=None, nthreads=1):
 
         # search string to identify the pngs created (to distinguish
         # them from other png files in tmp folder)
-        #search_str = '{}/[0-9]*_[DRS]*.png'.format(dir_tmp)
+        search_str = '{}/[0-9]*_[DRS]*.png'.format(dir_tmp)
 
 
         # make sure destination folder is empty, otherwise different
@@ -2730,7 +2730,8 @@ def save_png_thumbnails (fits_trans, dir_dest, tel=None, nthreads=1):
         if isdir(dir_dest):
             log.warning ('removing all existing files in {}'.format(dir_dest))
             if dir_dest[0:5] == 'gs://':
-                cmd = ['gcloud', 'storage', 'rm', '{}/*'.format(dir_dest)]
+                cmd = ['gcloud', 'storage', 'rm', '{}/*'.format(dir_dest),
+                       '--no-user-output-enabled']
                 #cmd = ['gsutil', 'rm', '{}/*'.format(dir_dest)]
                 result = subprocess.run(cmd)
             else:
@@ -2754,8 +2755,9 @@ def save_png_thumbnails (fits_trans, dir_dest, tel=None, nthreads=1):
             # gsutil command (not actively supported anymore)
             #cmd = ['gsutil', '-m', '-q', cp_cmd, search_str, dir_dest]
             # gcloud storage alternative; best to use cp command
-            cmd = ['gcloud', 'storage', 'cp', '--recursive', '--parallel',
-                   dir_tmp, '{}/'.format(dir_dest)]
+            cmd = ['gcloud', 'storage', 'cp', '--recursive',
+                   dir_tmp, '/'.join(dir_dest.split('/')[:-1]),
+                   '--no-user-output-enabled']
             result = subprocess.run(cmd)
 
         else:
