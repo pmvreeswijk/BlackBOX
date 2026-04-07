@@ -2727,7 +2727,7 @@ def save_png_thumbnails (fits_trans, dir_dest, tel=None, nthreads=1):
         # make sure destination folder is empty, otherwise different
         # reductions of the same image might lead to a mix of pngs
         if isdir(dir_dest):
-            log.warning ('removing all existing files in {}'.format(dir_dest))
+            log.warning ('removing all existing thumbnails in {}'.format(dir_dest))
             if dir_dest[0:5] == 'gs://':
                 #cmd = ['gcloud', 'storage', 'rm', '--recursive',
                 #       '{}'.format(dir_dest), '--no-user-output-enabled']
@@ -7791,7 +7791,6 @@ def copy_flist (filelist, dest, move=False, verbose=True):
 
         for src_file in filelist:
             log.info('{} {} to {}'.format(label, src_file, dest))
-
 
 
 
