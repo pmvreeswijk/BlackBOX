@@ -2028,7 +2028,7 @@ def blackbox_reduce (filename):
             verify_header (fits_tmp_trans, ['raw','full','trans'])
 
             # run match2SSO to find known asteroids in the observation
-            call_match2SSO(fits_tmp_trans, tel)
+            #call_match2SSO(fits_tmp_trans, tel)
 
             # copy selected output files to new directory
             list_2keep = get_par(set_bb.all_2keep,tel)
@@ -3273,7 +3273,7 @@ def call_match2SSO(filename, tel):
     if isfile(fits_for_m2sso):
         m2sso.run_match2SSO(tel=tel, mode='night', cat2process=fits_for_m2sso,
                             date2process=None, list2process=None, logname=None,
-                            overwrite=False)
+                            overwrite=True)
     return
 
 
