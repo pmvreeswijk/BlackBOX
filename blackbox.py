@@ -2013,7 +2013,7 @@ def blackbox_reduce (filename):
 
 
         # if header of object image contains a red flag, create dummy
-        # binary fits catalogs (both 'new' and 'trans') and return,
+        # binary fits catalogs (both 'cat' and 'trans') and return,
         # skipping zogy's [optimal subtraction] below
         if qc_flag=='red':
             log.error('red QC flag in image {}; making dummy catalogs and '
@@ -2028,7 +2028,7 @@ def blackbox_reduce (filename):
             verify_header (fits_tmp_trans, ['raw','full','trans'])
 
             # run match2SSO to find known asteroids in the observation
-            #call_match2SSO(fits_tmp_trans, tel)
+            call_match2SSO(fits_tmp_trans, tel)
 
             # copy selected output files to new directory
             list_2keep = get_par(set_bb.all_2keep,tel)
@@ -2574,12 +2574,13 @@ def blackbox_reduce (filename):
     verify_header (fits_tmp_trans, ['raw','full','trans'])
 
 
-    # run match2SSO to find known asteroids in the observation
-    call_match2SSO(fits_tmp_trans, tel)
-
 
     # if transient catalog exists
     if isfile(fits_tmp_trans):
+
+        # run match2SSO to find known asteroids in the observation
+        call_match2SSO(fits_tmp_trans, tel)
+
 
         # create png thumbnails for database
         if get_par(set_bb.save_thumbnails_pngs,tel):
@@ -2653,12 +2654,6 @@ def blackbox_reduce (filename):
             copy_file (adc_file, dest_dir+'/')
 
 
-
-    # only for ML, create symbolic links in alternative directory
-    # structure if transient catalog is involved; turn off for now
-    if False:
-        if tel=='ML1' and '_trans.fits' in list_2keep:
-            create_symlinks (new_base, obj, filt)
 
 
     if get_par(set_zogy.timing,tel):
