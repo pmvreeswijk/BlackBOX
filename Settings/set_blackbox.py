@@ -154,17 +154,14 @@ for tel in ['BG2', 'BG3', 'BG4', 'BG']:
 
 
 # name endings of files to keep for the reference and new images
-img_reduce_exts = ['_red.fits', '_mask.fits', '_red_hdr.fits',
-                   '_bkg_mini.fits', '_bkg_std_mini.fits',
-                   #'_mini.fits',
-                   '_red_limmag.fits', '_red.log', '_red_objmask.fits',
-                   # '_red_objmask_gaia.fits']
-                   '_red_zps.npy']
-cat_extract_exts = ['_red_cat.fits', '_psf.fits', '_psfex.cat', '_cat_hdr.fits']
-trans_extract_exts = ['_D.fits', '_Scorr.fits', '_trans_limmag.fits',
-                      '_trans.fits', '_trans_hdr.fits', #'_trans_light.fits',
-                      '_Fpsf.fits', '_trans_sso.fits', #'_sso_predict.fits',
-                      '_trans_sso_report.txt']
+img_reduce_exts = ['_bkg_mini.fits', '_bkg_std_mini.fits', '_red_objmask.fits',
+                   '_red_zps.npy', '_red_limmag.fits',
+                   '_red.log', '_mask.fits', '_red_hdr.fits', '_red.fits']
+cat_extract_exts = ['_psf.fits', '_psfex.cat', '_cat_hdr.fits', '_red_cat.fits']
+trans_extract_exts = ['_D.fits', '_Scorr.fits', '_Fpsf.fits',
+                      '_trans_limmag.fits', '_trans_hdr.fits', '_trans.fits',
+                      #'_sso_predict.fits',
+                      '_trans_sso_report.txt', '_trans_sso.fits']
 ref_2keep = img_reduce_exts + cat_extract_exts
 all_2keep = ref_2keep + trans_extract_exts
 

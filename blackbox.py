@@ -2154,7 +2154,7 @@ def blackbox_reduce (filename):
         present = (np.array([ext in fn or 'sso' in ext
                              for ext in ext_list_plus for fn in new_list])
                    .reshape(len(ext_list_plus),-1).sum(axis=1))
-        #log.info ('present: {}'.format(present))
+        log.info ('all present?: {}'.format(np.all(present)))
 
 
         if np.all(present) or dumcat:
@@ -2603,13 +2603,16 @@ def blackbox_reduce (filename):
     # the img_reduce products in any case because the header will have
     # been updated with fresh QC flags
     list_2keep = copy.deepcopy (get_par(set_bb.img_reduce_exts,tel))
+
+
     # source extraction products
-    if get_par(set_bb.cat_extract,tel):
+    fits_cat = '{}_red_cat.fits'.format(new_base)
+    if get_par(set_bb.cat_extract,tel) or not isfile(fits_cat):
         list_2keep += get_par(set_bb.cat_extract_exts,tel)
     elif qc_flag == 'red':
         # make sure to copy dummy source catalog in case of a red flag
-        list_2keep += ['_cat.fits']
         list_2keep += ['_cat_hdr.fits']
+        list_2keep += ['_cat.fits']
 
 
     # transient extraction products
@@ -2617,9 +2620,9 @@ def blackbox_reduce (filename):
         list_2keep += get_par(set_bb.trans_extract_exts,tel)
     elif qc_flag == 'red':
         # make sure to copy dummy source catalog in case of a red flag
-        list_2keep += ['_trans.fits']
         list_2keep += ['_trans_hdr.fits']
-        list_2keep += ['_trans_light.fits']
+        list_2keep += ['_trans.fits']
+        list_2keep += ['_trans_sso.fits']
 
 
     # copy/move files over
@@ -3934,17 +3937,21 @@ def copy_files2keep (src_base, dest_base, ext2keep, move=True, run_fpack=True):
     same extensions. The base names should include the full path.
     """
 
-    # select unique entries in input [ext2keep]
-    ext2keep_uniq = list(set(ext2keep))
-    log.info ('extensions to copy: {}'.format(ext2keep_uniq))
+    log.info ('extensions to copy: {}'.format(ext2keep))
 
     # list of all files starting with [src_base]
     #src_files = glob.glob('{}*'.format(src_base))
     src_files = list_files(src_base)
 
+    # change the order of files in src_files to match that in
+    # ext2keep, which is based on the lists in set_blackbox:
+    # img_reduce_exts, cat_extract_exts and trans_extract_exts
+    src_files_sort = [f for ext in ext2keep for f in src_files if ext in f]
+    src_files_sort = list(dict.fromkeys(src_files_sort))
+
 
     # loop this list
-    for src_file in src_files:
+    for src_file in src_files_sort:
         # determine file string following [src_base]
         src_ext = src_file.split(src_base)[-1]
         # check if this matches entry in [ext2keep_uniq]
