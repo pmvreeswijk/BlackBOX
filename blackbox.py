@@ -3937,7 +3937,9 @@ def copy_files2keep (src_base, dest_base, ext2keep, move=True, run_fpack=True):
     same extensions. The base names should include the full path.
     """
 
-    log.info ('extensions to copy: {}'.format(ext2keep))
+    log.info ('extensions to copy (in this order): {}'.format(ext2keep))
+    # make sure they are unique
+    ext2keep_uniq = list(dict.fromkeys(ext2keep))
 
     # list of all files starting with [src_base]
     #src_files = glob.glob('{}*'.format(src_base))
@@ -3947,7 +3949,6 @@ def copy_files2keep (src_base, dest_base, ext2keep, move=True, run_fpack=True):
     # ext2keep, which is based on the lists in set_blackbox:
     # img_reduce_exts, cat_extract_exts and trans_extract_exts
     src_files_sort = [f for ext in ext2keep for f in src_files if ext in f]
-    src_files_sort = list(dict.fromkeys(src_files_sort))
 
 
     # loop this list
